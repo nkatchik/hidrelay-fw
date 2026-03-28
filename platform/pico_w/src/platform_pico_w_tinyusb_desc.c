@@ -193,11 +193,10 @@ void tud_hid_set_report_cb(uint8_t instance,
                            hid_report_type_t report_type,
                            uint8_t const *buffer,
                            uint16_t bufsize) {
-    (void)instance;
     (void)report_id;
     (void)report_type;
-    (void)buffer;
-    (void)bufsize;
+
+    pico_w_stack_ingest_usb_report(instance, buffer, bufsize);
 }
 
 #endif

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "bt_manager.h"
+#include "hid_transport.h"
 #include "pair_db.h"
 
 #define USB_BRIDGE_MAX_INTERFACE BT_MANAGER_MAX_ACTIVE_DEVICE
@@ -23,11 +24,26 @@ typedef struct {
     usb_bridge_interface_t interface_slot[USB_BRIDGE_MAX_INTERFACE];
     uint8_t exported_interface_count;
     uint32_t descriptor_generation;
+    hid_transport_usb_tx_t usb_tx_queue[USB_BRIDGE_MAX_INTERFACE];
+    hid_transport_bt_tx_t bt_tx_queue[USB_BRIDGE_MAX_INTERFACE];
+    uint8_t usb_tx_queue_head;
+    uint8_t usb_tx_queue_tail;
+    uint8_t usb_tx_queue_count;
+    uint8_t bt_tx_queue_head;
+    uint8_t bt_tx_queue_tail;
+    uint8_t bt_tx_queue_count;
 } usb_bridge_t;
 
 void usb_bridge_init(usb_bridge_t *bridge);
 void usb_bridge_sync_from_pair_db(usb_bridge_t *bridge, const pair_db_t *pair_db);
 void usb_bridge_sync_from_bt_manager(usb_bridge_t *bridge, const bt_manager_t *manager);
+bool usb_bridge_ingest_bt_report(usb_bridge_t *bridge, uint16_t hid_cid, const uint8_t *report, uint16_t report_len);
+bool usb_bridge_ingest_usb_report(usb_bridge_t *bridge,
+                                  uint8_t interface_number,
+                                  const uint8_t *report,
+                                  uint16_t report_len);
+bool usb_bridge_take_usb_tx(usb_bridge_t *bridge, hid_transport_usb_tx_t *out_tx);
+bool usb_bridge_take_bt_tx(usb_bridge_t *bridge, hid_transport_bt_tx_t *out_tx);
 void usb_bridge_tick(usb_bridge_t *bridge, uint32_t now_ms);
 uint8_t usb_bridge_interface_count(const usb_bridge_t *bridge);
 uint32_t usb_bridge_descriptor_generation(const usb_bridge_t *bridge);

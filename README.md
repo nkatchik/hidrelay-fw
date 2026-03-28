@@ -14,9 +14,11 @@ Current implementation is a buildable skeleton with:
 - platform-selectable CMake layout (auto-discovers from `platform/<name>/`)
 - app event loop and module boundaries for future HID bridging
 - optional Pico W stack bring-up for BTstack + TinyUSB with local config headers
-- BT manager active-HID session model (`bt_manager_ingest_hid_open/close`)
-- USB bridge interface-plan model with descriptor generation tracking
+- BT manager active-HID session model with BTstack event ingestion (`bt_manager_ingest_hid_open/close`)
+- USB bridge interface-plan model with descriptor generation tracking and bounded report queues
 - TinyUSB configuration descriptor composition for 0..8 HID interfaces
+- bidirectional report path skeleton (`BT HID report` -> USB IN, `USB OUT report` -> BT HID set-report)
+- flash-backed pair database persistence (last sector of on-board flash)
 - BOOTSEL button command FSM for:
   - pair-any
   - remove-last
@@ -59,8 +61,10 @@ These options remain off by default for fast baseline iteration, but the reposit
 When stack options are enabled:
 
 - `platform_pico_w_stack` initializes BTstack and TinyUSB
-- BT manager can now represent active HID sessions independently from pair history
+- BTstack HID open/close/report events are bridged into common app transport events
+- TinyUSB `set_report` callbacks are bridged into common app transport events
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
+- one queued report per tick is forwarded in each direction via `usb_bridge`
 
 ## Repository Layout
 
@@ -106,7 +110,7 @@ See:
 
 Next implementation steps:
 
-- wire real BTstack HID open/close metadata into `bt_manager_ingest_hid_open/close`
-- route HID reports bidirectionally between BTstack channels and TinyUSB endpoints
-- persist pair database to flash storage
-- harden descriptor/interface lifecycle handling for disconnect/reconnect races
+- move pair-any from pairing-state-only behavior to real BT discovery/connect flow and security policy
+- switch from generic HID report templates to per-device descriptor/protocol handling
+- improve queue/backpressure behavior and telemetry under high report rates
+- persist active-session metadata needed for reconnect policy across reboots

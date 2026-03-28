@@ -6,6 +6,7 @@
 
 #include "bt_manager.h"
 #include "button_fsm.h"
+#include "hid_transport.h"
 #include "led_ui.h"
 #include "pair_db.h"
 #include "usb_bridge.h"
@@ -13,6 +14,7 @@
 typedef struct {
     bool button_pressed;
     uint32_t now_ms;
+    hid_transport_event_t transport_event;
 } app_input_t;
 
 typedef struct {
@@ -20,6 +22,9 @@ typedef struct {
     uint32_t sleep_ms;
     uint8_t usb_interface_count;
     uint32_t usb_descriptor_generation;
+    hid_transport_usb_tx_t usb_tx;
+    hid_transport_bt_tx_t bt_tx;
+    bool pair_db_dirty;
 } app_output_t;
 
 typedef struct {
@@ -30,7 +35,7 @@ typedef struct {
     usb_bridge_t usb_bridge;
 } app_t;
 
-void app_init(app_t *app);
+void app_init(app_t *app, const pair_db_t *initial_pair_db);
 void app_tick(app_t *app, const app_input_t *input, app_output_t *output);
 
 #endif

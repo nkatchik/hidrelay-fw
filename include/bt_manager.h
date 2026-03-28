@@ -29,7 +29,6 @@ typedef struct {
     uint32_t pairing_started_ms;
     bt_hid_device_t active_device[BT_MANAGER_MAX_ACTIVE_DEVICE];
     uint8_t active_count;
-    uint16_t next_hid_cid;
 } bt_manager_t;
 
 void bt_manager_init(bt_manager_t *manager, pair_db_t *pair_db);

@@ -122,10 +122,14 @@ Implemented now:
 - USB bridge interface-plan model with descriptor-generation tracking
 - dynamic TinyUSB HID configuration descriptor composition from interface count
 - platform stack USB-plan handoff and TinyUSB runtime isolation (`platform_pico_w_tinyusb_runtime.*`)
+- BTstack HID open/close/report event ingestion into app transport events
+- TinyUSB output-report callback ingestion into app transport events
+- bidirectional queued report forwarding skeleton in `usb_bridge`
+- flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`)
 
 Still pending for production behavior:
 
-- real BTstack HID host event ingestion wiring into the common manager
-- HID report data-path forwarding between BTstack and TinyUSB
-- persistent on-flash pair database
+- real BT discovery/pair-any/connect policy (current path still relies on incoming/open events)
+- descriptor-aware routing beyond generic report payload forwarding
+- stronger queue/backpressure handling under sustained high-rate input
 - command UX refinement and full failure-recovery handling
