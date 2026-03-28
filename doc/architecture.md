@@ -27,9 +27,9 @@ Common logic never imports Pico-specific SDK headers.
 - `pair_db`:
   - in-memory paired-device store abstraction, including per-device paired timestamp metadata
 - `bt_manager`:
-  - Bluetooth management API and lifecycle stub
+  - Bluetooth management API with pairing lifecycle stub and timing policy hooks
 - `usb_bridge`:
-  - USB-facing representation of connected/persisted HID devices
+  - USB-facing representation of connected/persisted HID devices (currently metadata-level)
 - `platform_api`:
   - platform boundary: init, poll inputs, apply outputs
 
@@ -50,11 +50,23 @@ Common logic never imports Pico-specific SDK headers.
 - split runtime glue modules:
   - `platform_pico_w_state.*`
   - `platform_pico_w_hw.*`
+  - `platform_pico_w_stack.*` (optional TinyUSB/BTstack bring-up hooks)
+  - `platform_pico_w_tinyusb_desc.c` (baseline HID descriptors/callbacks)
+- platform-local stack config headers:
+  - `include/tusb_config.h`
+  - `include/btstack_config.h`
 - optional Pico SDK stack linkage flags:
   - `APP_PLATFORM_ENABLE_TINYUSB`
   - `APP_PLATFORM_ENABLE_BTSTACK`
 
 Pico-specific linkage is isolated under this directory.
+
+## Current Integration Milestone
+
+- TinyUSB stack can be enabled and built with a baseline HID device configuration.
+- BTstack libraries can be enabled and built with project-local `btstack_config.h`.
+- Platform runtime initializes optional stacks from `platform_pico_w_stack`.
+- Common `bt_manager` and `usb_bridge` still expose stub behavior for HID transport/data-path logic.
 
 ## Build/Bootstrap Model
 
@@ -91,8 +103,8 @@ Additional style constraints in this repository:
 
 ## Planned Bridging Flow (Next Iteration)
 
-1. BT manager discovers/pairs HID devices via BTstack (Pico W radio stack).
-2. Pair DB persists bonded devices and metadata (including paired-at time for command policy checks).
-3. USB bridge maps connected BT HID devices to TinyUSB HID interfaces.
-4. App loop updates bridge state and exposes add/remove events cleanly to USB host.
+1. BT manager switches from simulated pairing to real BTstack HID host discovery/session events.
+2. Pair DB persists bonded devices and metadata (including paired-at time) to flash-backed storage.
+3. USB bridge evolves from count-based metadata to real per-device HID interface routing.
+4. TinyUSB descriptors become dynamic/composed from active BT HID sessions.
 5. Platform layer remains thin and target-specific.

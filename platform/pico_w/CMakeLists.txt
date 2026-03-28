@@ -17,7 +17,9 @@ add_executable(hidrelay_fw
     ${CMAKE_SOURCE_DIR}/src/main.c
     src/platform_api_pico_w.c
     src/platform_pico_w_hw.c
+    src/platform_pico_w_stack.c
     src/platform_pico_w_state.c
+    src/platform_pico_w_tinyusb_desc.c
 )
 
 target_include_directories(hidrelay_fw

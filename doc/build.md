@@ -78,7 +78,22 @@ Pico W stack toggles:
 - `APP_PLATFORM_ENABLE_TINYUSB` (default `OFF`)
 - `APP_PLATFORM_ENABLE_BTSTACK` (default `OFF`)
 
-They are disabled by default so this skeleton builds without requiring final TinyUSB/BTstack config headers. Enable them as bridge implementation work starts.
+They are disabled by default for fast baseline builds. Project-local starter TinyUSB/BTstack headers are provided for stack-enabled development builds.
+
+Stack-enabled build example:
+
+```sh
+cmake -S . -B build/pico_w_stack \
+  -DAPP_PLATFORM=pico_w \
+  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
+  -DAPP_PLATFORM_ENABLE_BTSTACK=ON
+cmake --build build/pico_w_stack --parallel
+```
+
+Project-local stack config headers used by this path:
+
+- `platform/pico_w/include/tusb_config.h`
+- `platform/pico_w/include/btstack_config.h`
 
 `PICO_NO_PICOTOOL` is enabled by default to avoid extra host-tool dependencies during initial skeleton work.
 
@@ -102,10 +117,12 @@ Implemented now:
 - build/bootstrap workflow
 - compileable stubs
 - BOOTSEL command FSM semantics and LED command indications
+- optional BTstack/TinyUSB stack-enabled Pico W build path
+- baseline TinyUSB HID descriptor callbacks and platform stack init/poll hooks
 
 Still pending for production behavior:
 
-- BTstack HID host implementation
-- TinyUSB dynamic multi-interface HID device composition
+- BTstack HID host event/data-path implementation in `bt_manager`
+- TinyUSB dynamic multi-interface HID descriptor composition in `usb_bridge`
 - persistent on-flash pair database
 - command UX refinement and full failure-recovery handling

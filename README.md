@@ -4,7 +4,7 @@ Bare-metal firmware skeleton for an open source Bluetooth HID to USB HID hub.
 
 Default target: **Raspberry Pi Pico W**.
 
-This repository is intentionally conservative: it focuses on build/bootstrap structure and clean module boundaries, while Bluetooth and USB bridge logic are currently stubs.
+This repository is intentionally conservative: it focuses on build/bootstrap structure and clean module boundaries, with incremental BTstack/TinyUSB integration and stubbed HID bridge behavior.
 
 ## Status
 
@@ -13,6 +13,8 @@ Current implementation is a buildable skeleton with:
 - local toolchain and SDK bootstrap
 - platform-selectable CMake layout (auto-discovers from `platform/<name>/`)
 - app event loop and module boundaries for future HID bridging
+- optional Pico W stack bring-up for BTstack + TinyUSB with local config headers
+- baseline TinyUSB HID device descriptor/callback implementation
 - BOOTSEL button command FSM for:
   - pair-any
   - remove-last
@@ -47,7 +49,10 @@ cmake -S . -B build/pico_w \
 cmake --build build/pico_w --parallel
 ```
 
-These options are intentionally off by default in this first pass because full stack config headers (`tusb_config.h`, `btstack_config.h`) are part of the next implementation phase.
+These options remain off by default for fast baseline iteration, but the repository now includes working starter configs in:
+
+- `platform/pico_w/include/tusb_config.h`
+- `platform/pico_w/include/btstack_config.h`
 
 ## Repository Layout
 
@@ -91,4 +96,4 @@ See:
 - `doc/architecture.md`
 - `doc/build.md`
 
-Planned next step is replacing stubs with real BTstack HID host + TinyUSB HID device bridging while keeping module boundaries intact.
+Planned next step is replacing stubbed pairing/export logic with real BTstack HID host event handling and dynamic TinyUSB HID interface composition while keeping module boundaries intact.
