@@ -43,6 +43,7 @@ void platform_apply(const platform_output_t *output) {
         return;
     }
 
+    pico_w_stack_set_usb_plan(output->usb_interface_count, output->usb_descriptor_generation);
     pico_w_hw_set_led(output->led_on);
     pico_w_hw_sleep_ms(output->sleep_ms);
 }

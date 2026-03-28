@@ -18,6 +18,8 @@ typedef struct {
 typedef struct {
     bool led_on;
     uint32_t sleep_ms;
+    uint8_t usb_interface_count;
+    uint32_t usb_descriptor_generation;
 } app_output_t;
 
 typedef struct {

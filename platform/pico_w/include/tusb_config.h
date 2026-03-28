@@ -35,7 +35,7 @@ extern "C" {
 #define CFG_TUD_NCM 0
 #define CFG_TUD_USBTMC 0
 
-#define CFG_TUD_HID 1
+#define CFG_TUD_HID 8
 #define CFG_TUD_HID_EP_BUFSIZE 16
 
 #ifdef __cplusplus

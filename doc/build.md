@@ -118,11 +118,14 @@ Implemented now:
 - compileable stubs
 - BOOTSEL command FSM semantics and LED command indications
 - optional BTstack/TinyUSB stack-enabled Pico W build path
-- baseline TinyUSB HID descriptor callbacks and platform stack init/poll hooks
+- BT manager active HID session model and event-ingest API (`bt_manager_ingest_hid_open/close`)
+- USB bridge interface-plan model with descriptor-generation tracking
+- dynamic TinyUSB HID configuration descriptor composition from interface count
+- platform stack USB-plan handoff and TinyUSB runtime isolation (`platform_pico_w_tinyusb_runtime.*`)
 
 Still pending for production behavior:
 
-- BTstack HID host event/data-path implementation in `bt_manager`
-- TinyUSB dynamic multi-interface HID descriptor composition in `usb_bridge`
+- real BTstack HID host event ingestion wiring into the common manager
+- HID report data-path forwarding between BTstack and TinyUSB
 - persistent on-flash pair database
 - command UX refinement and full failure-recovery handling

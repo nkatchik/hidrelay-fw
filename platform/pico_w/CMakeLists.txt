@@ -20,6 +20,7 @@ add_executable(hidrelay_fw
     src/platform_pico_w_stack.c
     src/platform_pico_w_state.c
     src/platform_pico_w_tinyusb_desc.c
+    src/platform_pico_w_tinyusb_runtime.c
 )
 
 target_include_directories(hidrelay_fw

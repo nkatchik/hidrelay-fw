@@ -6,6 +6,8 @@ int main(void) {
     app_output_t app_output = {
         .led_on = false,
         .sleep_ms = 10U,
+        .usb_interface_count = 0U,
+        .usb_descriptor_generation = 0U,
     };
 
     if (!platform_init()) {
@@ -28,6 +30,8 @@ int main(void) {
 
         platform_output.led_on = app_output.led_on;
         platform_output.sleep_ms = app_output.sleep_ms;
+        platform_output.usb_interface_count = app_output.usb_interface_count;
+        platform_output.usb_descriptor_generation = app_output.usb_descriptor_generation;
 
         platform_apply(&platform_output);
     }

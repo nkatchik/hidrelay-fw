@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "platform_pico_w_stack.h"
 #include "tusb.h"
 
 enum {
@@ -14,23 +15,23 @@ enum {
     HIDRELAY_HID_EP_OUT = 0x01U,
     HIDRELAY_HID_EP_SIZE = 16U,
     HIDRELAY_HID_EP_INTERVAL_MS = 4U,
-    HIDRELAY_STRING_LIMIT = 31U
+    HIDRELAY_STRING_LIMIT = 31U,
+    HIDRELAY_MAX_INTERFACE = 8U,
+    HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN = 9U,
+    HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U
 };
 
-enum {
-    HIDRELAY_ITF_HID = 0U,
-    HIDRELAY_ITF_TOTAL = 1U
-};
-
-#define HIDRELAY_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
+static uint8_t g_config_desc[HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN +
+                             (HIDRELAY_MAX_INTERFACE * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)] = {0};
+static uint16_t g_config_desc_len = HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN;
 
 static const tusb_desc_device_t g_device_desc = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200U,
-    .bDeviceClass = TUSB_CLASS_MISC,
-    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
-    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+    .bDeviceClass = 0U,
+    .bDeviceSubClass = 0U,
+    .bDeviceProtocol = 0U,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor = HIDRELAY_USB_VID,
     .idProduct = HIDRELAY_USB_PID,
@@ -45,12 +46,78 @@ static const uint8_t g_hid_report_desc[] = {
     TUD_HID_REPORT_DESC_GENERIC_INOUT(HIDRELAY_HID_EP_SIZE)
 };
 
-static const uint8_t g_config_desc[] = {
-    TUD_CONFIG_DESCRIPTOR(1U, HIDRELAY_ITF_TOTAL, 0U, HIDRELAY_CONFIG_TOTAL_LEN, 0U, 100U),
-    TUD_HID_INOUT_DESCRIPTOR(HIDRELAY_ITF_HID, 0U, HID_ITF_PROTOCOL_NONE, sizeof(g_hid_report_desc),
-                             HIDRELAY_HID_EP_OUT, HIDRELAY_HID_EP_IN, HIDRELAY_HID_EP_SIZE,
-                             HIDRELAY_HID_EP_INTERVAL_MS)
-};
+static void hidrelay_descriptor_put_u16(uint8_t *buffer, uint16_t value) {
+    if (buffer == NULL) {
+        return;
+    }
+
+    buffer[0] = (uint8_t)(value & 0xFFU);
+    buffer[1] = (uint8_t)((value >> 8U) & 0xFFU);
+}
+
+static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
+    uint16_t offset = 0U;
+    uint8_t index = 0U;
+
+    if (interface_count > HIDRELAY_MAX_INTERFACE) {
+        interface_count = HIDRELAY_MAX_INTERFACE;
+    }
+
+    g_config_desc[offset++] = 9U;
+    g_config_desc[offset++] = TUSB_DESC_CONFIGURATION;
+    hidrelay_descriptor_put_u16(&g_config_desc[offset],
+                                (uint16_t)(HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN +
+                                           (interface_count * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)));
+    offset = (uint16_t)(offset + 2U);
+    g_config_desc[offset++] = interface_count;
+    g_config_desc[offset++] = 1U;
+    g_config_desc[offset++] = 0U;
+    g_config_desc[offset++] = 0x80U;
+    g_config_desc[offset++] = 100U;
+
+    for (index = 0U; index < interface_count; index++) {
+        const uint8_t ep_out = (uint8_t)(HIDRELAY_HID_EP_OUT + index);
+        const uint8_t ep_in = (uint8_t)(HIDRELAY_HID_EP_IN + index);
+
+        g_config_desc[offset++] = 9U;
+        g_config_desc[offset++] = TUSB_DESC_INTERFACE;
+        g_config_desc[offset++] = index;
+        g_config_desc[offset++] = 0U;
+        g_config_desc[offset++] = 2U;
+        g_config_desc[offset++] = TUSB_CLASS_HID;
+        g_config_desc[offset++] = 0U;
+        g_config_desc[offset++] = HID_ITF_PROTOCOL_NONE;
+        g_config_desc[offset++] = 0U;
+
+        g_config_desc[offset++] = 9U;
+        g_config_desc[offset++] = HID_DESC_TYPE_HID;
+        hidrelay_descriptor_put_u16(&g_config_desc[offset], 0x0111U);
+        offset = (uint16_t)(offset + 2U);
+        g_config_desc[offset++] = 0U;
+        g_config_desc[offset++] = 1U;
+        g_config_desc[offset++] = HID_DESC_TYPE_REPORT;
+        hidrelay_descriptor_put_u16(&g_config_desc[offset], (uint16_t)sizeof(g_hid_report_desc));
+        offset = (uint16_t)(offset + 2U);
+
+        g_config_desc[offset++] = 7U;
+        g_config_desc[offset++] = TUSB_DESC_ENDPOINT;
+        g_config_desc[offset++] = ep_out;
+        g_config_desc[offset++] = TUSB_XFER_INTERRUPT;
+        hidrelay_descriptor_put_u16(&g_config_desc[offset], HIDRELAY_HID_EP_SIZE);
+        offset = (uint16_t)(offset + 2U);
+        g_config_desc[offset++] = HIDRELAY_HID_EP_INTERVAL_MS;
+
+        g_config_desc[offset++] = 7U;
+        g_config_desc[offset++] = TUSB_DESC_ENDPOINT;
+        g_config_desc[offset++] = ep_in;
+        g_config_desc[offset++] = TUSB_XFER_INTERRUPT;
+        hidrelay_descriptor_put_u16(&g_config_desc[offset], HIDRELAY_HID_EP_SIZE);
+        offset = (uint16_t)(offset + 2U);
+        g_config_desc[offset++] = HIDRELAY_HID_EP_INTERVAL_MS;
+    }
+
+    return offset;
+}
 
 uint8_t const *tud_descriptor_device_cb(void) {
     return (const uint8_t *)&g_device_desc;
@@ -62,7 +129,12 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
 }
 
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
+    uint8_t interface_count = 0U;
+
     (void)index;
+    interface_count = pico_w_stack_usb_interface_count();
+    g_config_desc_len = hidrelay_build_config_descriptor(interface_count);
+    (void)g_config_desc_len;
     return g_config_desc;
 }
 

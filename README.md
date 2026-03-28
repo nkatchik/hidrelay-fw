@@ -14,7 +14,9 @@ Current implementation is a buildable skeleton with:
 - platform-selectable CMake layout (auto-discovers from `platform/<name>/`)
 - app event loop and module boundaries for future HID bridging
 - optional Pico W stack bring-up for BTstack + TinyUSB with local config headers
-- baseline TinyUSB HID device descriptor/callback implementation
+- BT manager active-HID session model (`bt_manager_ingest_hid_open/close`)
+- USB bridge interface-plan model with descriptor generation tracking
+- TinyUSB configuration descriptor composition for 0..8 HID interfaces
 - BOOTSEL button command FSM for:
   - pair-any
   - remove-last
@@ -53,6 +55,12 @@ These options remain off by default for fast baseline iteration, but the reposit
 
 - `platform/pico_w/include/tusb_config.h`
 - `platform/pico_w/include/btstack_config.h`
+
+When stack options are enabled:
+
+- `platform_pico_w_stack` initializes BTstack and TinyUSB
+- BT manager can now represent active HID sessions independently from pair history
+- TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 
 ## Repository Layout
 
@@ -96,4 +104,9 @@ See:
 - `doc/architecture.md`
 - `doc/build.md`
 
-Planned next step is replacing stubbed pairing/export logic with real BTstack HID host event handling and dynamic TinyUSB HID interface composition while keeping module boundaries intact.
+Next implementation steps:
+
+- wire real BTstack HID open/close metadata into `bt_manager_ingest_hid_open/close`
+- route HID reports bidirectionally between BTstack channels and TinyUSB endpoints
+- persist pair database to flash storage
+- harden descriptor/interface lifecycle handling for disconnect/reconnect races

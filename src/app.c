@@ -50,21 +50,21 @@ void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
         (void)bt_manager_start_pair_any(&app->bt_manager, input->now_ms);
     } else if (command == BUTTON_COMMAND_REMOVE_LAST) {
         if (bt_manager_remove_last_if_recent(&app->bt_manager, input->now_ms, APP_REMOVE_LAST_MAX_AGE_MS)) {
-            usb_bridge_sync_from_pair_db(&app->usb_bridge, &app->pair_db);
             led_ui_trigger_long_blink(&app->led_ui, APP_REMOVE_LAST_BLINK_COUNT, input->now_ms);
         }
     } else if (command == BUTTON_COMMAND_REMOVE_ALL) {
         (void)bt_manager_remove_all(&app->bt_manager);
-        usb_bridge_sync_from_pair_db(&app->usb_bridge, &app->pair_db);
         led_ui_trigger_long_blink(&app->led_ui, APP_FACTORY_RESET_BLINK_COUNT, input->now_ms);
     }
 
     bt_manager_tick(&app->bt_manager, input->now_ms);
-    usb_bridge_sync_from_pair_db(&app->usb_bridge, &app->pair_db);
+    usb_bridge_sync_from_bt_manager(&app->usb_bridge, &app->bt_manager);
     usb_bridge_tick(&app->usb_bridge, input->now_ms);
 
     led_ui_set_state(&app->led_ui, app_led_state_from_bt_state(bt_manager_state(&app->bt_manager)), input->now_ms);
 
     output->led_on = led_ui_tick(&app->led_ui, input->now_ms);
     output->sleep_ms = APP_DEFAULT_SLEEP_MS;
+    output->usb_interface_count = usb_bridge_interface_count(&app->usb_bridge);
+    output->usb_descriptor_generation = usb_bridge_descriptor_generation(&app->usb_bridge);
 }

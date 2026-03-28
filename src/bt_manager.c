@@ -1,15 +1,112 @@
 #include "bt_manager.h"
 
 #include <stddef.h>
+#include <string.h>
 
 enum {
     BT_MANAGER_STUB_PAIR_SUCCESS_MS = 2000U,
-    BT_MANAGER_PAIRING_TIMEOUT_MS = 60000U
+    BT_MANAGER_PAIRING_TIMEOUT_MS = 60000U,
+    BT_MANAGER_STUB_VENDOR_ID = 0x2E8AU,
+    BT_MANAGER_STUB_PRODUCT_ID = 0x1001U,
+    BT_MANAGER_STUB_REPORT_DESCRIPTOR_LEN = 64U
 };
 
 static pair_device_id_t bt_manager_make_stub_device_id(uint8_t seed) {
     pair_device_id_t id = { .bytes = { 0x02U, 0x00U, 0x00U, 0x00U, 0x00U, seed } };
     return id;
+}
+
+static bool bt_manager_device_id_equal(const pair_device_id_t *lhs, const pair_device_id_t *rhs) {
+    if ((lhs == NULL) || (rhs == NULL)) {
+        return false;
+    }
+
+    return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
+}
+
+static void bt_manager_refresh_state(bt_manager_t *manager) {
+    if (manager == NULL) {
+        return;
+    }
+
+    if (manager->state == BT_MANAGER_STATE_PAIRING) {
+        return;
+    }
+
+    manager->state = (manager->active_count == 0U) ? BT_MANAGER_STATE_IDLE : BT_MANAGER_STATE_ACTIVE;
+}
+
+static bool bt_manager_find_active_index_by_hid_cid(const bt_manager_t *manager, uint16_t hid_cid, uint8_t *out_index) {
+    uint8_t index = 0U;
+
+    if ((manager == NULL) || (out_index == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < manager->active_count; index++) {
+        if (manager->active_device[index].hid_cid == hid_cid) {
+            *out_index = index;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool bt_manager_find_active_index_by_device_id(const bt_manager_t *manager,
+                                                      const pair_device_id_t *device_id,
+                                                      uint8_t *out_index) {
+    uint8_t index = 0U;
+
+    if ((manager == NULL) || (device_id == NULL) || (out_index == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < manager->active_count; index++) {
+        if (bt_manager_device_id_equal(&manager->active_device[index].device_id, device_id)) {
+            *out_index = index;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool bt_manager_pair_db_contains(const pair_db_t *pair_db, const pair_device_id_t *device_id) {
+    uint8_t index = 0U;
+
+    if ((pair_db == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < pair_db_count(pair_db); index++) {
+        pair_device_id_t existing = {0};
+
+        if (!pair_db_get(pair_db, index, &existing)) {
+            continue;
+        }
+
+        if (bt_manager_device_id_equal(&existing, device_id)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void bt_manager_remove_active_index(bt_manager_t *manager, uint8_t index) {
+    if ((manager == NULL) || (index >= manager->active_count)) {
+        return;
+    }
+
+    if (index < (manager->active_count - 1U)) {
+        (void)memmove(&manager->active_device[index],
+                      &manager->active_device[index + 1U],
+                      (size_t)(manager->active_count - index - 1U) * sizeof(manager->active_device[0]));
+    }
+
+    manager->active_count = (uint8_t)(manager->active_count - 1U);
+    (void)memset(&manager->active_device[manager->active_count], 0, sizeof(manager->active_device[0]));
 }
 
 void bt_manager_init(bt_manager_t *manager, pair_db_t *pair_db) {
@@ -20,6 +117,9 @@ void bt_manager_init(bt_manager_t *manager, pair_db_t *pair_db) {
     manager->pair_db = pair_db;
     manager->state = BT_MANAGER_STATE_IDLE;
     manager->pairing_started_ms = 0U;
+    manager->active_count = 0U;
+    manager->next_hid_cid = 1U;
+    (void)memset(manager->active_device, 0, sizeof(manager->active_device));
 }
 
 bool bt_manager_start_pair_any(bt_manager_t *manager, uint32_t now_ms) {
@@ -33,7 +133,18 @@ bool bt_manager_start_pair_any(bt_manager_t *manager, uint32_t now_ms) {
 }
 
 bool bt_manager_remove_last(bt_manager_t *manager) {
+    pair_device_id_t removed_device = {0};
+    uint8_t active_index = 0U;
+
     if ((manager == NULL) || (manager->pair_db == NULL)) {
+        return false;
+    }
+
+    if (pair_db_count(manager->pair_db) == 0U) {
+        return false;
+    }
+
+    if (!pair_db_get(manager->pair_db, (uint8_t)(pair_db_count(manager->pair_db) - 1U), &removed_device)) {
         return false;
     }
 
@@ -41,7 +152,11 @@ bool bt_manager_remove_last(bt_manager_t *manager) {
         return false;
     }
 
-    manager->state = (pair_db_count(manager->pair_db) == 0U) ? BT_MANAGER_STATE_IDLE : BT_MANAGER_STATE_ACTIVE;
+    if (bt_manager_find_active_index_by_device_id(manager, &removed_device, &active_index)) {
+        bt_manager_remove_active_index(manager, active_index);
+    }
+
+    bt_manager_refresh_state(manager);
     return true;
 }
 
@@ -63,7 +178,61 @@ bool bt_manager_remove_all(bt_manager_t *manager) {
     }
 
     pair_db_remove_all(manager->pair_db);
+    (void)memset(manager->active_device, 0, sizeof(manager->active_device));
+    manager->active_count = 0U;
     manager->state = BT_MANAGER_STATE_IDLE;
+    return true;
+}
+
+bool bt_manager_ingest_hid_open(bt_manager_t *manager,
+                                const pair_device_id_t *device_id,
+                                uint16_t hid_cid,
+                                uint16_t vendor_id,
+                                uint16_t product_id,
+                                uint16_t report_descriptor_len,
+                                uint32_t now_ms) {
+    bt_hid_device_t *slot = NULL;
+
+    if ((manager == NULL) || (manager->pair_db == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    if ((manager->active_count >= BT_MANAGER_MAX_ACTIVE_DEVICE) || (hid_cid == 0U)) {
+        manager->state = BT_MANAGER_STATE_ERROR;
+        return false;
+    }
+
+    if (!bt_manager_pair_db_contains(manager->pair_db, device_id) &&
+        !pair_db_add(manager->pair_db, device_id, now_ms)) {
+        manager->state = BT_MANAGER_STATE_ERROR;
+        return false;
+    }
+
+    slot = &manager->active_device[manager->active_count];
+    slot->device_id = *device_id;
+    slot->hid_cid = hid_cid;
+    slot->vendor_id = vendor_id;
+    slot->product_id = product_id;
+    slot->report_descriptor_len = report_descriptor_len;
+
+    manager->active_count = (uint8_t)(manager->active_count + 1U);
+    manager->state = BT_MANAGER_STATE_ACTIVE;
+    return true;
+}
+
+bool bt_manager_ingest_hid_close(bt_manager_t *manager, uint16_t hid_cid) {
+    uint8_t index = 0U;
+
+    if ((manager == NULL) || (hid_cid == 0U)) {
+        return false;
+    }
+
+    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, &index)) {
+        return false;
+    }
+
+    bt_manager_remove_active_index(manager, index);
+    bt_manager_refresh_state(manager);
     return true;
 }
 
@@ -88,14 +257,28 @@ void bt_manager_tick(bt_manager_t *manager, uint32_t now_ms) {
     {
         const uint8_t next_slot = pair_db_count(manager->pair_db);
         const pair_device_id_t fake_device = bt_manager_make_stub_device_id(next_slot);
+        const uint16_t hid_cid = manager->next_hid_cid;
 
-        if (!pair_db_add(manager->pair_db, &fake_device, now_ms)) {
+        if (hid_cid == 0U) {
             manager->state = BT_MANAGER_STATE_ERROR;
             return;
         }
+
+        if (!bt_manager_ingest_hid_open(manager,
+                                        &fake_device,
+                                        hid_cid,
+                                        BT_MANAGER_STUB_VENDOR_ID,
+                                        BT_MANAGER_STUB_PRODUCT_ID,
+                                        BT_MANAGER_STUB_REPORT_DESCRIPTOR_LEN,
+                                        now_ms)) {
+            manager->state = BT_MANAGER_STATE_ERROR;
+            return;
+        }
+
+        manager->next_hid_cid = (uint16_t)(manager->next_hid_cid + 1U);
     }
 
-    manager->state = BT_MANAGER_STATE_ACTIVE;
+    bt_manager_refresh_state(manager);
 }
 
 bt_manager_state_t bt_manager_state(const bt_manager_t *manager) {
@@ -104,4 +287,25 @@ bt_manager_state_t bt_manager_state(const bt_manager_t *manager) {
     }
 
     return manager->state;
+}
+
+uint8_t bt_manager_active_count(const bt_manager_t *manager) {
+    if (manager == NULL) {
+        return 0U;
+    }
+
+    return manager->active_count;
+}
+
+bool bt_manager_active_get(const bt_manager_t *manager, uint8_t index, bt_hid_device_t *out_device) {
+    if ((manager == NULL) || (out_device == NULL)) {
+        return false;
+    }
+
+    if (index >= manager->active_count) {
+        return false;
+    }
+
+    *out_device = manager->active_device[index];
+    return true;
 }
