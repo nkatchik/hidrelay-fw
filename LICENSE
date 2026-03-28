@@ -1,0 +1,64 @@
+# License and Third-Party Notices
+
+## Project License
+
+Copyright 2026 Nikita Katchik
+
+Unless otherwise stated, the original source code, documentation, build scripts, examples, and other project files in this repository are licensed under the Apache License, Version 2.0.
+
+SPDX-License-Identifier: Apache-2.0
+
+You may obtain a copy of the Apache License, Version 2.0 from the Apache Software Foundation.
+
+This license applies only to the original work authored for this project. It does not override, relicense, or replace the licenses of third-party components, SDKs, libraries, firmware blobs, vendor files, or platform-specific dependencies used by this project.
+
+## Third-Party Components
+
+This project may depend on third-party software, including but not limited to:
+
+* Raspberry Pi Pico SDK
+* BTstack by BlueKitchen GmbH
+* Vendor SDKs, board support packages, toolchains, headers, linker scripts, startup code, or binary blobs supplied by silicon or module vendors
+
+Those third-party components are licensed by their respective copyright holders under their own terms.
+
+## BTstack Notice
+
+Some builds of this project, including Raspberry Pi Pico W builds, may use BTstack.
+
+BTstack is copyright BlueKitchen GmbH and is not licensed by this project under the Apache License, Version 2.0.
+
+BTstack is distributed under its own license terms. Depending on the target platform, product, and commercial use case, use of BTstack may require permission under an applicable platform/vendor license or a separate commercial license from BlueKitchen GmbH.
+
+In particular, this project does not grant any rights to use BTstack commercially on platforms or products that are not covered by an applicable BTstack license.
+
+Users, distributors, and device manufacturers are responsible for ensuring that their use of BTstack complies with the applicable BTstack license terms.
+
+## Raspberry Pi Pico W Builds
+
+For Raspberry Pi Pico W builds, BTstack may be obtained through the Raspberry Pi Pico SDK and may be subject to Raspberry Pi’s supplemental BTstack licensing terms for supported Raspberry Pi Pico W-family products.
+
+This project does not extend those Raspberry Pi supplemental rights to other platforms, microcontrollers, modules, or devices.
+
+## Non-Public or Proprietary Platform Ports
+
+This repository may share source code with private, internal, or proprietary platform ports that are not distributed as part of the public repository.
+
+The Apache License, Version 2.0 applies to the files actually distributed in this public repository, unless otherwise stated.
+
+Private platform ports, proprietary hardware support packages, unreleased board support code, manufacturing tools, device configuration, calibration data, production firmware, and commercial product integrations may be licensed separately and are not automatically included in this public license grant.
+
+## No License to Trademarks
+
+This file does not grant any license to use the names, trademarks, service marks, or logos of this project, BlueKitchen, BTstack, Raspberry Pi, Espressif, or any other third party, except as required for reasonable attribution and notices.
+
+## Compliance
+
+When redistributing this project or binaries built from it, you should preserve:
+
+* This license and notice file
+* Apache-2.0 copyright and license notices for this project
+* Third-party copyright, license, and attribution notices
+* Any BTstack, Raspberry Pi Pico SDK, vendor SDK, or toolchain license notices required by their respective licensors
+
+For commercial products, you are responsible for confirming that all third-party software, wireless protocol stacks, SDKs, firmware blobs, trademarks, Bluetooth qualification requirements, and regulatory requirements are satisfied before distribution.

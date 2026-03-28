@@ -1,0 +1,47 @@
+BasedOnStyle: Google
+
+ColumnLimit: 100
+
+IndentWidth: 4
+ContinuationIndentWidth: 4
+BracedInitializerIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+PointerAlignment: Middle
+
+# Never align to token columns from previous lines.
+AlignAfterOpenBracket: DontAlign
+AlignOperands: DontAlign
+AlignEscapedNewlines: DontAlign
+AlignArrayOfStructures: None
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignConsecutiveMacros: None
+AlignConsecutiveBitFields: None
+AlignTrailingComments:
+  Kind: Never
+
+# Never pack wrapped argument/parameter lists.
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: false
+BinPackParameters: AlwaysOnePerLine
+
+# If the parameter list wraps, force a break after '(' and before ')'.
+BreakAfterOpenBracketFunction: true
+BreakBeforeCloseBracketFunction: true
+
+# Same behavior for braced lists.
+Cpp11BracedListStyle: FunctionCall
+BinPackLongBracedList: false
+BreakAfterOpenBracketBracedList: true
+BreakBeforeCloseBracketBracedList: true
+
+# Keep enum items on their own lines once formatted.
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+
+# Prefix style for wrapped binary operators:
+#     x
+#     && y
+BreakBeforeBinaryOperators: NonAssignment
+BreakBinaryOperations: OnePerLine

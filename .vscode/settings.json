@@ -1,0 +1,15 @@
+{
+    "C_Cpp.default.cStandard": "c17",
+    "C_Cpp.default.cppStandard": "",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/*/compile_commands.json",
+    // Fallback only for files missing from compile_commands.json.
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/build/*/generated/**",
+        "${workspaceFolder}/include",
+        "${workspaceFolder}/platform/*/include"
+    ],
+    "C_Cpp.files.exclude": {
+        "**/.cache/sdk/**/bazel/**": true
+    },
+    "C_Cpp.intelliSenseEngine": "default"
+}

@@ -1,0 +1,8 @@
+/build/
+/.cache/
+/CMakeFiles/
+/CMakeCache.txt
+/compile_commands.json
+*.swp
+*.tmp
+.DS_Store
