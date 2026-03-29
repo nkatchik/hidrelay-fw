@@ -19,6 +19,8 @@ enum {
     HIDRELAY_MAX_INTERFACE = 8U,
     HIDRELAY_REPORT_DESC_MIN_LEN = 4U,
     HIDRELAY_REPORT_DESC_MAX_LEN = 1024U,
+    HIDRELAY_REPORT_DESC_MAX_COLLECTION_DEPTH = 16U,
+    HIDRELAY_REPORT_DESC_MAX_FIELD_BITS = 8192U,
     HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN = 9U,
     HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U
 };
@@ -48,7 +50,27 @@ static const uint8_t g_hid_report_desc_generic[] = {
     TUD_HID_REPORT_DESC_GENERIC_INOUT(HIDRELAY_HID_EP_SIZE)
 };
 
+static uint32_t hidrelay_report_descriptor_read_u32(const uint8_t *data, uint8_t len) {
+    uint32_t value = 0U;
+
+    if ((data == NULL) || (len == 0U) || (len > 4U)) {
+        return 0U;
+    }
+
+    for (uint8_t index = 0U; index < len; index++) {
+        value |= ((uint32_t)data[index]) << (index * 8U);
+    }
+
+    return value;
+}
+
 static bool hidrelay_report_descriptor_supported(const uint8_t *descriptor, uint16_t descriptor_len) {
+    uint16_t offset = 0U;
+    uint8_t collection_depth = 0U;
+    bool has_application_collection = false;
+    uint32_t report_size = 0U;
+    uint32_t report_count = 0U;
+
     if (descriptor == NULL) {
         return false;
     }
@@ -57,7 +79,74 @@ static bool hidrelay_report_descriptor_supported(const uint8_t *descriptor, uint
         return false;
     }
 
-    return descriptor[0] != 0U;
+    while (offset < descriptor_len) {
+        const uint8_t prefix = descriptor[offset++];
+        uint8_t data_len = 0U;
+        uint8_t item_type = 0U;
+        uint8_t item_tag = 0U;
+
+        if (prefix == 0xFEU) {
+            return false;
+        }
+
+        data_len = (uint8_t)(prefix & 0x03U);
+        if (data_len == 3U) {
+            data_len = 4U;
+        }
+
+        item_type = (uint8_t)((prefix >> 2U) & 0x03U);
+        item_tag = (uint8_t)((prefix >> 4U) & 0x0FU);
+
+        if ((uint16_t)(offset + data_len) > descriptor_len) {
+            return false;
+        }
+
+        if (item_type == 0U) {
+            if (item_tag == 0x0AU) {
+                if (data_len != 1U) {
+                    return false;
+                }
+
+                if (descriptor[offset] == 0x01U) {
+                    has_application_collection = true;
+                }
+
+                if (collection_depth >= HIDRELAY_REPORT_DESC_MAX_COLLECTION_DEPTH) {
+                    return false;
+                }
+
+                collection_depth = (uint8_t)(collection_depth + 1U);
+            } else if (item_tag == 0x0CU) {
+                if (data_len != 0U) {
+                    return false;
+                }
+
+                if (collection_depth == 0U) {
+                    return false;
+                }
+
+                collection_depth = (uint8_t)(collection_depth - 1U);
+            }
+        } else if (item_type == 1U) {
+            if (item_tag == 0x07U) {
+                report_size = hidrelay_report_descriptor_read_u32(&descriptor[offset], data_len);
+            } else if (item_tag == 0x09U) {
+                report_count = hidrelay_report_descriptor_read_u32(&descriptor[offset], data_len);
+            }
+
+            if ((report_size > 0U) && (report_count > 0U)) {
+                if ((report_size > HIDRELAY_REPORT_DESC_MAX_FIELD_BITS) ||
+                    (report_count > HIDRELAY_REPORT_DESC_MAX_FIELD_BITS) ||
+                    (report_count > (HIDRELAY_REPORT_DESC_MAX_FIELD_BITS / report_size))) {
+                    return false;
+                }
+            }
+        }
+
+        offset = (uint16_t)(offset + data_len);
+    }
+
+    return (collection_depth == 0U) && has_application_collection;
 }
 
 static uint8_t const *hidrelay_report_descriptor_for_interface(uint8_t instance, uint16_t *out_len) {

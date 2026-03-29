@@ -51,6 +51,7 @@ typedef struct {
     uint32_t reconnect_success_count;
     uint32_t reconnect_failure_count;
     uint8_t reconnect_last_result;
+    uint8_t reconnect_last_status_code;
 } app_t;
 
 void app_init(app_t *app, const pair_db_t *initial_pair_db);

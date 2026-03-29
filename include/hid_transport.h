@@ -86,6 +86,7 @@ typedef struct {
     uint32_t reconnect_success_count;
     uint32_t reconnect_failure_count;
     uint8_t reconnect_last_result;
+    uint8_t reconnect_last_status_code;
 } hid_transport_diag_snapshot_t;
 
 #endif
