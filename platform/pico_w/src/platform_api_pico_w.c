@@ -26,14 +26,19 @@ static void pico_w_diag_publish(const hid_transport_diag_snapshot_t *diag) {
         return;
     }
 
-    printf("[diag] bt_state=%u active=%u usb_itf=%u usb_q=%u bt_q=%u usb_drop=%lu bt_drop=%lu\n",
+    printf("[diag] bt_state=%u active=%u usb_itf=%u usb_q=%u bt_q=%u usb_drop=%lu bt_drop=%lu r_attempt=%lu "
+           "r_success=%lu r_fail=%lu r_last=%u\n",
            diag->bt_state,
            diag->active_device_count,
            diag->usb_interface_count,
            diag->usb_tx_depth,
            diag->bt_tx_depth,
            (unsigned long)diag->usb_tx_dropped,
-           (unsigned long)diag->bt_tx_dropped);
+           (unsigned long)diag->bt_tx_dropped,
+           (unsigned long)diag->reconnect_attempt_count,
+           (unsigned long)diag->reconnect_success_count,
+           (unsigned long)diag->reconnect_failure_count,
+           diag->reconnect_last_result);
     g_last_diag = *diag;
     g_last_diag_valid = true;
 }

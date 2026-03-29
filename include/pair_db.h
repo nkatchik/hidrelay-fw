@@ -19,6 +19,8 @@ typedef struct {
     uint16_t last_report_descriptor_len;
     uint8_t last_protocol_mode;
     uint8_t reconnect_allowed;
+    uint8_t reconnect_fail_count;
+    uint32_t reconnect_retry_after_ms;
 } pair_db_entry_t;
 
 typedef struct {
@@ -42,7 +44,12 @@ bool pair_db_touch_session(pair_db_t *db,
                            uint16_t report_descriptor_len,
                            uint8_t protocol_mode);
 bool pair_db_set_reconnect_allowed(pair_db_t *db, const pair_device_id_t *device_id, bool reconnect_allowed);
-bool pair_db_get_reconnect_candidate(const pair_db_t *db, pair_db_entry_t *out_entry);
+bool pair_db_mark_reconnect_success(pair_db_t *db, const pair_device_id_t *device_id, uint32_t now_ms);
+bool pair_db_mark_reconnect_failure(pair_db_t *db,
+                                    const pair_device_id_t *device_id,
+                                    uint8_t fail_count,
+                                    uint32_t retry_after_ms);
+bool pair_db_get_reconnect_candidate(const pair_db_t *db, uint32_t now_ms, pair_db_entry_t *out_entry);
 bool pair_db_last_within_window(const pair_db_t *db, uint32_t now_ms, uint32_t window_ms);
 
 #endif

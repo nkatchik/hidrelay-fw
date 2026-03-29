@@ -11,6 +11,11 @@
 #define HID_TRANSPORT_PROTOCOL_UNKNOWN 0U
 #define HID_TRANSPORT_PROTOCOL_BOOT 1U
 #define HID_TRANSPORT_PROTOCOL_REPORT 2U
+#define HID_TRANSPORT_RECONNECT_RESULT_NONE 0U
+#define HID_TRANSPORT_RECONNECT_RESULT_REQUESTED 1U
+#define HID_TRANSPORT_RECONNECT_RESULT_SUCCESS 2U
+#define HID_TRANSPORT_RECONNECT_RESULT_TIMEOUT 3U
+#define HID_TRANSPORT_RECONNECT_RESULT_NO_CANDIDATE 4U
 
 typedef enum {
     HID_TRANSPORT_EVENT_NONE = 0,
@@ -51,6 +56,7 @@ typedef struct {
 } hid_transport_usb_tx_t;
 
 typedef struct {
+    uint16_t hid_cid;
     uint16_t report_descriptor_len;
     uint8_t protocol_mode;
 } hid_transport_usb_interface_plan_t;
@@ -70,6 +76,10 @@ typedef struct {
     uint8_t bt_tx_high_watermark;
     uint32_t usb_tx_dropped;
     uint32_t bt_tx_dropped;
+    uint32_t reconnect_attempt_count;
+    uint32_t reconnect_success_count;
+    uint32_t reconnect_failure_count;
+    uint8_t reconnect_last_result;
 } hid_transport_diag_snapshot_t;
 
 #endif

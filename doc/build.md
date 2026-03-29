@@ -127,17 +127,17 @@ Implemented now:
 - TinyUSB output-report callback ingestion into app transport events
 - bidirectional queued report forwarding with protocol-aware BT send path
 - queue backpressure telemetry (depth/high-water/drop counters) in `usb_bridge`
-- flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`) with session metadata schema v2
+- flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`) with session metadata schema v3
 - pair-any inquiry/connect flow gated by pairing state and class-of-device policy
-- reconnect request path from persisted Pair DB session metadata (boot/idle retries)
-- per-interface TinyUSB report descriptor selection using bridge/session metadata hints
+- reconnect retry policy with per-device backoff windows and timeout-based failure classification
+- per-interface TinyUSB report descriptor export from BTstack HID descriptor storage (generic fallback)
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state
-- runtime bridge/pairing diagnostics emitted on state change via stdio log lines
+- runtime bridge/pairing diagnostics emitted on state change via stdio log lines (including reconnect counters/result code)
 
 Still pending for production behavior:
 
-- per-device USB HID descriptor translation/export beyond current heuristic selection
+- per-device USB HID descriptor translation/sanitization for host-compatibility edge cases
 - persistent Bluetooth key-management lifecycle (store/restore/rotate)
 - structured diagnostics/export transport beyond stdio log output
-- reconnect policy hardening (backoff tiers, retry budgets, failure classes)
+- reconnect outcome signaling beyond timeout classes (e.g. immediate reject/auth failure)
 - command UX refinement and full failure-recovery handling

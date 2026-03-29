@@ -459,12 +459,50 @@ uint8_t pico_w_stack_usb_interface_count(void) {
     return g_usb_interface_count;
 }
 
-uint16_t pico_w_stack_usb_report_descriptor_len(uint8_t interface_number) {
-    if (interface_number >= g_usb_interface_count) {
-        return 0U;
+const uint8_t *pico_w_stack_usb_report_descriptor(uint8_t interface_number, uint16_t *out_len) {
+    uint16_t fallback_len = 0U;
+
+    if (out_len != NULL) {
+        *out_len = 0U;
     }
 
-    return g_usb_interface_plan[interface_number].report_descriptor_len;
+    if (interface_number >= g_usb_interface_count) {
+        return NULL;
+    }
+
+    fallback_len = g_usb_interface_plan[interface_number].report_descriptor_len;
+
+#ifdef APP_PICO_HAS_BTSTACK
+    {
+        const uint16_t hid_cid = g_usb_interface_plan[interface_number].hid_cid;
+
+        if (hid_cid != 0U) {
+            const uint8_t *descriptor = hid_descriptor_storage_get_descriptor_data(hid_cid);
+            const uint16_t descriptor_len = hid_descriptor_storage_get_descriptor_len(hid_cid);
+
+            if ((descriptor != NULL) && (descriptor_len > 0U)) {
+                if (out_len != NULL) {
+                    *out_len = descriptor_len;
+                }
+
+                return descriptor;
+            }
+        }
+    }
+#endif
+
+    if (out_len != NULL) {
+        *out_len = fallback_len;
+    }
+
+    return NULL;
+}
+
+uint16_t pico_w_stack_usb_report_descriptor_len(uint8_t interface_number) {
+    uint16_t descriptor_len = 0U;
+
+    (void)pico_w_stack_usb_report_descriptor(interface_number, &descriptor_len);
+    return descriptor_len;
 }
 
 uint8_t pico_w_stack_usb_protocol_mode(uint8_t interface_number) {

@@ -6,7 +6,9 @@
 enum {
     APP_DEFAULT_SLEEP_MS = 10U,
     APP_REMOVE_LAST_MAX_AGE_MS = 60U * 60U * 1000U,
-    APP_RECONNECT_RETRY_MS = 5000U,
+    APP_RECONNECT_TIMEOUT_MS = 8000U,
+    APP_RECONNECT_BASE_BACKOFF_MS = 5000U,
+    APP_RECONNECT_MAX_BACKOFF_SHIFT = 6U,
     APP_REMOVE_LAST_BLINK_COUNT = 1U,
     APP_FACTORY_RESET_BLINK_COUNT = 3U
 };
@@ -37,6 +39,74 @@ static void app_seed_pair_db(pair_db_t *dst, const pair_db_t *src) {
     if (dst->count > PAIR_DB_MAX_DEVICE) {
         dst->count = PAIR_DB_MAX_DEVICE;
     }
+}
+
+static bool app_device_id_equal(const pair_device_id_t *lhs, const pair_device_id_t *rhs) {
+    if ((lhs == NULL) || (rhs == NULL)) {
+        return false;
+    }
+
+    return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
+}
+
+static uint32_t app_reconnect_backoff_ms(uint8_t fail_count) {
+    uint8_t shift = 0U;
+
+    if (fail_count > 0U) {
+        shift = (uint8_t)(fail_count - 1U);
+    }
+
+    if (shift > APP_RECONNECT_MAX_BACKOFF_SHIFT) {
+        shift = APP_RECONNECT_MAX_BACKOFF_SHIFT;
+    }
+
+    return APP_RECONNECT_BASE_BACKOFF_MS << shift;
+}
+
+static void app_reconnect_clear_inflight(app_t *app) {
+    if (app == NULL) {
+        return;
+    }
+
+    app->reconnect_inflight = false;
+    app->reconnect_started_ms = 0U;
+    (void)memset(&app->reconnect_device_id, 0, sizeof(app->reconnect_device_id));
+}
+
+static void app_reconnect_mark_success(app_t *app, const pair_device_id_t *device_id, uint32_t now_ms) {
+    if ((app == NULL) || (device_id == NULL)) {
+        return;
+    }
+
+    (void)pair_db_mark_reconnect_success(&app->pair_db, device_id, now_ms);
+    app->reconnect_success_count = app->reconnect_success_count + 1U;
+    app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_SUCCESS;
+    app_reconnect_clear_inflight(app);
+}
+
+static void app_reconnect_mark_timeout(app_t *app, uint32_t now_ms) {
+    uint8_t index = 0U;
+    pair_db_entry_t entry = {0};
+    uint8_t fail_count = 1U;
+    uint32_t retry_after_ms = now_ms;
+
+    if ((app == NULL) || !app->reconnect_inflight) {
+        return;
+    }
+
+    if (pair_db_find(&app->pair_db, &app->reconnect_device_id, &index) &&
+        pair_db_get_entry(&app->pair_db, index, &entry)) {
+        fail_count = entry.reconnect_fail_count;
+        if (fail_count < UINT8_MAX) {
+            fail_count = (uint8_t)(fail_count + 1U);
+        }
+    }
+
+    retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
+    (void)pair_db_mark_reconnect_failure(&app->pair_db, &app->reconnect_device_id, fail_count, retry_after_ms);
+    app->reconnect_failure_count = app->reconnect_failure_count + 1U;
+    app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_TIMEOUT;
+    app_reconnect_clear_inflight(app);
 }
 
 static void app_handle_transport_event(app_t *app, const app_input_t *input) {
@@ -96,8 +166,13 @@ void app_init(app_t *app, const pair_db_t *initial_pair_db) {
     app_seed_pair_db(&app->pair_db, initial_pair_db);
     bt_manager_init(&app->bt_manager, &app->pair_db);
     usb_bridge_init(&app->usb_bridge);
-    app->reconnect_last_attempt_ms = 0U;
-    app->reconnect_attempted = false;
+    app->reconnect_inflight = false;
+    (void)memset(&app->reconnect_device_id, 0, sizeof(app->reconnect_device_id));
+    app->reconnect_started_ms = 0U;
+    app->reconnect_attempt_count = 0U;
+    app->reconnect_success_count = 0U;
+    app->reconnect_failure_count = 0U;
+    app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_NONE;
 }
 
 void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
@@ -106,6 +181,7 @@ void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
     usb_bridge_telemetry_t bridge_telemetry = {0};
     bt_manager_state_t bt_state = BT_MANAGER_STATE_IDLE;
     pair_db_entry_t reconnect_candidate = {0};
+    uint8_t reconnect_index = 0U;
     uint8_t interface_index = 0U;
 
     if ((app == NULL) || (input == NULL) || (output == NULL)) {
@@ -127,6 +203,12 @@ void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
     }
 
     app_handle_transport_event(app, input);
+
+    if (app->reconnect_inflight && (input->transport_event.type == HID_TRANSPORT_EVENT_BT_HID_OPEN) &&
+        app_device_id_equal(&input->transport_event.device_id, &app->reconnect_device_id)) {
+        app_reconnect_mark_success(app, &input->transport_event.device_id, input->now_ms);
+    }
+
     bt_manager_tick(&app->bt_manager, input->now_ms);
     usb_bridge_sync_from_bt_manager(&app->usb_bridge, &app->bt_manager);
     usb_bridge_tick(&app->usb_bridge, input->now_ms);
@@ -153,19 +235,31 @@ void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
 
         output->usb_interface_plan[interface_index].report_descriptor_len = interface_info.report_descriptor_len;
         output->usb_interface_plan[interface_index].protocol_mode = interface_info.protocol_mode;
+        output->usb_interface_plan[interface_index].hid_cid = interface_info.hid_cid;
     }
 
     output->reconnect_request.valid = false;
     (void)memset(&output->reconnect_request.device_id, 0, sizeof(output->reconnect_request.device_id));
 
-    if ((bt_state == BT_MANAGER_STATE_IDLE) && (output->active_device_count == 0U) &&
-        pair_db_get_reconnect_candidate(&app->pair_db, &reconnect_candidate)) {
-        if (!app->reconnect_attempted ||
-            ((input->now_ms - app->reconnect_last_attempt_ms) >= APP_RECONNECT_RETRY_MS)) {
+    if (app->reconnect_inflight && !pair_db_find(&app->pair_db, &app->reconnect_device_id, &reconnect_index)) {
+        app_reconnect_clear_inflight(app);
+    }
+
+    if ((bt_state == BT_MANAGER_STATE_IDLE) && (output->active_device_count == 0U)) {
+        if (app->reconnect_inflight && ((input->now_ms - app->reconnect_started_ms) >= APP_RECONNECT_TIMEOUT_MS)) {
+            app_reconnect_mark_timeout(app, input->now_ms);
+        }
+
+        if (!app->reconnect_inflight && pair_db_get_reconnect_candidate(&app->pair_db, input->now_ms, &reconnect_candidate)) {
             output->reconnect_request.valid = true;
             output->reconnect_request.device_id = reconnect_candidate.device_id;
-            app->reconnect_last_attempt_ms = input->now_ms;
-            app->reconnect_attempted = true;
+            app->reconnect_inflight = true;
+            app->reconnect_device_id = reconnect_candidate.device_id;
+            app->reconnect_started_ms = input->now_ms;
+            app->reconnect_attempt_count = app->reconnect_attempt_count + 1U;
+            app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_REQUESTED;
+        } else if (!app->reconnect_inflight) {
+            app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_NO_CANDIDATE;
         }
     }
 
@@ -187,5 +281,9 @@ void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
     output->diag.bt_tx_high_watermark = output->bt_tx_queue_high_watermark;
     output->diag.usb_tx_dropped = output->usb_tx_dropped;
     output->diag.bt_tx_dropped = output->bt_tx_dropped;
+    output->diag.reconnect_attempt_count = app->reconnect_attempt_count;
+    output->diag.reconnect_success_count = app->reconnect_success_count;
+    output->diag.reconnect_failure_count = app->reconnect_failure_count;
+    output->diag.reconnect_last_result = app->reconnect_last_result;
     output->pair_db_dirty = memcmp(&pair_db_before, &app->pair_db, sizeof(pair_db_before)) != 0;
 }

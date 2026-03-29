@@ -20,12 +20,12 @@ Current implementation is a buildable skeleton with:
 - bidirectional report path skeleton (`BT HID report` -> USB IN, `USB OUT report` -> BT HID protocol-aware send)
 - pair-any discovery/connect flow using BT inquiry and HID connect (pairing mode gated)
 - per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
-- reconnect requests from persisted Pair DB session metadata (boot/idle path with retry throttle)
-- per-interface TinyUSB report descriptor selection (generic vs boot keyboard/mouse heuristic)
+- reconnect policy with multi-device candidate selection, per-device backoff, and timeout-based failure classification
+- per-interface TinyUSB report descriptor export from BTstack HID descriptor storage (generic fallback when unavailable)
 - explicit SSP/PIN confirmation handling gated by pairing mode
-- runtime diagnostic snapshots for pairing/bridge telemetry (stdio log stream)
+- runtime diagnostic snapshots for pairing/bridge telemetry (including reconnect counters/result code, stdio log stream)
 - queue backpressure telemetry with drop counters/high-water marks
-- flash-backed pair database persistence with session metadata (last sector of on-board flash)
+- flash-backed pair database persistence with session metadata (schema v3, last sector of on-board flash)
 - BOOTSEL button command FSM for:
   - pair-any
   - remove-last
@@ -73,8 +73,8 @@ When stack options are enabled:
 - TinyUSB `set_report` callbacks are bridged into common app transport events
 - pair-any state drives BT inquiry/connection attempts with class-of-device filtering
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
-- app reconnect requests can trigger BT reconnect attempts for persisted devices when idle
-- TinyUSB report descriptors are selected per interface from bridge/session metadata hints
+- app reconnect requests now run through per-device backoff windows and timeout tracking
+- TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
 - queue saturation drops oldest pending reports and updates telemetry counters
@@ -125,5 +125,5 @@ Next implementation steps:
 
 - export richer diagnostics via a structured interface (instead of stdio-only line logs)
 - persist and restore Bluetooth link/security keys as part of Pair DB lifecycle
-- replace descriptor heuristics with real per-device descriptor translation/export
-- expand reconnect policy to multi-device backoff and failure classification
+- add descriptor translation/sanitization policy for host-compatibility edge cases
+- add explicit reconnect outcome signaling from platform stack (e.g. immediate reject/auth failure classes)

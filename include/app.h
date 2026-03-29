@@ -44,8 +44,13 @@ typedef struct {
     pair_db_t pair_db;
     bt_manager_t bt_manager;
     usb_bridge_t usb_bridge;
-    uint32_t reconnect_last_attempt_ms;
-    bool reconnect_attempted;
+    bool reconnect_inflight;
+    pair_device_id_t reconnect_device_id;
+    uint32_t reconnect_started_ms;
+    uint32_t reconnect_attempt_count;
+    uint32_t reconnect_success_count;
+    uint32_t reconnect_failure_count;
+    uint8_t reconnect_last_result;
 } app_t;
 
 void app_init(app_t *app, const pair_db_t *initial_pair_db);

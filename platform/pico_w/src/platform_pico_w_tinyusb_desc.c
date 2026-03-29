@@ -45,32 +45,23 @@ static const tusb_desc_device_t g_device_desc = {
 static const uint8_t g_hid_report_desc_generic[] = {
     TUD_HID_REPORT_DESC_GENERIC_INOUT(HIDRELAY_HID_EP_SIZE)
 };
-static const uint8_t g_hid_report_desc_boot_keyboard[] = {
-    TUD_HID_REPORT_DESC_KEYBOARD()
-};
-static const uint8_t g_hid_report_desc_boot_mouse[] = {
-    TUD_HID_REPORT_DESC_MOUSE()
-};
 
 static uint8_t const *hidrelay_report_descriptor_for_interface(uint8_t instance, uint16_t *out_len) {
-    const uint16_t reported_descriptor_len = pico_w_stack_usb_report_descriptor_len(instance);
-    const uint8_t protocol_mode = pico_w_stack_usb_protocol_mode(instance);
+    uint16_t ignored_len = 0U;
+    uint16_t *effective_len = out_len;
+    const uint8_t *descriptor = NULL;
 
-    if (out_len == NULL) {
-        return g_hid_report_desc_generic;
+    if (effective_len == NULL) {
+        effective_len = &ignored_len;
     }
 
-    if (protocol_mode == HID_TRANSPORT_PROTOCOL_BOOT) {
-        if ((reported_descriptor_len > 0U) && (reported_descriptor_len <= 54U)) {
-            *out_len = (uint16_t)sizeof(g_hid_report_desc_boot_mouse);
-            return g_hid_report_desc_boot_mouse;
-        }
+    descriptor = pico_w_stack_usb_report_descriptor(instance, effective_len);
 
-        *out_len = (uint16_t)sizeof(g_hid_report_desc_boot_keyboard);
-        return g_hid_report_desc_boot_keyboard;
+    if ((descriptor != NULL) && (*effective_len > 0U)) {
+        return descriptor;
     }
 
-    *out_len = (uint16_t)sizeof(g_hid_report_desc_generic);
+    *effective_len = (uint16_t)sizeof(g_hid_report_desc_generic);
     return g_hid_report_desc_generic;
 }
 

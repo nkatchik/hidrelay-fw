@@ -27,6 +27,7 @@ Common logic never imports Pico-specific SDK headers.
   - provides user-facing LED state behavior independent from GPIO details
 - `pair_db`:
   - paired-device store abstraction with paired timestamp and last-session metadata (descriptor length, protocol mode, vendor/product IDs, reconnect flag)
+  - tracks reconnect failure/backoff metadata per device for retry scheduling
   - persisted on Pico W in a flash-backed blob through platform pair-store hooks
 - `bt_manager`:
   - Bluetooth management API with pairing lifecycle and active HID session model
@@ -84,9 +85,10 @@ Pico-specific linkage is isolated under this directory.
 - App and bridge now route queued reports in both directions (one dequeued report per direction per tick) with protocol-aware BT transmission.
 - Pair-any mode now drives real BT inquiry/connect attempts under a class-of-device filter and pairing-mode gating.
 - App now derives per-interface USB descriptor/protocol hints from active sessions and emits them with each platform output.
-- App now emits reconnect requests from persisted Pair DB metadata when idle (throttled retries).
+- App now emits reconnect requests from persisted Pair DB metadata when idle, with per-device backoff windows.
 - Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
-- TinyUSB report descriptor callbacks now select descriptor variants per interface from protocol/descriptor metadata hints.
+- App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
+- TinyUSB report descriptor callbacks now export per-interface descriptors directly from BTstack HID descriptor storage when available.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - Platform glue publishes state-change diagnostics for bridge/pairing telemetry via stdio logs.
 
@@ -108,7 +110,7 @@ No global Pico SDK or global Arm cross toolchain is required.
 - Pico W implementation stores this blob in the last flash sector (`PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE`).
 - On boot, `platform_pair_db_load` seeds app state if the stored blob validates.
 - On Pair DB mutation, the main loop calls `platform_pair_db_save`.
-- Current on-flash schema version is `2`; schema mismatches fall back to an empty DB.
+- Current on-flash schema version is `3`; schema mismatches fall back to an empty DB.
 
 ## Resource Cleanup Policy
 
@@ -133,8 +135,8 @@ Additional style constraints in this repository:
 
 ## Planned Bridging Flow (Next Iteration)
 
-1. Replace descriptor heuristics with full per-device report-descriptor translation/export.
+1. Add descriptor translation/sanitization policy for host-compatibility edge cases.
 2. Persist and restore Bluetooth security/link keys together with Pair DB lifecycle.
 3. Promote diagnostics from stdio logs to a structured debug/status transport.
-4. Extend reconnect policy with multi-candidate backoff, retry budgeting, and failure classification.
+4. Add reconnect outcome signaling from platform stack (immediate reject/auth failure classes).
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

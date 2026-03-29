@@ -6,6 +6,10 @@ static bool pair_db_age_within_window(uint32_t now_ms, uint32_t then_ms, uint32_
     return (now_ms - then_ms) <= window_ms;
 }
 
+static bool pair_db_time_reached(uint32_t now_ms, uint32_t target_ms) {
+    return (int32_t)(now_ms - target_ms) >= 0;
+}
+
 static bool pair_db_device_id_equal(const pair_device_id_t *lhs, const pair_device_id_t *rhs) {
     if ((lhs == NULL) || (rhs == NULL)) {
         return false;
@@ -39,6 +43,8 @@ bool pair_db_add(pair_db_t *db, const pair_device_id_t *device_id, uint32_t pair
     db->entries[db->count].last_report_descriptor_len = 0U;
     db->entries[db->count].last_protocol_mode = 0U;
     db->entries[db->count].reconnect_allowed = 1U;
+    db->entries[db->count].reconnect_fail_count = 0U;
+    db->entries[db->count].reconnect_retry_after_ms = paired_at_ms;
     db->count = (uint8_t)(db->count + 1U);
     return true;
 }
@@ -142,6 +148,8 @@ bool pair_db_touch_session(pair_db_t *db,
     db->entries[index].last_product_id = product_id;
     db->entries[index].last_report_descriptor_len = report_descriptor_len;
     db->entries[index].last_protocol_mode = protocol_mode;
+    db->entries[index].reconnect_fail_count = 0U;
+    db->entries[index].reconnect_retry_after_ms = seen_at_ms;
     return true;
 }
 
@@ -160,7 +168,43 @@ bool pair_db_set_reconnect_allowed(pair_db_t *db, const pair_device_id_t *device
     return true;
 }
 
-bool pair_db_get_reconnect_candidate(const pair_db_t *db, pair_db_entry_t *out_entry) {
+bool pair_db_mark_reconnect_success(pair_db_t *db, const pair_device_id_t *device_id, uint32_t now_ms) {
+    uint8_t index = 0U;
+
+    if ((db == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    if (!pair_db_find(db, device_id, &index)) {
+        return false;
+    }
+
+    db->entries[index].last_seen_ms = now_ms;
+    db->entries[index].reconnect_fail_count = 0U;
+    db->entries[index].reconnect_retry_after_ms = now_ms;
+    return true;
+}
+
+bool pair_db_mark_reconnect_failure(pair_db_t *db,
+                                    const pair_device_id_t *device_id,
+                                    uint8_t fail_count,
+                                    uint32_t retry_after_ms) {
+    uint8_t index = 0U;
+
+    if ((db == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    if (!pair_db_find(db, device_id, &index)) {
+        return false;
+    }
+
+    db->entries[index].reconnect_fail_count = fail_count;
+    db->entries[index].reconnect_retry_after_ms = retry_after_ms;
+    return true;
+}
+
+bool pair_db_get_reconnect_candidate(const pair_db_t *db, uint32_t now_ms, pair_db_entry_t *out_entry) {
     uint8_t index = 0U;
     bool found = false;
     pair_db_entry_t best = {0};
@@ -172,11 +216,12 @@ bool pair_db_get_reconnect_candidate(const pair_db_t *db, pair_db_entry_t *out_e
     for (index = 0U; index < db->count; index++) {
         const pair_db_entry_t *entry = &db->entries[index];
 
-        if (entry->reconnect_allowed == 0U) {
+        if ((entry->reconnect_allowed == 0U) || !pair_db_time_reached(now_ms, entry->reconnect_retry_after_ms)) {
             continue;
         }
 
-        if (!found || (entry->last_seen_ms > best.last_seen_ms)) {
+        if (!found || (entry->reconnect_fail_count < best.reconnect_fail_count) ||
+            ((entry->reconnect_fail_count == best.reconnect_fail_count) && (entry->last_seen_ms > best.last_seen_ms))) {
             best = *entry;
             found = true;
         }
