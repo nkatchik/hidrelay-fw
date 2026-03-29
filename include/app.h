@@ -29,6 +29,10 @@ typedef struct {
     uint8_t bt_tx_queue_high_watermark;
     uint32_t usb_tx_dropped;
     uint32_t bt_tx_dropped;
+    uint8_t active_device_count;
+    hid_transport_usb_interface_plan_t usb_interface_plan[HID_TRANSPORT_MAX_INTERFACE];
+    hid_transport_reconnect_request_t reconnect_request;
+    hid_transport_diag_snapshot_t diag;
     hid_transport_usb_tx_t usb_tx;
     hid_transport_bt_tx_t bt_tx;
     bool pair_db_dirty;
@@ -40,6 +44,8 @@ typedef struct {
     pair_db_t pair_db;
     bt_manager_t bt_manager;
     usb_bridge_t usb_bridge;
+    uint32_t reconnect_last_attempt_ms;
+    bool reconnect_attempted;
 } app_t;
 
 void app_init(app_t *app, const pair_db_t *initial_pair_db);

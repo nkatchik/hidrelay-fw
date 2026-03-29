@@ -20,6 +20,7 @@ Common logic never imports Pico-specific SDK headers.
 - `app`:
   - owns the main app state and event loop logic
   - wires the button FSM, LED UI, pair DB, BT manager, and USB bridge stubs
+  - emits reconnect requests and diagnostic snapshots as part of platform output
 - `button_fsm`:
   - translates BOOTSEL press patterns into high-level commands (`pair-any`, `remove-last`, `remove-all`)
 - `led_ui`:
@@ -37,6 +38,7 @@ Common logic never imports Pico-specific SDK headers.
   - tracks queue depth/high-water/drop telemetry for backpressure visibility
 - `platform_api`:
   - platform boundary: init, poll inputs, apply outputs
+  - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
 
 ## Pico W Platform Glue
 
@@ -81,6 +83,12 @@ Pico-specific linkage is isolated under this directory.
 - TinyUSB output report callbacks are now translated into app transport events.
 - App and bridge now route queued reports in both directions (one dequeued report per direction per tick) with protocol-aware BT transmission.
 - Pair-any mode now drives real BT inquiry/connect attempts under a class-of-device filter and pairing-mode gating.
+- App now derives per-interface USB descriptor/protocol hints from active sessions and emits them with each platform output.
+- App now emits reconnect requests from persisted Pair DB metadata when idle (throttled retries).
+- Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
+- TinyUSB report descriptor callbacks now select descriptor variants per interface from protocol/descriptor metadata hints.
+- BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
+- Platform glue publishes state-change diagnostics for bridge/pairing telemetry via stdio logs.
 
 ## Build/Bootstrap Model
 
@@ -125,8 +133,8 @@ Additional style constraints in this repository:
 
 ## Planned Bridging Flow (Next Iteration)
 
-1. Use persisted session metadata to drive reconnect attempts on boot/disconnect.
-2. Replace generic USB HID report descriptor template with per-device descriptor export strategy.
-3. Add explicit SSP/user-confirmation policy hooks and key-management controls.
-4. Expose bridge telemetry and pairing lifecycle state through a debug/status interface.
+1. Replace descriptor heuristics with full per-device report-descriptor translation/export.
+2. Persist and restore Bluetooth security/link keys together with Pair DB lifecycle.
+3. Promote diagnostics from stdio logs to a structured debug/status transport.
+4. Extend reconnect policy with multi-candidate backoff, retry budgeting, and failure classification.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

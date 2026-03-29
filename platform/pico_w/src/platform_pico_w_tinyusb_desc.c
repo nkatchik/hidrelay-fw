@@ -42,9 +42,37 @@ static const tusb_desc_device_t g_device_desc = {
     .bNumConfigurations = 1U,
 };
 
-static const uint8_t g_hid_report_desc[] = {
+static const uint8_t g_hid_report_desc_generic[] = {
     TUD_HID_REPORT_DESC_GENERIC_INOUT(HIDRELAY_HID_EP_SIZE)
 };
+static const uint8_t g_hid_report_desc_boot_keyboard[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD()
+};
+static const uint8_t g_hid_report_desc_boot_mouse[] = {
+    TUD_HID_REPORT_DESC_MOUSE()
+};
+
+static uint8_t const *hidrelay_report_descriptor_for_interface(uint8_t instance, uint16_t *out_len) {
+    const uint16_t reported_descriptor_len = pico_w_stack_usb_report_descriptor_len(instance);
+    const uint8_t protocol_mode = pico_w_stack_usb_protocol_mode(instance);
+
+    if (out_len == NULL) {
+        return g_hid_report_desc_generic;
+    }
+
+    if (protocol_mode == HID_TRANSPORT_PROTOCOL_BOOT) {
+        if ((reported_descriptor_len > 0U) && (reported_descriptor_len <= 54U)) {
+            *out_len = (uint16_t)sizeof(g_hid_report_desc_boot_mouse);
+            return g_hid_report_desc_boot_mouse;
+        }
+
+        *out_len = (uint16_t)sizeof(g_hid_report_desc_boot_keyboard);
+        return g_hid_report_desc_boot_keyboard;
+    }
+
+    *out_len = (uint16_t)sizeof(g_hid_report_desc_generic);
+    return g_hid_report_desc_generic;
+}
 
 static void hidrelay_descriptor_put_u16(uint8_t *buffer, uint16_t value) {
     if (buffer == NULL) {
@@ -78,6 +106,9 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
     for (index = 0U; index < interface_count; index++) {
         const uint8_t ep_out = (uint8_t)(HIDRELAY_HID_EP_OUT + index);
         const uint8_t ep_in = (uint8_t)(HIDRELAY_HID_EP_IN + index);
+        uint16_t report_desc_len = 0U;
+
+        (void)hidrelay_report_descriptor_for_interface(index, &report_desc_len);
 
         g_config_desc[offset++] = 9U;
         g_config_desc[offset++] = TUSB_DESC_INTERFACE;
@@ -96,7 +127,7 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
         g_config_desc[offset++] = 0U;
         g_config_desc[offset++] = 1U;
         g_config_desc[offset++] = HID_DESC_TYPE_REPORT;
-        hidrelay_descriptor_put_u16(&g_config_desc[offset], (uint16_t)sizeof(g_hid_report_desc));
+        hidrelay_descriptor_put_u16(&g_config_desc[offset], report_desc_len);
         offset = (uint16_t)(offset + 2U);
 
         g_config_desc[offset++] = 7U;
@@ -124,8 +155,8 @@ uint8_t const *tud_descriptor_device_cb(void) {
 }
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
-    (void)instance;
-    return g_hid_report_desc;
+    uint16_t report_len = 0U;
+    return hidrelay_report_descriptor_for_interface(instance, &report_len);
 }
 
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {

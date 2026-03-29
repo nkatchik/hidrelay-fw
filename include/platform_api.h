@@ -19,6 +19,9 @@ typedef struct {
     uint32_t sleep_ms;
     uint8_t usb_interface_count;
     uint32_t usb_descriptor_generation;
+    hid_transport_usb_interface_plan_t usb_interface_plan[HID_TRANSPORT_MAX_INTERFACE];
+    hid_transport_reconnect_request_t reconnect_request;
+    hid_transport_diag_snapshot_t diag;
     hid_transport_usb_tx_t usb_tx;
     hid_transport_bt_tx_t bt_tx;
 } platform_output_t;

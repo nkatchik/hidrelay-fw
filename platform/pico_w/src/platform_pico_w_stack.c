@@ -25,6 +25,7 @@ enum {
 
 static uint8_t g_usb_interface_count = 0U;
 static uint32_t g_usb_descriptor_generation = 0U;
+static hid_transport_usb_interface_plan_t g_usb_interface_plan[PICO_W_STACK_MAX_USB_INTERFACE] = {0};
 static hid_transport_event_t g_event_queue[PICO_W_STACK_EVENT_QUEUE_SIZE] = {0};
 static uint8_t g_event_queue_head = 0U;
 static uint8_t g_event_queue_tail = 0U;
@@ -53,6 +54,16 @@ static bool g_btstack_pairing_active = false;
 static bool g_btstack_inquiry_active = false;
 static bool g_btstack_connect_pending = false;
 static bd_addr_t g_btstack_candidate_addr = {0};
+
+static bool pico_w_stack_device_id_valid(const pair_device_id_t *device_id) {
+    static const pair_device_id_t zero_id = { .bytes = { 0U, 0U, 0U, 0U, 0U, 0U } };
+
+    if (device_id == NULL) {
+        return false;
+    }
+
+    return memcmp(device_id->bytes, zero_id.bytes, sizeof(device_id->bytes)) != 0;
+}
 
 static uint8_t pico_w_stack_map_protocol_mode(uint8_t mode) {
     switch ((hid_protocol_mode_t)mode) {
@@ -232,6 +243,30 @@ static void pico_w_btstack_packet_handler(uint8_t packet_type, uint16_t channel,
     }
 
     switch (hci_event_packet_get_type(packet)) {
+    case HCI_EVENT_PIN_CODE_REQUEST:
+        {
+            bd_addr_t address = {0};
+
+            hci_event_pin_code_request_get_bd_addr(packet, address);
+            if (g_btstack_pairing_active) {
+                (void)gap_pin_code_response(address, "0000");
+            } else {
+                (void)gap_pin_code_negative(address);
+            }
+        }
+        break;
+    case HCI_EVENT_USER_CONFIRMATION_REQUEST:
+        {
+            bd_addr_t address = {0};
+
+            hci_event_user_confirmation_request_get_bd_addr(packet, address);
+            if (g_btstack_pairing_active) {
+                (void)gap_ssp_confirmation_response(address);
+            } else {
+                (void)gap_ssp_confirmation_negative(address);
+            }
+        }
+        break;
     case BTSTACK_EVENT_STATE:
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
             g_btstack_hci_ready = true;
@@ -332,7 +367,9 @@ bool pico_w_stack_init(void) {
     (void)gap_set_security_mode(GAP_SECURITY_MODE_4);
     gap_set_security_level(LEVEL_2);
     gap_ssp_set_enable(1);
-    gap_ssp_set_auto_accept(1);
+    gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
+    gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING);
+    gap_ssp_set_auto_accept(0);
     hid_host_init(g_btstack_hid_descriptor_storage, sizeof(g_btstack_hid_descriptor_storage));
     hid_host_register_packet_handler(&pico_w_btstack_packet_handler);
     g_btstack_hci_event_callback_registration.callback = &pico_w_btstack_packet_handler;
@@ -359,13 +396,22 @@ void pico_w_stack_poll(uint32_t now_ms) {
     pico_w_tinyusb_runtime_poll();
 }
 
-void pico_w_stack_set_usb_plan(uint8_t interface_count, uint32_t descriptor_generation) {
+void pico_w_stack_set_usb_plan(uint8_t interface_count,
+                               uint32_t descriptor_generation,
+                               const hid_transport_usb_interface_plan_t *interface_plan) {
     if (descriptor_generation == g_usb_descriptor_generation) {
         return;
     }
 
     if (interface_count > PICO_W_STACK_MAX_USB_INTERFACE) {
         interface_count = PICO_W_STACK_MAX_USB_INTERFACE;
+    }
+
+    (void)memset(g_usb_interface_plan, 0, sizeof(g_usb_interface_plan));
+    if (interface_plan != NULL) {
+        (void)memcpy(g_usb_interface_plan,
+                     interface_plan,
+                     (size_t)interface_count * sizeof(g_usb_interface_plan[0]));
     }
 
     g_usb_interface_count = interface_count;
@@ -392,8 +438,41 @@ void pico_w_stack_set_pairing_active(bool pairing_active) {
 #endif
 }
 
+bool pico_w_stack_request_reconnect(const pair_device_id_t *device_id) {
+#ifdef APP_PICO_HAS_BTSTACK
+    if (!pico_w_stack_device_id_valid(device_id) || !g_btstack_hci_ready || g_btstack_pairing_active ||
+        g_btstack_connect_pending || g_btstack_inquiry_active) {
+        return false;
+    }
+
+    (void)memcpy(g_btstack_candidate_addr, device_id->bytes, sizeof(g_btstack_candidate_addr));
+    g_btstack_connect_pending = true;
+    pico_w_stack_try_connect_candidate();
+    return true;
+#else
+    (void)device_id;
+    return false;
+#endif
+}
+
 uint8_t pico_w_stack_usb_interface_count(void) {
     return g_usb_interface_count;
+}
+
+uint16_t pico_w_stack_usb_report_descriptor_len(uint8_t interface_number) {
+    if (interface_number >= g_usb_interface_count) {
+        return 0U;
+    }
+
+    return g_usb_interface_plan[interface_number].report_descriptor_len;
+}
+
+uint8_t pico_w_stack_usb_protocol_mode(uint8_t interface_number) {
+    if (interface_number >= g_usb_interface_count) {
+        return HID_TRANSPORT_PROTOCOL_UNKNOWN;
+    }
+
+    return g_usb_interface_plan[interface_number].protocol_mode;
 }
 
 bool pico_w_stack_take_event(hid_transport_event_t *out_event) {

@@ -7,6 +7,7 @@
 #include "pair_db.h"
 
 #define HID_TRANSPORT_REPORT_MAX_LEN 64U
+#define HID_TRANSPORT_MAX_INTERFACE PAIR_DB_MAX_DEVICE
 #define HID_TRANSPORT_PROTOCOL_UNKNOWN 0U
 #define HID_TRANSPORT_PROTOCOL_BOOT 1U
 #define HID_TRANSPORT_PROTOCOL_REPORT 2U
@@ -48,5 +49,27 @@ typedef struct {
     uint16_t report_len;
     uint8_t report[HID_TRANSPORT_REPORT_MAX_LEN];
 } hid_transport_usb_tx_t;
+
+typedef struct {
+    uint16_t report_descriptor_len;
+    uint8_t protocol_mode;
+} hid_transport_usb_interface_plan_t;
+
+typedef struct {
+    bool valid;
+    pair_device_id_t device_id;
+} hid_transport_reconnect_request_t;
+
+typedef struct {
+    uint8_t bt_state;
+    uint8_t active_device_count;
+    uint8_t usb_interface_count;
+    uint8_t usb_tx_depth;
+    uint8_t bt_tx_depth;
+    uint8_t usb_tx_high_watermark;
+    uint8_t bt_tx_high_watermark;
+    uint32_t usb_tx_dropped;
+    uint32_t bt_tx_dropped;
+} hid_transport_diag_snapshot_t;
 
 #endif
