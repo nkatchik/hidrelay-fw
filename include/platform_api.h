@@ -24,6 +24,7 @@ typedef struct {
     hid_transport_diag_snapshot_t diag;
     hid_transport_usb_tx_t usb_tx;
     hid_transport_bt_tx_t bt_tx;
+    bool factory_reset_requested;
 } platform_output_t;
 
 bool platform_init(void);

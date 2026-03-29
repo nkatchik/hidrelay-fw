@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "hardware/watchdog.h"
 #include "pico/stdlib.h"
 #include "platform_api.h"
 #include "platform_pico_w_hw.h"
@@ -159,6 +160,15 @@ static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
     g_last_diag_valid = true;
 }
 
+static void pico_w_factory_reset(void) {
+    (void)pico_w_pair_store_factory_reset_all();
+    watchdog_reboot(0U, 0U, 0U);
+
+    for (;;) {
+        tight_loop_contents();
+    }
+}
+
 bool platform_init(void) {
     stdio_init_all();
     pico_w_state_reset(&g_state);
@@ -225,6 +235,11 @@ void platform_apply(const platform_output_t * output) {
             output->bt_tx.report,
             output->bt_tx.report_len
         );
+    }
+
+    if (output->factory_reset_requested) {
+        pico_w_factory_reset();
+        return;
     }
 
     pico_w_diag_publish(&output->diag);

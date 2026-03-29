@@ -13,7 +13,8 @@ enum {
     APP_RECONNECT_STACK_NOT_READY_RETRY_MS = 3000U,
     APP_RECONNECT_FAIL_DISABLE_THRESHOLD = 8U,
     APP_REMOVE_LAST_BLINK_COUNT = 1U,
-    APP_FACTORY_RESET_BLINK_COUNT = 3U
+    APP_FACTORY_RESET_BLINK_COUNT = 3U,
+    APP_FACTORY_RESET_SEQUENCE_MS = 2600U
 };
 
 static led_ui_state_t app_led_state_from_bt_state(bt_manager_state_t bt_state) {
@@ -253,6 +254,8 @@ void app_init(
     app->reconnect_failure_count = 0U;
     app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_NONE;
     app->reconnect_last_status_code = 0U;
+    app->factory_reset_armed = false;
+    app->factory_reset_due_ms = 0U;
 }
 
 void app_tick(
@@ -288,6 +291,8 @@ void app_tick(
     } else if (command == BUTTON_COMMAND_REMOVE_ALL) {
         (void)bt_manager_remove_all(&app->bt_manager);
         led_ui_trigger_long_blink(&app->led_ui, APP_FACTORY_RESET_BLINK_COUNT, input->now_ms);
+        app->factory_reset_armed = true;
+        app->factory_reset_due_ms = input->now_ms + APP_FACTORY_RESET_SEQUENCE_MS;
     }
 
     app_handle_transport_event(app, input);
@@ -344,6 +349,7 @@ void app_tick(
     }
 
     output->reconnect_request.valid = false;
+    output->factory_reset_requested = false;
     (void)memset(
         &output->reconnect_request.device_id,
         0,
@@ -409,5 +415,12 @@ void app_tick(
     output->diag.reconnect_failure_count = app->reconnect_failure_count;
     output->diag.reconnect_last_result = app->reconnect_last_result;
     output->diag.reconnect_last_status_code = app->reconnect_last_status_code;
+
+    if (app->factory_reset_armed && (input->now_ms >= app->factory_reset_due_ms)) {
+        output->factory_reset_requested = true;
+        app->factory_reset_armed = false;
+        app->factory_reset_due_ms = 0U;
+    }
+
     output->pair_db_dirty = memcmp(&pair_db_before, &app->pair_db, sizeof(pair_db_before)) != 0;
 }

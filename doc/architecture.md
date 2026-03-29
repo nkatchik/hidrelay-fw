@@ -102,12 +102,14 @@ Pico-specific linkage is isolated under this directory.
 - Platform glue now records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio.
 - Diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
 - BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
+- Factory reset command now erases Pair DB + BTstack persistence sectors and reboots after the LED cue sequence.
 
 ## Diagnostics Transport
 
 - Source: app emits `hid_transport_diag_snapshot_t` each tick through `platform_output_t`.
 - Queue: platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
 - Host path: TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
+- Host capture helper: `tool/diag_capture.c` decodes CDC frames into CSV for offline analysis.
 - Framing:
   - `magic`: `0x48 0x52` (`'H' 'R'`)
   - `version`: `1`
@@ -135,6 +137,7 @@ No global Pico SDK or global Arm cross toolchain is required.
 - On boot, `platform_pair_db_load` seeds app state if the stored blob validates.
 - On Pair DB mutation, the main loop calls `platform_pair_db_save`.
 - Current on-flash schema version is `3`; schema mismatches fall back to an empty DB.
+- Factory reset erases the Pair DB sector and BTstack TLV sectors together, then reboots to clear runtime stack state.
 
 ## Resource Cleanup Policy
 
@@ -162,5 +165,5 @@ Additional style constraints in this repository:
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
 2. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
 3. Extend descriptor handling beyond fallback policy into explicit report translation/remapping for host edge cases.
-4. Define host-side CDC diagnostics tooling/protocol docs for long-run captures.
+4. Add soak-test runbook guidance around CDC diagnostics capture and trend analysis.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

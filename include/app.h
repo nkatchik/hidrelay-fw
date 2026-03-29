@@ -36,6 +36,7 @@ typedef struct {
     hid_transport_usb_tx_t usb_tx;
     hid_transport_bt_tx_t bt_tx;
     bool pair_db_dirty;
+    bool factory_reset_requested;
 } app_output_t;
 
 typedef struct {
@@ -52,6 +53,8 @@ typedef struct {
     uint32_t reconnect_failure_count;
     uint8_t reconnect_last_result;
     uint8_t reconnect_last_status_code;
+    bool factory_reset_armed;
+    uint32_t factory_reset_due_ms;
 } app_t;
 
 void app_init(

@@ -11,7 +11,7 @@ TOOLCHAIN_FILE := $(APP_CACHE_DIR)/toolchain/$(APP_PLATFORM).cmake
 CMAKE ?= cmake
 HOST_CC ?= gcc
 
-.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean tool-cache-probe
+.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean tool-cache-probe tool-diag-capture
 
 help:
 	@printf '%s\n' \
@@ -24,7 +24,8 @@ help:
 		'  make build             - Build firmware for APP_PLATFORM' \
 		'  make clean             - Remove build directory for APP_PLATFORM' \
 		'  make distclean         - Remove all local build/cache artifacts' \
-		'  make tool-cache-probe  - Build host-side cleanup demonstration tool'
+		'  make tool-cache-probe  - Build host-side cleanup demonstration tool' \
+		'  make tool-diag-capture - Build host-side CDC diagnostics capture tool'
 
 platform-list:
 	@find "$(APP_SOURCE_DIR)/platform" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort
@@ -64,7 +65,14 @@ distclean:
 
 tool-cache-probe: build/tool/cache_probe
 
+tool-diag-capture: build/tool/diag_capture
+
 build/tool/cache_probe: tool/cache_probe.c src/util/cleanup.c include/util/cleanup.h
 	@mkdir -p build/tool
 	@$(HOST_CC) -std=c17 -Wall -Wextra -Wpedantic -Iinclude \
 		tool/cache_probe.c src/util/cleanup.c -o build/tool/cache_probe
+
+build/tool/diag_capture: tool/diag_capture.c src/util/cleanup.c include/util/cleanup.h
+	@mkdir -p build/tool
+	@$(HOST_CC) -std=c17 -Wall -Wextra -Wpedantic -Iinclude \
+		tool/diag_capture.c src/util/cleanup.c -o build/tool/diag_capture

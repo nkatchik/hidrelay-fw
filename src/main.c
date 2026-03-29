@@ -28,6 +28,7 @@ int main(void) {
         .bt_tx =
             {.valid = false, .hid_cid = 0U, .protocol_mode = 0U, .report_len = 0U, .report = {0}},
         .pair_db_dirty = false,
+        .factory_reset_requested = false,
     };
 
     if (!platform_init()) {
@@ -63,6 +64,7 @@ int main(void) {
         platform_output.diag = app_output.diag;
         platform_output.usb_tx = app_output.usb_tx;
         platform_output.bt_tx = app_output.bt_tx;
+        platform_output.factory_reset_requested = app_output.factory_reset_requested;
 
         platform_apply(&platform_output);
 

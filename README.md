@@ -32,6 +32,7 @@ Current implementation is a buildable skeleton with:
 - queue backpressure telemetry with drop counters/high-water marks
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
 - flash-backed pair database persistence with session metadata (schema v3, sector reserved ahead of BTstack flash banks)
+- factory reset path that erases Pair DB and BTstack key material from flash after the 3-blink cue, then reboots
 - BOOTSEL button command FSM for:
   - pair-any
   - remove-last
@@ -91,6 +92,7 @@ When stack options are enabled:
 - one queued report per tick is forwarded in each direction via `usb_bridge`
 - queue saturation drops oldest pending reports and updates telemetry counters
 - diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
+- factory reset now clears Pair DB + BTstack persisted security data and triggers reboot
 
 ## Repository Layout
 
@@ -100,6 +102,7 @@ When stack options are enabled:
 - `src/` - platform-agnostic firmware logic
 - `platform/` - platform-specific glue (`platform/pico_w/` now)
 - `tool/` - host-side helper code (`cache_probe` cleanup demo)
+- `tool/` - host-side helper code (`cache_probe`, `diag_capture`)
 
 Generated/downloaded artifacts are local and git-ignored:
 
@@ -119,6 +122,7 @@ LED behavior:
 - pairing mode blinks at 1Hz while active (up to 60s timeout)
 - remove-last success: one long blink
 - factory reset: three long blinks
+- after the three blinks complete, firmware erases all persisted pairing/security state and reboots
 
 ## Diagnostics CDC Frame
 
@@ -145,6 +149,13 @@ When TinyUSB is enabled, diagnostics snapshots are streamed on CDC interface `0`
   - `u32 reconnect_success_count`
   - `u32 reconnect_failure_count`
 
+Capture and decode frames to CSV on host:
+
+```sh
+make tool-diag-capture
+build/tool/diag_capture --device /dev/tty.usbmodemXXXX --baud 115200 --output diag.csv
+```
+
 ## Coding Rules
 
 Project-owned C code uses `__attribute__((cleanup(...)))` for resource disposal.
@@ -164,4 +175,4 @@ Next implementation steps:
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - add key migration/rotation and recovery controls for persisted Bluetooth security material
 - extend descriptor handling from policy-only fallback into explicit report translation/remapping for host edge cases
-- define host-side tooling/protocol docs for long-run CDC diagnostics capture
+- add long-run soak/runbook guidance for CDC diagnostics capture analysis

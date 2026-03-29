@@ -18,6 +18,7 @@ enum {
     PICO_W_PAIR_STORE_VERSION = 3U,
     PICO_W_PAIR_STORE_FLASH_OFFSET =
         PICO_FLASH_SIZE_BYTES - PICO_W_BTSTACK_FLASH_BANK_TOTAL_SIZE - FLASH_SECTOR_SIZE,
+    PICO_W_FACTORY_RESET_ERASE_LEN = FLASH_SECTOR_SIZE + PICO_W_BTSTACK_FLASH_BANK_TOTAL_SIZE,
 };
 
 typedef struct {
@@ -45,6 +46,17 @@ static uint32_t pico_w_pair_store_checksum(
     }
 
     return hash;
+}
+
+static void pico_w_pair_store_erase_range(
+    uint32_t flash_offset,
+    uint32_t flash_len
+) {
+    uint32_t irq_state = 0U;
+
+    irq_state = save_and_disable_interrupts();
+    flash_range_erase(flash_offset, flash_len);
+    restore_interrupts(irq_state);
 }
 
 static bool pico_w_pair_store_blob_valid(const pico_w_pair_store_blob_t * blob) {
@@ -110,5 +122,10 @@ bool pico_w_pair_store_save(const pair_db_t * db) {
     flash_range_erase(PICO_W_PAIR_STORE_FLASH_OFFSET, FLASH_SECTOR_SIZE);
     flash_range_program(PICO_W_PAIR_STORE_FLASH_OFFSET, flash_buffer, FLASH_SECTOR_SIZE);
     restore_interrupts(irq_state);
+    return true;
+}
+
+bool pico_w_pair_store_factory_reset_all(void) {
+    pico_w_pair_store_erase_range(PICO_W_PAIR_STORE_FLASH_OFFSET, PICO_W_FACTORY_RESET_ERASE_LEN);
     return true;
 }
