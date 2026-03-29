@@ -132,14 +132,16 @@ Implemented now:
 - reconnect retry policy with per-device backoff windows and timeout-based failure classification
 - reconnect outcome signaling from platform stack (stack reject/connect/auth result classes)
 - reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure disable)
+- reconnect escalation threshold disables auto-reconnect after repeated connect/timeout failures
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage (structural sanitization + generic fallback)
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state
 - runtime bridge/pairing diagnostics emitted on state change via stdio log lines (including reconnect counters/result + status code)
+- structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`)
 
 Still pending for production behavior:
 
 - per-device USB HID descriptor translation/sanitization policy beyond structural guardrails
 - persistent Bluetooth key-management lifecycle (store/restore/rotate)
-- structured diagnostics/export transport beyond stdio log output
-- reconnect retry policy tuning for production thresholds/escalation behavior
+- host-visible diagnostics transport for structured queue output (USB CDC/vendor endpoint)
+- reconnect retry policy tuning using long-run telemetry and deployment data
 - command UX refinement and full failure-recovery handling

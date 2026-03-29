@@ -31,5 +31,6 @@ void platform_poll(platform_input_t * input);
 void platform_apply(const platform_output_t * output);
 bool platform_pair_db_load(pair_db_t * db);
 bool platform_pair_db_save(const pair_db_t * db);
+bool platform_diag_take(hid_transport_diag_snapshot_t * out_diag);
 
 #endif

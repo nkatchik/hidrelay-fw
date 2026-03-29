@@ -11,6 +11,7 @@ enum {
     APP_RECONNECT_MAX_BACKOFF_SHIFT = 6U,
     APP_RECONNECT_STACK_REJECT_RETRY_MS = 1000U,
     APP_RECONNECT_STACK_NOT_READY_RETRY_MS = 3000U,
+    APP_RECONNECT_FAIL_DISABLE_THRESHOLD = 8U,
     APP_REMOVE_LAST_BLINK_COUNT = 1U,
     APP_FACTORY_RESET_BLINK_COUNT = 3U
 };
@@ -128,6 +129,10 @@ static void app_reconnect_mark_failure(
         || (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED)) {
         if (fail_count < UINT8_MAX) {
             fail_count = (uint8_t)(fail_count + 1U);
+        }
+
+        if (fail_count >= APP_RECONNECT_FAIL_DISABLE_THRESHOLD) {
+            disable_reconnect = true;
         }
 
         retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);

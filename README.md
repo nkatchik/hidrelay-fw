@@ -23,9 +23,10 @@ Current implementation is a buildable skeleton with:
 - reconnect policy with multi-device candidate selection, per-device backoff, and timeout-based failure classification
 - explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure disables auto-reconnect)
+- reconnect escalation threshold disables auto-reconnect after repeated connect/timeout failures
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with structural sanitization checks and generic fallback
 - explicit SSP/PIN confirmation handling gated by pairing mode
-- runtime diagnostic snapshots for pairing/bridge telemetry (including reconnect counters/result + status code, stdio log stream)
+- runtime diagnostics available as structured snapshots via `platform_diag_take(...)`, with optional stdio mirror
 - queue backpressure telemetry with drop counters/high-water marks
 - flash-backed pair database persistence with session metadata (schema v3, last sector of on-board flash)
 - BOOTSEL button command FSM for:
@@ -129,7 +130,7 @@ See:
 
 Next implementation steps:
 
-- export richer diagnostics via a structured interface (instead of stdio-only line logs)
 - persist and restore Bluetooth link/security keys as part of Pair DB lifecycle
 - expand descriptor translation/sanitization policy beyond current structural checks
-- tune reconnect policy thresholds and escalation behavior for production reliability
+- expose structured diagnostics queue over a host-visible transport (USB CDC/vendor endpoint)
+- tune reconnect policy thresholds/escalation with long-run device telemetry

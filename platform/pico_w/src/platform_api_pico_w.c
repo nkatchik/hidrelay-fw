@@ -12,8 +12,37 @@
 static pico_w_state_t g_state = {
     .initialized = false,
 };
+enum {
+    PICO_W_DIAG_QUEUE_SIZE = 16U,
+};
 static hid_transport_diag_snapshot_t g_last_diag = {0};
 static bool g_last_diag_valid = false;
+static hid_transport_diag_snapshot_t g_diag_queue[PICO_W_DIAG_QUEUE_SIZE] = {0};
+static uint8_t g_diag_queue_head = 0U;
+static uint8_t g_diag_queue_tail = 0U;
+static uint8_t g_diag_queue_count = 0U;
+
+static void pico_w_diag_queue_reset(void) {
+    (void)memset(g_diag_queue, 0, sizeof(g_diag_queue));
+    g_diag_queue_head = 0U;
+    g_diag_queue_tail = 0U;
+    g_diag_queue_count = 0U;
+}
+
+static void pico_w_diag_queue_push(const hid_transport_diag_snapshot_t * diag) {
+    if (diag == NULL) {
+        return;
+    }
+
+    if (g_diag_queue_count >= PICO_W_DIAG_QUEUE_SIZE) {
+        g_diag_queue_head = (uint8_t)((g_diag_queue_head + 1U) % PICO_W_DIAG_QUEUE_SIZE);
+        g_diag_queue_count = (uint8_t)(g_diag_queue_count - 1U);
+    }
+
+    g_diag_queue[g_diag_queue_tail] = *diag;
+    g_diag_queue_tail = (uint8_t)((g_diag_queue_tail + 1U) % PICO_W_DIAG_QUEUE_SIZE);
+    g_diag_queue_count = (uint8_t)(g_diag_queue_count + 1U);
+}
 
 static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
     if (diag == NULL) {
@@ -23,6 +52,8 @@ static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
     if (g_last_diag_valid && (memcmp(&g_last_diag, diag, sizeof(*diag)) == 0)) {
         return;
     }
+
+    pico_w_diag_queue_push(diag);
 
     printf(
         "[diag] bt_state=%u active=%u usb_itf=%u usb_q=%u bt_q=%u usb_drop=%lu bt_drop=%lu "
@@ -48,6 +79,9 @@ static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
 bool platform_init(void) {
     stdio_init_all();
     pico_w_state_reset(&g_state);
+    pico_w_diag_queue_reset();
+    g_last_diag_valid = false;
+    (void)memset(&g_last_diag, 0, sizeof(g_last_diag));
 
     if (!pico_w_hw_init_radio()) {
         return false;
@@ -130,4 +164,18 @@ bool platform_pair_db_save(const pair_db_t * db) {
     }
 
     return pico_w_pair_store_save(db);
+}
+
+bool platform_diag_take(hid_transport_diag_snapshot_t * out_diag) {
+    if ((out_diag == NULL)
+        || !pico_w_state_is_initialized(&g_state)
+        || (g_diag_queue_count == 0U)) {
+        return false;
+    }
+
+    *out_diag = g_diag_queue[g_diag_queue_head];
+    (void)memset(&g_diag_queue[g_diag_queue_head], 0, sizeof(g_diag_queue[g_diag_queue_head]));
+    g_diag_queue_head = (uint8_t)((g_diag_queue_head + 1U) % PICO_W_DIAG_QUEUE_SIZE);
+    g_diag_queue_count = (uint8_t)(g_diag_queue_count - 1U);
+    return true;
 }
