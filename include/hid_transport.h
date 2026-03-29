@@ -7,13 +7,18 @@
 #include "pair_db.h"
 
 #define HID_TRANSPORT_REPORT_MAX_LEN 64U
+#define HID_TRANSPORT_PROTOCOL_UNKNOWN 0U
+#define HID_TRANSPORT_PROTOCOL_BOOT 1U
+#define HID_TRANSPORT_PROTOCOL_REPORT 2U
 
 typedef enum {
     HID_TRANSPORT_EVENT_NONE = 0,
     HID_TRANSPORT_EVENT_BT_HID_OPEN,
     HID_TRANSPORT_EVENT_BT_HID_CLOSE,
     HID_TRANSPORT_EVENT_BT_HID_REPORT,
-    HID_TRANSPORT_EVENT_USB_HID_REPORT
+    HID_TRANSPORT_EVENT_USB_HID_REPORT,
+    HID_TRANSPORT_EVENT_BT_HID_DESCRIPTOR,
+    HID_TRANSPORT_EVENT_BT_HID_PROTOCOL
 } hid_transport_event_type_t;
 
 typedef struct {
@@ -23,6 +28,7 @@ typedef struct {
     uint16_t vendor_id;
     uint16_t product_id;
     uint16_t report_descriptor_len;
+    uint8_t protocol_mode;
     uint16_t report_len;
     uint8_t report[HID_TRANSPORT_REPORT_MAX_LEN];
     uint8_t interface_number;
@@ -31,6 +37,7 @@ typedef struct {
 typedef struct {
     bool valid;
     uint16_t hid_cid;
+    uint8_t protocol_mode;
     uint16_t report_len;
     uint8_t report[HID_TRANSPORT_REPORT_MAX_LEN];
 } hid_transport_bt_tx_t;

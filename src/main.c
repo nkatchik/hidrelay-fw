@@ -9,11 +9,18 @@ int main(void) {
     const bool has_initial_pair_db = platform_pair_db_load(&initial_pair_db);
     app_output_t app_output = {
         .led_on = false,
+        .pairing_active = false,
         .sleep_ms = 10U,
         .usb_interface_count = 0U,
         .usb_descriptor_generation = 0U,
+        .usb_tx_queue_depth = 0U,
+        .bt_tx_queue_depth = 0U,
+        .usb_tx_queue_high_watermark = 0U,
+        .bt_tx_queue_high_watermark = 0U,
+        .usb_tx_dropped = 0U,
+        .bt_tx_dropped = 0U,
         .usb_tx = { .valid = false, .interface_number = 0U, .report_len = 0U, .report = {0} },
-        .bt_tx = { .valid = false, .hid_cid = 0U, .report_len = 0U, .report = {0} },
+        .bt_tx = { .valid = false, .hid_cid = 0U, .protocol_mode = 0U, .report_len = 0U, .report = {0} },
         .pair_db_dirty = false,
     };
 
@@ -37,6 +44,7 @@ int main(void) {
         app_tick(&app, &app_input, &app_output);
 
         platform_output.led_on = app_output.led_on;
+        platform_output.pairing_active = app_output.pairing_active;
         platform_output.sleep_ms = app_output.sleep_ms;
         platform_output.usb_interface_count = app_output.usb_interface_count;
         platform_output.usb_descriptor_generation = app_output.usb_descriptor_generation;

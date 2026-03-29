@@ -14,11 +14,14 @@ Current implementation is a buildable skeleton with:
 - platform-selectable CMake layout (auto-discovers from `platform/<name>/`)
 - app event loop and module boundaries for future HID bridging
 - optional Pico W stack bring-up for BTstack + TinyUSB with local config headers
-- BT manager active-HID session model with BTstack event ingestion (`bt_manager_ingest_hid_open/close`)
+- BT manager active-HID session model with BTstack event ingestion (`bt_manager_ingest_hid_*`)
 - USB bridge interface-plan model with descriptor generation tracking and bounded report queues
 - TinyUSB configuration descriptor composition for 0..8 HID interfaces
-- bidirectional report path skeleton (`BT HID report` -> USB IN, `USB OUT report` -> BT HID set-report)
-- flash-backed pair database persistence (last sector of on-board flash)
+- bidirectional report path skeleton (`BT HID report` -> USB IN, `USB OUT report` -> BT HID protocol-aware send)
+- pair-any discovery/connect flow using BT inquiry and HID connect (pairing mode gated)
+- per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
+- queue backpressure telemetry with drop counters/high-water marks
+- flash-backed pair database persistence with session metadata (last sector of on-board flash)
 - BOOTSEL button command FSM for:
   - pair-any
   - remove-last
@@ -62,9 +65,12 @@ When stack options are enabled:
 
 - `platform_pico_w_stack` initializes BTstack and TinyUSB
 - BTstack HID open/close/report events are bridged into common app transport events
+- BTstack HID descriptor/protocol events are bridged into common app transport events
 - TinyUSB `set_report` callbacks are bridged into common app transport events
+- pair-any state drives BT inquiry/connection attempts with class-of-device filtering
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 - one queued report per tick is forwarded in each direction via `usb_bridge`
+- queue saturation drops oldest pending reports and updates telemetry counters
 
 ## Repository Layout
 
@@ -110,7 +116,7 @@ See:
 
 Next implementation steps:
 
-- move pair-any from pairing-state-only behavior to real BT discovery/connect flow and security policy
-- switch from generic HID report templates to per-device descriptor/protocol handling
-- improve queue/backpressure behavior and telemetry under high report rates
-- persist active-session metadata needed for reconnect policy across reboots
+- use persisted session metadata to drive automatic reconnect policy on boot and disconnect
+- replace generic USB HID report descriptor template with per-device descriptor export strategy
+- enrich BT security policy with explicit user-confirmation handling and key-management policy
+- add runtime diagnostics/export path for bridge telemetry and pairing lifecycle events

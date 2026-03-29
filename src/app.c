@@ -58,7 +58,16 @@ static void app_handle_transport_event(app_t *app, const app_input_t *input) {
                                          input->now_ms);
         break;
     case HID_TRANSPORT_EVENT_BT_HID_CLOSE:
-        (void)bt_manager_ingest_hid_close(&app->bt_manager, event->hid_cid);
+        (void)bt_manager_ingest_hid_close(&app->bt_manager, event->hid_cid, input->now_ms);
+        break;
+    case HID_TRANSPORT_EVENT_BT_HID_DESCRIPTOR:
+        (void)bt_manager_ingest_hid_descriptor(&app->bt_manager,
+                                               event->hid_cid,
+                                               event->report_descriptor_len,
+                                               input->now_ms);
+        break;
+    case HID_TRANSPORT_EVENT_BT_HID_PROTOCOL:
+        (void)bt_manager_ingest_hid_protocol(&app->bt_manager, event->hid_cid, event->protocol_mode, input->now_ms);
         break;
     case HID_TRANSPORT_EVENT_BT_HID_REPORT:
         (void)usb_bridge_ingest_bt_report(&app->usb_bridge, event->hid_cid, event->report, event->report_len);
@@ -91,6 +100,7 @@ void app_init(app_t *app, const pair_db_t *initial_pair_db) {
 void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
     button_command_t command = BUTTON_COMMAND_NONE;
     pair_db_t pair_db_before = {0};
+    usb_bridge_telemetry_t bridge_telemetry = {0};
 
     if ((app == NULL) || (input == NULL) || (output == NULL)) {
         return;
@@ -118,10 +128,18 @@ void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
     led_ui_set_state(&app->led_ui, app_led_state_from_bt_state(bt_manager_state(&app->bt_manager)), input->now_ms);
 
     output->led_on = led_ui_tick(&app->led_ui, input->now_ms);
+    output->pairing_active = bt_manager_state(&app->bt_manager) == BT_MANAGER_STATE_PAIRING;
     output->sleep_ms = APP_DEFAULT_SLEEP_MS;
     output->usb_interface_count = usb_bridge_interface_count(&app->usb_bridge);
     output->usb_descriptor_generation = usb_bridge_descriptor_generation(&app->usb_bridge);
     output->usb_tx.valid = usb_bridge_take_usb_tx(&app->usb_bridge, &output->usb_tx);
     output->bt_tx.valid = usb_bridge_take_bt_tx(&app->usb_bridge, &output->bt_tx);
+    (void)usb_bridge_telemetry_get(&app->usb_bridge, &bridge_telemetry);
+    output->usb_tx_queue_depth = bridge_telemetry.usb_tx_depth;
+    output->bt_tx_queue_depth = bridge_telemetry.bt_tx_depth;
+    output->usb_tx_queue_high_watermark = bridge_telemetry.usb_tx_high_watermark;
+    output->bt_tx_queue_high_watermark = bridge_telemetry.bt_tx_high_watermark;
+    output->usb_tx_dropped = bridge_telemetry.usb_tx_dropped;
+    output->bt_tx_dropped = bridge_telemetry.bt_tx_dropped;
     output->pair_db_dirty = memcmp(&pair_db_before, &app->pair_db, sizeof(pair_db_before)) != 0;
 }

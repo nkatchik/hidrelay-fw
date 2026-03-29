@@ -51,6 +51,7 @@ void platform_apply(const platform_output_t *output) {
     }
 
     pico_w_stack_set_usb_plan(output->usb_interface_count, output->usb_descriptor_generation);
+    pico_w_stack_set_pairing_active(output->pairing_active);
 
     if (output->usb_tx.valid) {
         (void)pico_w_stack_send_usb_report(output->usb_tx.interface_number,
@@ -59,7 +60,10 @@ void platform_apply(const platform_output_t *output) {
     }
 
     if (output->bt_tx.valid) {
-        (void)pico_w_stack_send_bt_report(output->bt_tx.hid_cid, output->bt_tx.report, output->bt_tx.report_len);
+        (void)pico_w_stack_send_bt_report(output->bt_tx.hid_cid,
+                                          output->bt_tx.protocol_mode,
+                                          output->bt_tx.report,
+                                          output->bt_tx.report_len);
     }
 
     pico_w_hw_set_led(output->led_on);

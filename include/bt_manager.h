@@ -21,6 +21,7 @@ typedef struct {
     uint16_t vendor_id;
     uint16_t product_id;
     uint16_t report_descriptor_len;
+    uint8_t protocol_mode;
 } bt_hid_device_t;
 
 typedef struct {
@@ -43,7 +44,9 @@ bool bt_manager_ingest_hid_open(bt_manager_t *manager,
                                 uint16_t product_id,
                                 uint16_t report_descriptor_len,
                                 uint32_t now_ms);
-bool bt_manager_ingest_hid_close(bt_manager_t *manager, uint16_t hid_cid);
+bool bt_manager_ingest_hid_close(bt_manager_t *manager, uint16_t hid_cid, uint32_t now_ms);
+bool bt_manager_ingest_hid_descriptor(bt_manager_t *manager, uint16_t hid_cid, uint16_t report_descriptor_len, uint32_t now_ms);
+bool bt_manager_ingest_hid_protocol(bt_manager_t *manager, uint16_t hid_cid, uint8_t protocol_mode, uint32_t now_ms);
 void bt_manager_tick(bt_manager_t *manager, uint32_t now_ms);
 bt_manager_state_t bt_manager_state(const bt_manager_t *manager);
 uint8_t bt_manager_active_count(const bt_manager_t *manager);

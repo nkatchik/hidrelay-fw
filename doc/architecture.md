@@ -25,15 +25,16 @@ Common logic never imports Pico-specific SDK headers.
 - `led_ui`:
   - provides user-facing LED state behavior independent from GPIO details
 - `pair_db`:
-  - in-memory paired-device store abstraction, including per-device paired timestamp metadata
+  - paired-device store abstraction with paired timestamp and last-session metadata (descriptor length, protocol mode, vendor/product IDs, reconnect flag)
   - persisted on Pico W in a flash-backed blob through platform pair-store hooks
 - `bt_manager`:
   - Bluetooth management API with pairing lifecycle and active HID session model
-  - exposes event-ingest hooks for HID open/close (`bt_manager_ingest_hid_open/close`)
+  - exposes event-ingest hooks for HID open/close/descriptor/protocol updates
 - `usb_bridge`:
   - USB-facing interface plan derived from active BT HID sessions
   - tracks descriptor generation for dynamic USB descriptor rebuild triggers
   - holds bounded routing queues for BT->USB and USB->BT HID reports
+  - tracks queue depth/high-water/drop telemetry for backpressure visibility
 - `platform_api`:
   - platform boundary: init, poll inputs, apply outputs
 
@@ -76,8 +77,10 @@ Pico-specific linkage is isolated under this directory.
 - `usb_bridge` composes a per-interface plan from active sessions and increments descriptor generation on topology changes.
 - TinyUSB descriptor callbacks now build a configuration descriptor dynamically (0..8 HID interfaces).
 - BTstack HID open/close/report events are now translated into app transport events.
+- BTstack HID descriptor/protocol events are now translated into app transport events.
 - TinyUSB output report callbacks are now translated into app transport events.
-- App and bridge now route queued reports in both directions (one dequeued report per direction per tick).
+- App and bridge now route queued reports in both directions (one dequeued report per direction per tick) with protocol-aware BT transmission.
+- Pair-any mode now drives real BT inquiry/connect attempts under a class-of-device filter and pairing-mode gating.
 
 ## Build/Bootstrap Model
 
@@ -97,6 +100,7 @@ No global Pico SDK or global Arm cross toolchain is required.
 - Pico W implementation stores this blob in the last flash sector (`PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE`).
 - On boot, `platform_pair_db_load` seeds app state if the stored blob validates.
 - On Pair DB mutation, the main loop calls `platform_pair_db_save`.
+- Current on-flash schema version is `2`; schema mismatches fall back to an empty DB.
 
 ## Resource Cleanup Policy
 
@@ -121,8 +125,8 @@ Additional style constraints in this repository:
 
 ## Planned Bridging Flow (Next Iteration)
 
-1. Replace pair-any placeholder semantics with actual BT discovery, connect, and acceptance policy.
-2. Move from generic report handling to per-device descriptor/protocol-aware bridging.
-3. Add queue/backpressure instrumentation and recovery strategy for bursty traffic.
-4. Persist active-session metadata needed for reconnect policy across reboots.
+1. Use persisted session metadata to drive reconnect attempts on boot/disconnect.
+2. Replace generic USB HID report descriptor template with per-device descriptor export strategy.
+3. Add explicit SSP/user-confirmation policy hooks and key-management controls.
+4. Expose bridge telemetry and pairing lifecycle state through a debug/status interface.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

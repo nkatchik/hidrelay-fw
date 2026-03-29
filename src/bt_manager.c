@@ -5,6 +5,7 @@
 
 enum {
     BT_MANAGER_PAIRING_TIMEOUT_MS = 60000U,
+    BT_MANAGER_PROTOCOL_UNKNOWN = 0U,
 };
 
 static bool bt_manager_device_id_equal(const pair_device_id_t *lhs, const pair_device_id_t *rhs) {
@@ -70,19 +71,7 @@ static bool bt_manager_pair_db_contains(const pair_db_t *pair_db, const pair_dev
         return false;
     }
 
-    for (index = 0U; index < pair_db_count(pair_db); index++) {
-        pair_device_id_t existing = {0};
-
-        if (!pair_db_get(pair_db, index, &existing)) {
-            continue;
-        }
-
-        if (bt_manager_device_id_equal(&existing, device_id)) {
-            return true;
-        }
-    }
-
-    return false;
+    return pair_db_find(pair_db, device_id, &index);
 }
 
 static void bt_manager_remove_active_index(bt_manager_t *manager, uint8_t index) {
@@ -188,6 +177,7 @@ bool bt_manager_ingest_hid_open(bt_manager_t *manager,
                                 uint32_t now_ms) {
     bt_hid_device_t *slot = NULL;
     uint8_t existing_index = 0U;
+    bool known_device = false;
 
     if ((manager == NULL) || (manager->pair_db == NULL) || (device_id == NULL)) {
         return false;
@@ -197,12 +187,26 @@ bool bt_manager_ingest_hid_open(bt_manager_t *manager,
         return false;
     }
 
+    known_device = bt_manager_pair_db_contains(manager->pair_db, device_id);
+
+    if (!known_device && (manager->state != BT_MANAGER_STATE_PAIRING)) {
+        return false;
+    }
+
     if (bt_manager_find_active_index_by_hid_cid(manager, hid_cid, &existing_index)) {
         slot = &manager->active_device[existing_index];
         slot->device_id = *device_id;
         slot->vendor_id = vendor_id;
         slot->product_id = product_id;
         slot->report_descriptor_len = report_descriptor_len;
+        slot->protocol_mode = BT_MANAGER_PROTOCOL_UNKNOWN;
+        (void)pair_db_touch_session(manager->pair_db,
+                                    device_id,
+                                    now_ms,
+                                    vendor_id,
+                                    product_id,
+                                    report_descriptor_len,
+                                    slot->protocol_mode);
         manager->pairing_started_ms = 0U;
         manager->state = BT_MANAGER_STATE_ACTIVE;
         return true;
@@ -214,6 +218,14 @@ bool bt_manager_ingest_hid_open(bt_manager_t *manager,
         slot->vendor_id = vendor_id;
         slot->product_id = product_id;
         slot->report_descriptor_len = report_descriptor_len;
+        slot->protocol_mode = BT_MANAGER_PROTOCOL_UNKNOWN;
+        (void)pair_db_touch_session(manager->pair_db,
+                                    device_id,
+                                    now_ms,
+                                    vendor_id,
+                                    product_id,
+                                    report_descriptor_len,
+                                    slot->protocol_mode);
         manager->pairing_started_ms = 0U;
         manager->state = BT_MANAGER_STATE_ACTIVE;
         return true;
@@ -224,8 +236,7 @@ bool bt_manager_ingest_hid_open(bt_manager_t *manager,
         return false;
     }
 
-    if (!bt_manager_pair_db_contains(manager->pair_db, device_id) &&
-        !pair_db_add(manager->pair_db, device_id, now_ms)) {
+    if (!known_device && !pair_db_add(manager->pair_db, device_id, now_ms)) {
         manager->state = BT_MANAGER_STATE_ERROR;
         return false;
     }
@@ -236,17 +247,26 @@ bool bt_manager_ingest_hid_open(bt_manager_t *manager,
     slot->vendor_id = vendor_id;
     slot->product_id = product_id;
     slot->report_descriptor_len = report_descriptor_len;
+    slot->protocol_mode = BT_MANAGER_PROTOCOL_UNKNOWN;
 
     manager->active_count = (uint8_t)(manager->active_count + 1U);
+    (void)pair_db_touch_session(manager->pair_db,
+                                device_id,
+                                now_ms,
+                                vendor_id,
+                                product_id,
+                                report_descriptor_len,
+                                slot->protocol_mode);
     manager->pairing_started_ms = 0U;
     manager->state = BT_MANAGER_STATE_ACTIVE;
     return true;
 }
 
-bool bt_manager_ingest_hid_close(bt_manager_t *manager, uint16_t hid_cid) {
+bool bt_manager_ingest_hid_close(bt_manager_t *manager, uint16_t hid_cid, uint32_t now_ms) {
     uint8_t index = 0U;
+    bt_hid_device_t closed_device = {0};
 
-    if ((manager == NULL) || (hid_cid == 0U)) {
+    if ((manager == NULL) || (manager->pair_db == NULL) || (hid_cid == 0U)) {
         return false;
     }
 
@@ -254,9 +274,63 @@ bool bt_manager_ingest_hid_close(bt_manager_t *manager, uint16_t hid_cid) {
         return false;
     }
 
+    closed_device = manager->active_device[index];
+    (void)pair_db_touch_session(manager->pair_db,
+                                &closed_device.device_id,
+                                now_ms,
+                                closed_device.vendor_id,
+                                closed_device.product_id,
+                                closed_device.report_descriptor_len,
+                                closed_device.protocol_mode);
     bt_manager_remove_active_index(manager, index);
     bt_manager_refresh_state(manager);
     return true;
+}
+
+bool bt_manager_ingest_hid_descriptor(bt_manager_t *manager, uint16_t hid_cid, uint16_t report_descriptor_len, uint32_t now_ms) {
+    uint8_t index = 0U;
+    bt_hid_device_t *device = NULL;
+
+    if ((manager == NULL) || (manager->pair_db == NULL) || (hid_cid == 0U)) {
+        return false;
+    }
+
+    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, &index)) {
+        return false;
+    }
+
+    device = &manager->active_device[index];
+    device->report_descriptor_len = report_descriptor_len;
+    return pair_db_touch_session(manager->pair_db,
+                                 &device->device_id,
+                                 now_ms,
+                                 device->vendor_id,
+                                 device->product_id,
+                                 device->report_descriptor_len,
+                                 device->protocol_mode);
+}
+
+bool bt_manager_ingest_hid_protocol(bt_manager_t *manager, uint16_t hid_cid, uint8_t protocol_mode, uint32_t now_ms) {
+    uint8_t index = 0U;
+    bt_hid_device_t *device = NULL;
+
+    if ((manager == NULL) || (manager->pair_db == NULL) || (hid_cid == 0U)) {
+        return false;
+    }
+
+    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, &index)) {
+        return false;
+    }
+
+    device = &manager->active_device[index];
+    device->protocol_mode = protocol_mode;
+    return pair_db_touch_session(manager->pair_db,
+                                 &device->device_id,
+                                 now_ms,
+                                 device->vendor_id,
+                                 device->product_id,
+                                 device->report_descriptor_len,
+                                 device->protocol_mode);
 }
 
 void bt_manager_tick(bt_manager_t *manager, uint32_t now_ms) {
