@@ -21,7 +21,8 @@ Current implementation is a buildable skeleton with:
 - pair-any discovery/connect flow using BT inquiry and HID connect (pairing mode gated)
 - per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
 - reconnect policy with multi-device candidate selection, per-device backoff, and timeout-based failure classification
-- per-interface TinyUSB report descriptor export from BTstack HID descriptor storage (generic fallback when unavailable)
+- explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
+- per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with baseline sanitization gate and generic fallback
 - explicit SSP/PIN confirmation handling gated by pairing mode
 - runtime diagnostic snapshots for pairing/bridge telemetry (including reconnect counters/result code, stdio log stream)
 - queue backpressure telemetry with drop counters/high-water marks
@@ -74,6 +75,7 @@ When stack options are enabled:
 - pair-any state drives BT inquiry/connection attempts with class-of-device filtering
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 - app reconnect requests now run through per-device backoff windows and timeout tracking
+- reconnect result events are emitted from stack paths (immediate reject/connect/auth outcomes)
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
@@ -125,5 +127,5 @@ Next implementation steps:
 
 - export richer diagnostics via a structured interface (instead of stdio-only line logs)
 - persist and restore Bluetooth link/security keys as part of Pair DB lifecycle
-- add descriptor translation/sanitization policy for host-compatibility edge cases
-- add explicit reconnect outcome signaling from platform stack (e.g. immediate reject/auth failure classes)
+- expand descriptor translation/sanitization policy beyond the current baseline gate
+- refine reconnect retry policy per failure class (backoff/disable/escalation rules)

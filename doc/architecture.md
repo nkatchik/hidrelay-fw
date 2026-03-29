@@ -88,7 +88,8 @@ Pico-specific linkage is isolated under this directory.
 - App now emits reconnect requests from persisted Pair DB metadata when idle, with per-device backoff windows.
 - Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
 - App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
-- TinyUSB report descriptor callbacks now export per-interface descriptors directly from BTstack HID descriptor storage when available.
+- Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
+- TinyUSB report descriptor callbacks now export per-interface descriptors directly from BTstack HID descriptor storage when available, with a baseline sanitization gate.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - Platform glue publishes state-change diagnostics for bridge/pairing telemetry via stdio logs.
 
@@ -135,8 +136,8 @@ Additional style constraints in this repository:
 
 ## Planned Bridging Flow (Next Iteration)
 
-1. Add descriptor translation/sanitization policy for host-compatibility edge cases.
+1. Expand descriptor translation/sanitization policy for host-compatibility edge cases.
 2. Persist and restore Bluetooth security/link keys together with Pair DB lifecycle.
 3. Promote diagnostics from stdio logs to a structured debug/status transport.
-4. Add reconnect outcome signaling from platform stack (immediate reject/auth failure classes).
+4. Refine reconnect retry policy per failure class (backoff/disable/escalation rules).
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

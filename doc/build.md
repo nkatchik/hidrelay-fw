@@ -130,14 +130,15 @@ Implemented now:
 - flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`) with session metadata schema v3
 - pair-any inquiry/connect flow gated by pairing state and class-of-device policy
 - reconnect retry policy with per-device backoff windows and timeout-based failure classification
-- per-interface TinyUSB report descriptor export from BTstack HID descriptor storage (generic fallback)
+- reconnect outcome signaling from platform stack (stack reject/connect/auth result classes)
+- per-interface TinyUSB report descriptor export from BTstack HID descriptor storage (baseline sanitization + generic fallback)
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state
 - runtime bridge/pairing diagnostics emitted on state change via stdio log lines (including reconnect counters/result code)
 
 Still pending for production behavior:
 
-- per-device USB HID descriptor translation/sanitization for host-compatibility edge cases
+- per-device USB HID descriptor translation/sanitization policy beyond baseline guardrails
 - persistent Bluetooth key-management lifecycle (store/restore/rotate)
 - structured diagnostics/export transport beyond stdio log output
-- reconnect outcome signaling beyond timeout classes (e.g. immediate reject/auth failure)
+- reconnect retry policy tuning per failure class (backoff/disable/escalation)
 - command UX refinement and full failure-recovery handling

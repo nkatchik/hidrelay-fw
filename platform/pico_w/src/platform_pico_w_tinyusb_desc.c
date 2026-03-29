@@ -17,6 +17,8 @@ enum {
     HIDRELAY_HID_EP_INTERVAL_MS = 4U,
     HIDRELAY_STRING_LIMIT = 31U,
     HIDRELAY_MAX_INTERFACE = 8U,
+    HIDRELAY_REPORT_DESC_MIN_LEN = 4U,
+    HIDRELAY_REPORT_DESC_MAX_LEN = 1024U,
     HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN = 9U,
     HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U
 };
@@ -46,6 +48,18 @@ static const uint8_t g_hid_report_desc_generic[] = {
     TUD_HID_REPORT_DESC_GENERIC_INOUT(HIDRELAY_HID_EP_SIZE)
 };
 
+static bool hidrelay_report_descriptor_supported(const uint8_t *descriptor, uint16_t descriptor_len) {
+    if (descriptor == NULL) {
+        return false;
+    }
+
+    if ((descriptor_len < HIDRELAY_REPORT_DESC_MIN_LEN) || (descriptor_len > HIDRELAY_REPORT_DESC_MAX_LEN)) {
+        return false;
+    }
+
+    return descriptor[0] != 0U;
+}
+
 static uint8_t const *hidrelay_report_descriptor_for_interface(uint8_t instance, uint16_t *out_len) {
     uint16_t ignored_len = 0U;
     uint16_t *effective_len = out_len;
@@ -57,7 +71,7 @@ static uint8_t const *hidrelay_report_descriptor_for_interface(uint8_t instance,
 
     descriptor = pico_w_stack_usb_report_descriptor(instance, effective_len);
 
-    if ((descriptor != NULL) && (*effective_len > 0U)) {
+    if (hidrelay_report_descriptor_supported(descriptor, *effective_len)) {
         return descriptor;
     }
 

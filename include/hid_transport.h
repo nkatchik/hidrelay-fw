@@ -16,6 +16,9 @@
 #define HID_TRANSPORT_RECONNECT_RESULT_SUCCESS 2U
 #define HID_TRANSPORT_RECONNECT_RESULT_TIMEOUT 3U
 #define HID_TRANSPORT_RECONNECT_RESULT_NO_CANDIDATE 4U
+#define HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED 5U
+#define HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED 6U
+#define HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED 7U
 
 typedef enum {
     HID_TRANSPORT_EVENT_NONE = 0,
@@ -24,7 +27,8 @@ typedef enum {
     HID_TRANSPORT_EVENT_BT_HID_REPORT,
     HID_TRANSPORT_EVENT_USB_HID_REPORT,
     HID_TRANSPORT_EVENT_BT_HID_DESCRIPTOR,
-    HID_TRANSPORT_EVENT_BT_HID_PROTOCOL
+    HID_TRANSPORT_EVENT_BT_HID_PROTOCOL,
+    HID_TRANSPORT_EVENT_RECONNECT_RESULT
 } hid_transport_event_type_t;
 
 typedef struct {
@@ -35,6 +39,8 @@ typedef struct {
     uint16_t product_id;
     uint16_t report_descriptor_len;
     uint8_t protocol_mode;
+    uint8_t reconnect_result;
+    uint8_t status_code;
     uint16_t report_len;
     uint8_t report[HID_TRANSPORT_REPORT_MAX_LEN];
     uint8_t interface_number;

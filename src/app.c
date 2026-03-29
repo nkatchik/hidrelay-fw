@@ -84,13 +84,14 @@ static void app_reconnect_mark_success(app_t *app, const pair_device_id_t *devic
     app_reconnect_clear_inflight(app);
 }
 
-static void app_reconnect_mark_timeout(app_t *app, uint32_t now_ms) {
+static void app_reconnect_mark_failure(app_t *app, uint8_t reconnect_result, uint32_t now_ms) {
     uint8_t index = 0U;
     pair_db_entry_t entry = {0};
     uint8_t fail_count = 1U;
     uint32_t retry_after_ms = now_ms;
 
-    if ((app == NULL) || !app->reconnect_inflight) {
+    if ((app == NULL) || !app->reconnect_inflight || (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_NONE) ||
+        (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_REQUESTED)) {
         return;
     }
 
@@ -105,7 +106,7 @@ static void app_reconnect_mark_timeout(app_t *app, uint32_t now_ms) {
     retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
     (void)pair_db_mark_reconnect_failure(&app->pair_db, &app->reconnect_device_id, fail_count, retry_after_ms);
     app->reconnect_failure_count = app->reconnect_failure_count + 1U;
-    app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_TIMEOUT;
+    app->reconnect_last_result = reconnect_result;
     app_reconnect_clear_inflight(app);
 }
 
@@ -149,6 +150,7 @@ static void app_handle_transport_event(app_t *app, const app_input_t *input) {
                                            event->report,
                                            event->report_len);
         break;
+    case HID_TRANSPORT_EVENT_RECONNECT_RESULT:
     case HID_TRANSPORT_EVENT_NONE:
     default:
         break;
@@ -209,6 +211,15 @@ void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
         app_reconnect_mark_success(app, &input->transport_event.device_id, input->now_ms);
     }
 
+    if (app->reconnect_inflight && (input->transport_event.type == HID_TRANSPORT_EVENT_RECONNECT_RESULT) &&
+        app_device_id_equal(&input->transport_event.device_id, &app->reconnect_device_id)) {
+        if (input->transport_event.reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_SUCCESS) {
+            app_reconnect_mark_success(app, &input->transport_event.device_id, input->now_ms);
+        } else {
+            app_reconnect_mark_failure(app, input->transport_event.reconnect_result, input->now_ms);
+        }
+    }
+
     bt_manager_tick(&app->bt_manager, input->now_ms);
     usb_bridge_sync_from_bt_manager(&app->usb_bridge, &app->bt_manager);
     usb_bridge_tick(&app->usb_bridge, input->now_ms);
@@ -247,7 +258,7 @@ void app_tick(app_t *app, const app_input_t *input, app_output_t *output) {
 
     if ((bt_state == BT_MANAGER_STATE_IDLE) && (output->active_device_count == 0U)) {
         if (app->reconnect_inflight && ((input->now_ms - app->reconnect_started_ms) >= APP_RECONNECT_TIMEOUT_MS)) {
-            app_reconnect_mark_timeout(app, input->now_ms);
+            app_reconnect_mark_failure(app, HID_TRANSPORT_RECONNECT_RESULT_TIMEOUT, input->now_ms);
         }
 
         if (!app->reconnect_inflight && pair_db_get_reconnect_candidate(&app->pair_db, input->now_ms, &reconnect_candidate)) {
