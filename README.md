@@ -24,7 +24,8 @@ Current implementation is a buildable skeleton with:
 - explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure disables auto-reconnect)
 - reconnect escalation threshold disables auto-reconnect after repeated connect/timeout failures
-- per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with structural sanitization checks and generic fallback
+- shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
+- per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - explicit SSP/PIN confirmation handling gated by pairing mode
 - runtime diagnostics available as structured snapshots via `platform_diag_take(...)`, with optional stdio mirror
 - queue backpressure telemetry with drop counters/high-water marks
@@ -83,6 +84,7 @@ When stack options are enabled:
 - reconnect result events are emitted from stack paths (immediate reject/connect/auth outcomes)
 - app reconnect failure handling now applies per-result retry policy updates
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
+- descriptor acceptance/fallback now runs through shared policy checks, with boot-profile fallback descriptors for incompatible boot-mode reports
 - BTstack key material and LE device records persist via TLV flash storage
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
@@ -132,7 +134,7 @@ See:
 
 Next implementation steps:
 
-- expand descriptor translation/sanitization policy beyond current structural checks
 - expose structured diagnostics queue over a host-visible transport (USB CDC/vendor endpoint)
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - add key migration/rotation and recovery controls for persisted Bluetooth security material
+- extend descriptor handling from policy-only fallback into explicit report translation/remapping for host edge cases

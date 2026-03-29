@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "hid_report_policy.h"
 #include "platform_pico_w_stack.h"
 #include "tusb.h"
 
@@ -17,10 +18,6 @@ enum {
     HIDRELAY_HID_EP_INTERVAL_MS = 4U,
     HIDRELAY_STRING_LIMIT = 31U,
     HIDRELAY_MAX_INTERFACE = 8U,
-    HIDRELAY_REPORT_DESC_MIN_LEN = 4U,
-    HIDRELAY_REPORT_DESC_MAX_LEN = 1024U,
-    HIDRELAY_REPORT_DESC_MAX_COLLECTION_DEPTH = 16U,
-    HIDRELAY_REPORT_DESC_MAX_FIELD_BITS = 8192U,
     HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN = 9U,
     HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U
 };
@@ -51,116 +48,155 @@ static const uint8_t g_hid_report_desc_generic[] = {
     TUD_HID_REPORT_DESC_GENERIC_INOUT(HIDRELAY_HID_EP_SIZE)
 };
 
-static uint32_t hidrelay_report_descriptor_read_u32(
-    const uint8_t * data,
-    uint8_t len
+static const uint8_t g_hid_report_desc_boot_keyboard[] = {
+    0x05U,
+    0x01U,
+    0x09U,
+    0x06U,
+    0xA1U,
+    0x01U,
+    0x05U,
+    0x07U,
+    0x19U,
+    0xE0U,
+    0x29U,
+    0xE7U,
+    0x15U,
+    0x00U,
+    0x25U,
+    0x01U,
+    0x75U,
+    0x01U,
+    0x95U,
+    0x08U,
+    0x81U,
+    0x02U,
+    0x95U,
+    0x01U,
+    0x75U,
+    0x08U,
+    0x81U,
+    0x01U,
+    0x95U,
+    0x05U,
+    0x75U,
+    0x01U,
+    0x05U,
+    0x08U,
+    0x19U,
+    0x01U,
+    0x29U,
+    0x05U,
+    0x91U,
+    0x02U,
+    0x95U,
+    0x01U,
+    0x75U,
+    0x03U,
+    0x91U,
+    0x01U,
+    0x95U,
+    0x06U,
+    0x75U,
+    0x08U,
+    0x15U,
+    0x00U,
+    0x25U,
+    0x65U,
+    0x05U,
+    0x07U,
+    0x19U,
+    0x00U,
+    0x29U,
+    0x65U,
+    0x81U,
+    0x00U,
+    0xC0U
+};
+
+static const uint8_t g_hid_report_desc_boot_mouse[] = {
+    0x05U,
+    0x01U,
+    0x09U,
+    0x02U,
+    0xA1U,
+    0x01U,
+    0x09U,
+    0x01U,
+    0xA1U,
+    0x00U,
+    0x05U,
+    0x09U,
+    0x19U,
+    0x01U,
+    0x29U,
+    0x03U,
+    0x15U,
+    0x00U,
+    0x25U,
+    0x01U,
+    0x95U,
+    0x03U,
+    0x75U,
+    0x01U,
+    0x81U,
+    0x02U,
+    0x95U,
+    0x01U,
+    0x75U,
+    0x05U,
+    0x81U,
+    0x01U,
+    0x05U,
+    0x01U,
+    0x09U,
+    0x30U,
+    0x09U,
+    0x31U,
+    0x09U,
+    0x38U,
+    0x15U,
+    0x81U,
+    0x25U,
+    0x7FU,
+    0x75U,
+    0x08U,
+    0x95U,
+    0x03U,
+    0x81U,
+    0x06U,
+    0xC0U,
+    0xC0U
+};
+
+static const uint8_t * hidrelay_fallback_report_descriptor(
+    hid_report_descriptor_source_t source,
+    uint16_t * out_len
 ) {
-    uint32_t value = 0U;
-
-    if ((data == NULL) || (len == 0U) || (len > 4U)) {
-        return 0U;
+    if (out_len == NULL) {
+        return NULL;
     }
 
-    for (uint8_t index = 0U; index < len; index++) {
-        value |= ((uint32_t)data[index]) << (index * 8U);
+    if (source == HID_REPORT_DESCRIPTOR_SOURCE_FALLBACK_BOOT_KEYBOARD) {
+        *out_len = (uint16_t)sizeof(g_hid_report_desc_boot_keyboard);
+        return g_hid_report_desc_boot_keyboard;
     }
 
-    return value;
-}
-
-static bool hidrelay_report_descriptor_supported(
-    const uint8_t * descriptor,
-    uint16_t descriptor_len
-) {
-    uint16_t offset = 0U;
-    uint8_t collection_depth = 0U;
-    bool has_application_collection = false;
-    uint32_t report_size = 0U;
-    uint32_t report_count = 0U;
-
-    if (descriptor == NULL) {
-        return false;
+    if (source == HID_REPORT_DESCRIPTOR_SOURCE_FALLBACK_BOOT_MOUSE) {
+        *out_len = (uint16_t)sizeof(g_hid_report_desc_boot_mouse);
+        return g_hid_report_desc_boot_mouse;
     }
 
-    if ((descriptor_len < HIDRELAY_REPORT_DESC_MIN_LEN)
-        || (descriptor_len > HIDRELAY_REPORT_DESC_MAX_LEN)) {
-        return false;
-    }
-
-    while (offset < descriptor_len) {
-        const uint8_t prefix = descriptor[offset++];
-        uint8_t data_len = 0U;
-        uint8_t item_type = 0U;
-        uint8_t item_tag = 0U;
-
-        if (prefix == 0xFEU) {
-            return false;
-        }
-
-        data_len = (uint8_t)(prefix & 0x03U);
-        if (data_len == 3U) {
-            data_len = 4U;
-        }
-
-        item_type = (uint8_t)((prefix >> 2U) & 0x03U);
-        item_tag = (uint8_t)((prefix >> 4U) & 0x0FU);
-
-        if ((uint16_t)(offset + data_len) > descriptor_len) {
-            return false;
-        }
-
-        if (item_type == 0U) {
-            if (item_tag == 0x0AU) {
-                if (data_len != 1U) {
-                    return false;
-                }
-
-                if (descriptor[offset] == 0x01U) {
-                    has_application_collection = true;
-                }
-
-                if (collection_depth >= HIDRELAY_REPORT_DESC_MAX_COLLECTION_DEPTH) {
-                    return false;
-                }
-
-                collection_depth = (uint8_t)(collection_depth + 1U);
-            } else if (item_tag == 0x0CU) {
-                if (data_len != 0U) {
-                    return false;
-                }
-
-                if (collection_depth == 0U) {
-                    return false;
-                }
-
-                collection_depth = (uint8_t)(collection_depth - 1U);
-            }
-        } else if (item_type == 1U) {
-            if (item_tag == 0x07U) {
-                report_size = hidrelay_report_descriptor_read_u32(&descriptor[offset], data_len);
-            } else if (item_tag == 0x09U) {
-                report_count = hidrelay_report_descriptor_read_u32(&descriptor[offset], data_len);
-            }
-
-            if ((report_size > 0U) && (report_count > 0U)) {
-                if ((report_size > HIDRELAY_REPORT_DESC_MAX_FIELD_BITS)
-                    || (report_count > HIDRELAY_REPORT_DESC_MAX_FIELD_BITS)
-                    || (report_count > (HIDRELAY_REPORT_DESC_MAX_FIELD_BITS / report_size))) {
-                    return false;
-                }
-            }
-        }
-
-        offset = (uint16_t)(offset + data_len);
-    }
-
-    return (collection_depth == 0U) && has_application_collection;
+    *out_len = (uint16_t)sizeof(g_hid_report_desc_generic);
+    return g_hid_report_desc_generic;
 }
 
 static uint8_t const * hidrelay_report_descriptor_for_interface(
     uint8_t instance,
     uint16_t * out_len
 ) {
+    hid_report_policy_decision_t decision = {0};
+    uint8_t protocol_mode = HID_TRANSPORT_PROTOCOL_UNKNOWN;
     uint16_t ignored_len = 0U;
     uint16_t * effective_len = out_len;
     const uint8_t * descriptor = NULL;
@@ -170,13 +206,14 @@ static uint8_t const * hidrelay_report_descriptor_for_interface(
     }
 
     descriptor = pico_w_stack_usb_report_descriptor(instance, effective_len);
+    protocol_mode = pico_w_stack_usb_protocol_mode(instance);
+    hid_report_policy_decide(descriptor, *effective_len, protocol_mode, &decision);
 
-    if (hidrelay_report_descriptor_supported(descriptor, *effective_len)) {
+    if (decision.source == HID_REPORT_DESCRIPTOR_SOURCE_NATIVE) {
         return descriptor;
     }
 
-    *effective_len = (uint16_t)sizeof(g_hid_report_desc_generic);
-    return g_hid_report_desc_generic;
+    return hidrelay_fallback_report_descriptor(decision.source, effective_len);
 }
 
 static void hidrelay_descriptor_put_u16(

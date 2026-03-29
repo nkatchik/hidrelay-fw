@@ -37,6 +37,10 @@ Common logic never imports Pico-specific SDK headers.
   - tracks descriptor generation for dynamic USB descriptor rebuild triggers
   - holds bounded routing queues for BT->USB and USB->BT HID reports
   - tracks queue depth/high-water/drop telemetry for backpressure visibility
+- `hid_report_policy`:
+  - shared HID report-descriptor acceptance/fallback policy
+  - enforces structural and compatibility guardrails before descriptor exposure to USB host
+  - classifies fallback profile (boot keyboard, boot mouse, generic) when native descriptors are rejected
 - `platform_api`:
   - platform boundary: init, poll inputs, apply outputs
   - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
@@ -92,7 +96,8 @@ Pico-specific linkage is isolated under this directory.
 - Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
 - App reconnect policy now applies per-result handling (transient stack reject retry, connect-failure backoff, auth-failure disable).
 - App reconnect policy now escalates to auto-reconnect disable after repeated connect/timeout failures.
-- TinyUSB report descriptor callbacks now export per-interface descriptors directly from BTstack HID descriptor storage when available, with structural sanitization checks.
+- TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
+- Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - Platform glue now records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio.
 - BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
@@ -142,8 +147,8 @@ Additional style constraints in this repository:
 
 ## Planned Bridging Flow (Next Iteration)
 
-1. Expand descriptor translation/sanitization policy beyond current structural checks for host-compatibility edge cases.
-2. Expose structured diagnostics queue over a host-visible transport path (USB CDC/vendor endpoint).
-3. Tune reconnect retry thresholds/escalation with long-run field telemetry.
-4. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
+1. Expose structured diagnostics queue over a host-visible transport path (USB CDC/vendor endpoint).
+2. Tune reconnect retry thresholds/escalation with long-run field telemetry.
+3. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
+4. Extend descriptor handling beyond fallback policy into explicit report translation/remapping for host edge cases.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

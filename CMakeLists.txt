@@ -30,6 +30,7 @@ add_library(hidrelay_core STATIC
     src/led_ui.c
     src/pair_db.c
     src/bt_manager.c
+    src/hid_report_policy.c
     src/usb_bridge.c
     src/util/cleanup.c
 )
