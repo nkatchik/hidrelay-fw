@@ -4,13 +4,18 @@
 #include <string.h>
 
 #ifdef APP_PICO_HAS_BTSTACK
+#include "ble/le_device_db_tlv.h"
 #include "ble/sm.h"
 #include "btstack_event.h"
+#include "btstack_tlv.h"
+#include "btstack_tlv_flash_bank.h"
+#include "classic/btstack_link_key_db_tlv.h"
 #include "classic/hid_host.h"
 #include "gap.h"
 #include "hci.h"
 #include "l2cap.h"
 #include "pico/btstack_cyw43.h"
+#include "pico/btstack_flash_bank.h"
 #include "pico/cyw43_arch.h"
 #endif
 
@@ -50,6 +55,7 @@ static bool pico_w_stack_push_event(const hid_transport_event_t * event) {
 
 #ifdef APP_PICO_HAS_BTSTACK
 static uint8_t g_btstack_hid_descriptor_storage[1024] = {0};
+static btstack_tlv_flash_bank_t g_btstack_tlv_flash_bank_context = {0};
 static btstack_packet_callback_registration_t g_btstack_hci_event_callback_registration = {0};
 static bool g_btstack_hci_ready = false;
 static bool g_btstack_pairing_active = false;
@@ -461,6 +467,8 @@ bool pico_w_stack_init(void) {
 
 #ifdef APP_PICO_HAS_BTSTACK
     async_context_t * context = cyw43_arch_async_context();
+    const hal_flash_bank_t * flash_bank = pico_flash_bank_instance();
+    const btstack_tlv_t * tlv_impl = NULL;
 
     g_btstack_hci_ready = false;
     g_btstack_pairing_active = false;
@@ -469,12 +477,19 @@ bool pico_w_stack_init(void) {
     g_btstack_reconnect_pending = false;
     (void)memset(g_btstack_candidate_addr, 0, sizeof(g_btstack_candidate_addr));
 
-    if ((context == NULL) || !btstack_cyw43_init(context)) {
+    if ((context == NULL) || (flash_bank == NULL) || !btstack_cyw43_init(context)) {
         return false;
     }
 
     l2cap_init();
     sm_init();
+    tlv_impl =
+        btstack_tlv_flash_bank_init_instance(&g_btstack_tlv_flash_bank_context, flash_bank, NULL);
+    btstack_tlv_set_instance(tlv_impl, &g_btstack_tlv_flash_bank_context);
+    hci_set_link_key_db(
+        btstack_link_key_db_tlv_get_instance(tlv_impl, &g_btstack_tlv_flash_bank_context)
+    );
+    le_device_db_tlv_configure(tlv_impl, &g_btstack_tlv_flash_bank_context);
     gap_set_bondable_mode(1);
     (void)gap_set_security_mode(GAP_SECURITY_MODE_4);
     gap_set_security_level(LEVEL_2);

@@ -28,7 +28,8 @@ Current implementation is a buildable skeleton with:
 - explicit SSP/PIN confirmation handling gated by pairing mode
 - runtime diagnostics available as structured snapshots via `platform_diag_take(...)`, with optional stdio mirror
 - queue backpressure telemetry with drop counters/high-water marks
-- flash-backed pair database persistence with session metadata (schema v3, last sector of on-board flash)
+- BTstack TLV-backed key persistence for classic link keys and LE device DB
+- flash-backed pair database persistence with session metadata (schema v3, sector reserved ahead of BTstack flash banks)
 - BOOTSEL button command FSM for:
   - pair-any
   - remove-last
@@ -82,6 +83,7 @@ When stack options are enabled:
 - reconnect result events are emitted from stack paths (immediate reject/connect/auth outcomes)
 - app reconnect failure handling now applies per-result retry policy updates
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
+- BTstack key material and LE device records persist via TLV flash storage
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
 - queue saturation drops oldest pending reports and updates telemetry counters
@@ -130,7 +132,7 @@ See:
 
 Next implementation steps:
 
-- persist and restore Bluetooth link/security keys as part of Pair DB lifecycle
 - expand descriptor translation/sanitization policy beyond current structural checks
 - expose structured diagnostics queue over a host-visible transport (USB CDC/vendor endpoint)
 - tune reconnect policy thresholds/escalation with long-run device telemetry
+- add key migration/rotation and recovery controls for persisted Bluetooth security material

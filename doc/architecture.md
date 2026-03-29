@@ -95,6 +95,7 @@ Pico-specific linkage is isolated under this directory.
 - TinyUSB report descriptor callbacks now export per-interface descriptors directly from BTstack HID descriptor storage when available, with structural sanitization checks.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - Platform glue now records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio.
+- BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
 
 ## Build/Bootstrap Model
 
@@ -111,7 +112,9 @@ No global Pico SDK or global Arm cross toolchain is required.
 ## Pair DB Persistence
 
 - Pair DB is serialized into a fixed blob format with magic/version/checksum.
-- Pico W implementation stores this blob in the last flash sector (`PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE`).
+- Pico W implementation stores this blob in a dedicated sector ahead of BTstack storage
+  (`PICO_FLASH_SIZE_BYTES - PICO_W_BTSTACK_FLASH_BANK_TOTAL_SIZE - FLASH_SECTOR_SIZE`).
+- BTstack TLV persistence uses two sectors at the end of flash for link-key and LE device data.
 - On boot, `platform_pair_db_load` seeds app state if the stored blob validates.
 - On Pair DB mutation, the main loop calls `platform_pair_db_save`.
 - Current on-flash schema version is `3`; schema mismatches fall back to an empty DB.
@@ -140,7 +143,7 @@ Additional style constraints in this repository:
 ## Planned Bridging Flow (Next Iteration)
 
 1. Expand descriptor translation/sanitization policy beyond current structural checks for host-compatibility edge cases.
-2. Persist and restore Bluetooth security/link keys together with Pair DB lifecycle.
-3. Expose structured diagnostics queue over a host-visible transport path (USB CDC/vendor endpoint).
-4. Tune reconnect retry thresholds/escalation with long-run field telemetry.
+2. Expose structured diagnostics queue over a host-visible transport path (USB CDC/vendor endpoint).
+3. Tune reconnect retry thresholds/escalation with long-run field telemetry.
+4. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.
