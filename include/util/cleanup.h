@@ -13,8 +13,8 @@
 #define UTIL_SCOPED_FILE UTIL_CLEANUP(util_cleanup_filep)
 #define UTIL_SCOPED_FD UTIL_CLEANUP(util_cleanup_fdp)
 
-void util_cleanup_freep(void *pointer_location);
-void util_cleanup_filep(FILE **file_pointer);
-void util_cleanup_fdp(int *fd_pointer);
+void util_cleanup_freep(void * pointer_location);
+void util_cleanup_filep(FILE ** file_pointer);
+void util_cleanup_fdp(int * fd_pointer);
 
 #endif

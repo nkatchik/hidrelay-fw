@@ -1,12 +1,11 @@
 #include "platform_pico_w_hw.h"
 
-#include "pico/cyw43_arch.h"
-#include "pico/stdlib.h"
-
 #include "hardware/regs/io_qspi.h"
 #include "hardware/structs/ioqspi.h"
 #include "hardware/structs/sio.h"
 #include "hardware/sync.h"
+#include "pico/cyw43_arch.h"
+#include "pico/stdlib.h"
 
 enum {
     PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX = 1U
@@ -20,20 +19,24 @@ static bool __no_inline_not_in_flash_func(pico_w_hw_bootsel_pressed_impl)(void) 
     const uint32_t irq_state = save_and_disable_interrupts();
     bool pressed = false;
 
-    hw_write_masked(&ioqspi_hw->io[PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX].ctrl,
-                    (uint32_t)(IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_VALUE_DISABLE
-                               << IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_LSB),
-                    IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_BITS);
+    hw_write_masked(
+        &ioqspi_hw->io[PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX].ctrl,
+        (uint32_t)(IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_VALUE_DISABLE
+            << IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_LSB),
+        IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_BITS
+    );
 
     for (volatile uint32_t delay = 0U; delay < 128U; delay++) {
     }
 
     pressed = (sio_hw->gpio_hi_in & (1u << PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX)) == 0U;
 
-    hw_write_masked(&ioqspi_hw->io[PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX].ctrl,
-                    (uint32_t)(IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_VALUE_NORMAL
-                               << IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_LSB),
-                    IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_BITS);
+    hw_write_masked(
+        &ioqspi_hw->io[PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX].ctrl,
+        (uint32_t)(IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_VALUE_NORMAL
+            << IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_LSB),
+        IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_BITS
+    );
 
     restore_interrupts(irq_state);
     return pressed;

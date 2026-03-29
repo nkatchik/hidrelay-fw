@@ -8,7 +8,7 @@ enum {
     BUTTON_VERY_LONG_PRESS_MS = 10000U
 };
 
-void button_fsm_init(button_fsm_t *fsm) {
+void button_fsm_init(button_fsm_t * fsm) {
     if (fsm == NULL) {
         return;
     }
@@ -20,7 +20,11 @@ void button_fsm_init(button_fsm_t *fsm) {
     fsm->first_long_released_ms = 0U;
 }
 
-button_command_t button_fsm_update(button_fsm_t *fsm, bool pressed, uint32_t now_ms) {
+button_command_t button_fsm_update(
+    button_fsm_t * fsm,
+    bool pressed,
+    uint32_t now_ms
+) {
     if (fsm == NULL) {
         return BUTTON_COMMAND_NONE;
     }
@@ -50,8 +54,8 @@ button_command_t button_fsm_update(button_fsm_t *fsm, bool pressed, uint32_t now
         }
 
         if (press_duration_ms >= BUTTON_LONG_PRESS_MIN_MS) {
-            if (fsm->pending_long_press &&
-                ((now_ms - fsm->first_long_released_ms) <= BUTTON_DOUBLE_LONG_WINDOW_MS)) {
+            if (fsm->pending_long_press
+                && ((now_ms - fsm->first_long_released_ms) <= BUTTON_DOUBLE_LONG_WINDOW_MS)) {
                 fsm->pending_long_press = false;
                 return BUTTON_COMMAND_REMOVE_LAST;
             }

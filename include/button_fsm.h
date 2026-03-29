@@ -19,7 +19,11 @@ typedef struct {
     uint32_t first_long_released_ms;
 } button_fsm_t;
 
-void button_fsm_init(button_fsm_t *fsm);
-button_command_t button_fsm_update(button_fsm_t *fsm, bool pressed, uint32_t now_ms);
+void button_fsm_init(button_fsm_t * fsm);
+button_command_t button_fsm_update(
+    button_fsm_t * fsm,
+    bool pressed,
+    uint32_t now_ms
+);
 
 #endif

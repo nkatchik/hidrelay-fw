@@ -11,13 +11,14 @@ TOOLCHAIN_FILE := $(APP_CACHE_DIR)/toolchain/$(APP_PLATFORM).cmake
 CMAKE ?= cmake
 HOST_CC ?= gcc
 
-.PHONY: help platform-list bootstrap configure build clean distclean tool-cache-probe
+.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean tool-cache-probe
 
 help:
 	@printf '%s\n' \
 		'hidrelay-fw helper targets:' \
 		'  make help              - Show this help text' \
 		'  make platform-list     - List discovered platform targets' \
+		'  make git-hooks-bootstrap   - Configure local git hooks path (.githooks)' \
 		'  make bootstrap         - Download/cache SDK/toolchain for APP_PLATFORM' \
 		'  make configure         - Generate CMake build tree (runs bootstrap first)' \
 		'  make build             - Build firmware for APP_PLATFORM' \
@@ -28,7 +29,14 @@ help:
 platform-list:
 	@find "$(APP_SOURCE_DIR)/platform" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort
 
-bootstrap:
+git-hooks-bootstrap:
+	@if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		$(APP_SOURCE_DIR)/.githooks/bootstrap; \
+	else \
+		echo 'Skipping git hooks bootstrap (not a git worktree)'; \
+	fi
+
+bootstrap: git-hooks-bootstrap
 	@if [ -z "$(APP_PLATFORM)" ]; then \
 		echo 'No platform target found under platform/'; \
 		exit 2; \

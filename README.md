@@ -40,6 +40,8 @@ make bootstrap
 make build
 ```
 
+`make bootstrap` now also configures local git hooks (`core.hooksPath=.githooks`) when run inside a git worktree.
+
 Show discovered targets:
 
 ```sh

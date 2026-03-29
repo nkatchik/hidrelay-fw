@@ -25,8 +25,9 @@ enum {
     HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U
 };
 
-static uint8_t g_config_desc[HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN +
-                             (HIDRELAY_MAX_INTERFACE * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)] = {0};
+static uint8_t g_config_desc
+    [HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
+        + (HIDRELAY_MAX_INTERFACE * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)] = {0};
 static uint16_t g_config_desc_len = HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN;
 
 static const tusb_desc_device_t g_device_desc = {
@@ -50,7 +51,10 @@ static const uint8_t g_hid_report_desc_generic[] = {
     TUD_HID_REPORT_DESC_GENERIC_INOUT(HIDRELAY_HID_EP_SIZE)
 };
 
-static uint32_t hidrelay_report_descriptor_read_u32(const uint8_t *data, uint8_t len) {
+static uint32_t hidrelay_report_descriptor_read_u32(
+    const uint8_t * data,
+    uint8_t len
+) {
     uint32_t value = 0U;
 
     if ((data == NULL) || (len == 0U) || (len > 4U)) {
@@ -64,7 +68,10 @@ static uint32_t hidrelay_report_descriptor_read_u32(const uint8_t *data, uint8_t
     return value;
 }
 
-static bool hidrelay_report_descriptor_supported(const uint8_t *descriptor, uint16_t descriptor_len) {
+static bool hidrelay_report_descriptor_supported(
+    const uint8_t * descriptor,
+    uint16_t descriptor_len
+) {
     uint16_t offset = 0U;
     uint8_t collection_depth = 0U;
     bool has_application_collection = false;
@@ -75,7 +82,8 @@ static bool hidrelay_report_descriptor_supported(const uint8_t *descriptor, uint
         return false;
     }
 
-    if ((descriptor_len < HIDRELAY_REPORT_DESC_MIN_LEN) || (descriptor_len > HIDRELAY_REPORT_DESC_MAX_LEN)) {
+    if ((descriptor_len < HIDRELAY_REPORT_DESC_MIN_LEN)
+        || (descriptor_len > HIDRELAY_REPORT_DESC_MAX_LEN)) {
         return false;
     }
 
@@ -135,9 +143,9 @@ static bool hidrelay_report_descriptor_supported(const uint8_t *descriptor, uint
             }
 
             if ((report_size > 0U) && (report_count > 0U)) {
-                if ((report_size > HIDRELAY_REPORT_DESC_MAX_FIELD_BITS) ||
-                    (report_count > HIDRELAY_REPORT_DESC_MAX_FIELD_BITS) ||
-                    (report_count > (HIDRELAY_REPORT_DESC_MAX_FIELD_BITS / report_size))) {
+                if ((report_size > HIDRELAY_REPORT_DESC_MAX_FIELD_BITS)
+                    || (report_count > HIDRELAY_REPORT_DESC_MAX_FIELD_BITS)
+                    || (report_count > (HIDRELAY_REPORT_DESC_MAX_FIELD_BITS / report_size))) {
                     return false;
                 }
             }
@@ -149,10 +157,13 @@ static bool hidrelay_report_descriptor_supported(const uint8_t *descriptor, uint
     return (collection_depth == 0U) && has_application_collection;
 }
 
-static uint8_t const *hidrelay_report_descriptor_for_interface(uint8_t instance, uint16_t *out_len) {
+static uint8_t const * hidrelay_report_descriptor_for_interface(
+    uint8_t instance,
+    uint16_t * out_len
+) {
     uint16_t ignored_len = 0U;
-    uint16_t *effective_len = out_len;
-    const uint8_t *descriptor = NULL;
+    uint16_t * effective_len = out_len;
+    const uint8_t * descriptor = NULL;
 
     if (effective_len == NULL) {
         effective_len = &ignored_len;
@@ -168,7 +179,10 @@ static uint8_t const *hidrelay_report_descriptor_for_interface(uint8_t instance,
     return g_hid_report_desc_generic;
 }
 
-static void hidrelay_descriptor_put_u16(uint8_t *buffer, uint16_t value) {
+static void hidrelay_descriptor_put_u16(
+    uint8_t * buffer,
+    uint16_t value
+) {
     if (buffer == NULL) {
         return;
     }
@@ -187,9 +201,11 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
 
     g_config_desc[offset++] = 9U;
     g_config_desc[offset++] = TUSB_DESC_CONFIGURATION;
-    hidrelay_descriptor_put_u16(&g_config_desc[offset],
-                                (uint16_t)(HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN +
-                                           (interface_count * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)));
+    hidrelay_descriptor_put_u16(
+        &g_config_desc[offset],
+        (uint16_t)(HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
+            + (interface_count * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN))
+    );
     offset = (uint16_t)(offset + 2U);
     g_config_desc[offset++] = interface_count;
     g_config_desc[offset++] = 1U;
@@ -244,16 +260,16 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
     return offset;
 }
 
-uint8_t const *tud_descriptor_device_cb(void) {
+uint8_t const * tud_descriptor_device_cb(void) {
     return (const uint8_t *)&g_device_desc;
 }
 
-uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+uint8_t const * tud_hid_descriptor_report_cb(uint8_t instance) {
     uint16_t report_len = 0U;
     return hidrelay_report_descriptor_for_interface(instance, &report_len);
 }
 
-uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
+uint8_t const * tud_descriptor_configuration_cb(uint8_t index) {
     uint8_t interface_count = 0U;
 
     (void)index;
@@ -263,15 +279,18 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     return g_config_desc;
 }
 
-uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+uint16_t const * tud_descriptor_string_cb(
+    uint8_t index,
+    uint16_t langid
+) {
     static uint16_t descriptor[HIDRELAY_STRING_LIMIT + 1U];
-    static const char *const strings[] = {
+    static const char * const strings[] = {
         "hidrelay-fw",
         "HID Relay Hub",
         "00000001",
     };
     uint8_t char_count = 0U;
-    const char *text = NULL;
+    const char * text = NULL;
 
     (void)langid;
 
@@ -300,11 +319,13 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     return descriptor;
 }
 
-uint16_t tud_hid_get_report_cb(uint8_t instance,
-                               uint8_t report_id,
-                               hid_report_type_t report_type,
-                               uint8_t *buffer,
-                               uint16_t reqlen) {
+uint16_t tud_hid_get_report_cb(
+    uint8_t instance,
+    uint8_t report_id,
+    hid_report_type_t report_type,
+    uint8_t * buffer,
+    uint16_t reqlen
+) {
     (void)instance;
     (void)report_id;
     (void)report_type;
@@ -313,11 +334,13 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
     return 0U;
 }
 
-void tud_hid_set_report_cb(uint8_t instance,
-                           uint8_t report_id,
-                           hid_report_type_t report_type,
-                           uint8_t const *buffer,
-                           uint16_t bufsize) {
+void tud_hid_set_report_cb(
+    uint8_t instance,
+    uint8_t report_id,
+    hid_report_type_t report_type,
+    uint8_t const * buffer,
+    uint16_t bufsize
+) {
     (void)report_id;
     (void)report_type;
 

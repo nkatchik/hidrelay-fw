@@ -54,7 +54,14 @@ typedef struct {
     uint8_t reconnect_last_status_code;
 } app_t;
 
-void app_init(app_t *app, const pair_db_t *initial_pair_db);
-void app_tick(app_t *app, const app_input_t *input, app_output_t *output);
+void app_init(
+    app_t * app,
+    const pair_db_t * initial_pair_db
+);
+void app_tick(
+    app_t * app,
+    const app_input_t * input,
+    app_output_t * output
+);
 
 #endif

@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-void util_cleanup_freep(void *pointer_location) {
-    void **typed_pointer = (void **)pointer_location;
+void util_cleanup_freep(void * pointer_location) {
+    void ** typed_pointer = (void **)pointer_location;
 
     if (typed_pointer == NULL) {
         return;
@@ -18,7 +18,7 @@ void util_cleanup_freep(void *pointer_location) {
     *typed_pointer = NULL;
 }
 
-void util_cleanup_filep(FILE **file_pointer) {
+void util_cleanup_filep(FILE ** file_pointer) {
     if (file_pointer == NULL) {
         return;
     }
@@ -31,7 +31,7 @@ void util_cleanup_filep(FILE **file_pointer) {
     *file_pointer = NULL;
 }
 
-void util_cleanup_fdp(int *fd_pointer) {
+void util_cleanup_fdp(int * fd_pointer) {
     if (fd_pointer == NULL) {
         return;
     }

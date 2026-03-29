@@ -5,7 +5,7 @@
 
 #include "pair_db.h"
 
-bool pico_w_pair_store_load(pair_db_t *db);
-bool pico_w_pair_store_save(const pair_db_t *db);
+bool pico_w_pair_store_load(pair_db_t * db);
+bool pico_w_pair_store_save(const pair_db_t * db);
 
 #endif

@@ -1,8 +1,8 @@
-#include "app.h"
-#include "platform_api.h"
-
 #include <stddef.h>
 #include <string.h>
+
+#include "app.h"
+#include "platform_api.h"
 
 int main(void) {
     app_t app = {0};
@@ -22,10 +22,11 @@ int main(void) {
         .bt_tx_dropped = 0U,
         .active_device_count = 0U,
         .usb_interface_plan = {0},
-        .reconnect_request = { .valid = false, .device_id = { .bytes = {0} } },
+        .reconnect_request = {.valid = false, .device_id = {.bytes = {0}}},
         .diag = {0},
-        .usb_tx = { .valid = false, .interface_number = 0U, .report_len = 0U, .report = {0} },
-        .bt_tx = { .valid = false, .hid_cid = 0U, .protocol_mode = 0U, .report_len = 0U, .report = {0} },
+        .usb_tx = {.valid = false, .interface_number = 0U, .report_len = 0U, .report = {0}},
+        .bt_tx =
+            {.valid = false, .hid_cid = 0U, .protocol_mode = 0U, .report_len = 0U, .report = {0}},
         .pair_db_dirty = false,
     };
 
@@ -53,9 +54,11 @@ int main(void) {
         platform_output.sleep_ms = app_output.sleep_ms;
         platform_output.usb_interface_count = app_output.usb_interface_count;
         platform_output.usb_descriptor_generation = app_output.usb_descriptor_generation;
-        (void)memcpy(platform_output.usb_interface_plan,
-                     app_output.usb_interface_plan,
-                     sizeof(platform_output.usb_interface_plan));
+        (void)memcpy(
+            platform_output.usb_interface_plan,
+            app_output.usb_interface_plan,
+            sizeof(platform_output.usb_interface_plan)
+        );
         platform_output.reconnect_request = app_output.reconnect_request;
         platform_output.diag = app_output.diag;
         platform_output.usb_tx = app_output.usb_tx;

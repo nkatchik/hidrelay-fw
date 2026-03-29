@@ -11,5 +11,9 @@
     "C_Cpp.files.exclude": {
         "**/.cache/sdk/**/bazel/**": true
     },
-    "C_Cpp.intelliSenseEngine": "default"
+    "C_Cpp.intelliSenseEngine": "default",
+    "[c]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    }
 }

@@ -10,9 +10,12 @@ enum {
     CACHE_PROBE_CHUNK_SIZE = 1024
 };
 
-static int cache_probe_count_bytes(const char *path, size_t *out_size) {
-    UTIL_SCOPED_FILE FILE *file = NULL;
-    UTIL_SCOPED_FREE unsigned char *buffer = NULL;
+static int cache_probe_count_bytes(
+    const char * path,
+    size_t * out_size
+) {
+    UTIL_SCOPED_FILE FILE * file = NULL;
+    UTIL_SCOPED_FREE unsigned char * buffer = NULL;
     size_t total_size = 0U;
 
     if ((path == NULL) || (out_size == NULL)) {
@@ -46,7 +49,10 @@ static int cache_probe_count_bytes(const char *path, size_t *out_size) {
     return 0;
 }
 
-int main(int argc, char **argv) {
+int main(
+    int argc,
+    char ** argv
+) {
     UTIL_SCOPED_FD int file_descriptor = -1;
     size_t file_size = 0U;
 

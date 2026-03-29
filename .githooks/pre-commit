@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CLANG_FORMAT=${CLANG_FORMAT:-clang-format}
+
+# Adjust extensions as needed
+files=()
+while IFS= read -r -d '' f; do
+  files+=("$f")
+done < <(
+  git diff --cached --name-only -z --diff-filter=ACMR -- \
+    '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx'
+)
+
+[ ${#files[@]} -eq 0 ] && exit 0
+
+failed=0
+
+for f in "${files[@]}"; do
+  [ -f "$f" ] || continue
+
+  tmp=$(mktemp)
+  "$CLANG_FORMAT" --style=file "$f" > "$tmp"
+
+  if ! diff -q "$f" "$tmp" >/dev/null; then
+    echo "clang-format check failed: $f"
+    failed=1
+  fi
+
+  rm -f "$tmp"
+done
+
+if [ "$failed" -ne 0 ]; then
+  echo
+  echo "Some files are not properly formatted."
+  echo "Run clang-format on them, then re-stage and commit again."
+  exit 1
+fi

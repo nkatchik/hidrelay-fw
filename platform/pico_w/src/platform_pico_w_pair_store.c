@@ -21,7 +21,10 @@ typedef struct {
     uint32_t checksum;
 } pico_w_pair_store_blob_t;
 
-static uint32_t pico_w_pair_store_checksum(const uint8_t *data, size_t len) {
+static uint32_t pico_w_pair_store_checksum(
+    const uint8_t * data,
+    size_t len
+) {
     uint32_t hash = 2166136261u;
     size_t index = 0U;
 
@@ -37,7 +40,7 @@ static uint32_t pico_w_pair_store_checksum(const uint8_t *data, size_t len) {
     return hash;
 }
 
-static bool pico_w_pair_store_blob_valid(const pico_w_pair_store_blob_t *blob) {
+static bool pico_w_pair_store_blob_valid(const pico_w_pair_store_blob_t * blob) {
     uint32_t expected_checksum = 0U;
 
     if (blob == NULL) {
@@ -48,16 +51,20 @@ static bool pico_w_pair_store_blob_valid(const pico_w_pair_store_blob_t *blob) {
         return false;
     }
 
-    if ((blob->payload_size != sizeof(blob->pair_db)) || (blob->pair_db.count > PAIR_DB_MAX_DEVICE)) {
+    if ((blob->payload_size != sizeof(blob->pair_db))
+        || (blob->pair_db.count > PAIR_DB_MAX_DEVICE)) {
         return false;
     }
 
-    expected_checksum = pico_w_pair_store_checksum((const uint8_t *)blob, offsetof(pico_w_pair_store_blob_t, checksum));
+    expected_checksum = pico_w_pair_store_checksum(
+        (const uint8_t *)blob,
+        offsetof(pico_w_pair_store_blob_t, checksum)
+    );
     return expected_checksum == blob->checksum;
 }
 
-bool pico_w_pair_store_load(pair_db_t *db) {
-    const pico_w_pair_store_blob_t *blob = NULL;
+bool pico_w_pair_store_load(pair_db_t * db) {
+    const pico_w_pair_store_blob_t * blob = NULL;
 
     if (db == NULL) {
         return false;
@@ -74,9 +81,9 @@ bool pico_w_pair_store_load(pair_db_t *db) {
     return true;
 }
 
-bool pico_w_pair_store_save(const pair_db_t *db) {
+bool pico_w_pair_store_save(const pair_db_t * db) {
     uint8_t flash_buffer[FLASH_SECTOR_SIZE] = {0};
-    pico_w_pair_store_blob_t *blob = NULL;
+    pico_w_pair_store_blob_t * blob = NULL;
     uint32_t irq_state = 0U;
 
     if ((db == NULL) || (db->count > PAIR_DB_MAX_DEVICE)) {
@@ -89,7 +96,8 @@ bool pico_w_pair_store_save(const pair_db_t *db) {
     blob->version = PICO_W_PAIR_STORE_VERSION;
     blob->payload_size = sizeof(*db);
     blob->pair_db = *db;
-    blob->checksum = pico_w_pair_store_checksum(flash_buffer, offsetof(pico_w_pair_store_blob_t, checksum));
+    blob->checksum =
+        pico_w_pair_store_checksum(flash_buffer, offsetof(pico_w_pair_store_blob_t, checksum));
 
     irq_state = save_and_disable_interrupts();
     flash_range_erase(PICO_W_PAIR_STORE_FLASH_OFFSET, FLASH_SECTOR_SIZE);

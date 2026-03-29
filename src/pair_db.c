@@ -2,15 +2,25 @@
 
 #include <string.h>
 
-static bool pair_db_age_within_window(uint32_t now_ms, uint32_t then_ms, uint32_t window_ms) {
+static bool pair_db_age_within_window(
+    uint32_t now_ms,
+    uint32_t then_ms,
+    uint32_t window_ms
+) {
     return (now_ms - then_ms) <= window_ms;
 }
 
-static bool pair_db_time_reached(uint32_t now_ms, uint32_t target_ms) {
+static bool pair_db_time_reached(
+    uint32_t now_ms,
+    uint32_t target_ms
+) {
     return (int32_t)(now_ms - target_ms) >= 0;
 }
 
-static bool pair_db_device_id_equal(const pair_device_id_t *lhs, const pair_device_id_t *rhs) {
+static bool pair_db_device_id_equal(
+    const pair_device_id_t * lhs,
+    const pair_device_id_t * rhs
+) {
     if ((lhs == NULL) || (rhs == NULL)) {
         return false;
     }
@@ -18,7 +28,7 @@ static bool pair_db_device_id_equal(const pair_device_id_t *lhs, const pair_devi
     return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
 }
 
-void pair_db_init(pair_db_t *db) {
+void pair_db_init(pair_db_t * db) {
     if (db == NULL) {
         return;
     }
@@ -26,7 +36,11 @@ void pair_db_init(pair_db_t *db) {
     (void)memset(db, 0, sizeof(*db));
 }
 
-bool pair_db_add(pair_db_t *db, const pair_device_id_t *device_id, uint32_t paired_at_ms) {
+bool pair_db_add(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint32_t paired_at_ms
+) {
     if ((db == NULL) || (device_id == NULL)) {
         return false;
     }
@@ -49,7 +63,7 @@ bool pair_db_add(pair_db_t *db, const pair_device_id_t *device_id, uint32_t pair
     return true;
 }
 
-bool pair_db_remove_last(pair_db_t *db) {
+bool pair_db_remove_last(pair_db_t * db) {
     if (db == NULL) {
         return false;
     }
@@ -63,7 +77,7 @@ bool pair_db_remove_last(pair_db_t *db) {
     return true;
 }
 
-void pair_db_remove_all(pair_db_t *db) {
+void pair_db_remove_all(pair_db_t * db) {
     if (db == NULL) {
         return;
     }
@@ -71,7 +85,7 @@ void pair_db_remove_all(pair_db_t *db) {
     (void)memset(db, 0, sizeof(*db));
 }
 
-uint8_t pair_db_count(const pair_db_t *db) {
+uint8_t pair_db_count(const pair_db_t * db) {
     if (db == NULL) {
         return 0U;
     }
@@ -79,7 +93,11 @@ uint8_t pair_db_count(const pair_db_t *db) {
     return db->count;
 }
 
-bool pair_db_get(const pair_db_t *db, uint8_t index, pair_device_id_t *out_device_id) {
+bool pair_db_get(
+    const pair_db_t * db,
+    uint8_t index,
+    pair_device_id_t * out_device_id
+) {
     if ((db == NULL) || (out_device_id == NULL)) {
         return false;
     }
@@ -92,7 +110,11 @@ bool pair_db_get(const pair_db_t *db, uint8_t index, pair_device_id_t *out_devic
     return true;
 }
 
-bool pair_db_get_entry(const pair_db_t *db, uint8_t index, pair_db_entry_t *out_entry) {
+bool pair_db_get_entry(
+    const pair_db_t * db,
+    uint8_t index,
+    pair_db_entry_t * out_entry
+) {
     if ((db == NULL) || (out_entry == NULL)) {
         return false;
     }
@@ -105,7 +127,11 @@ bool pair_db_get_entry(const pair_db_t *db, uint8_t index, pair_db_entry_t *out_
     return true;
 }
 
-bool pair_db_find(const pair_db_t *db, const pair_device_id_t *device_id, uint8_t *out_index) {
+bool pair_db_find(
+    const pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint8_t * out_index
+) {
     uint8_t index = 0U;
 
     if ((db == NULL) || (device_id == NULL) || (out_index == NULL)) {
@@ -122,13 +148,15 @@ bool pair_db_find(const pair_db_t *db, const pair_device_id_t *device_id, uint8_
     return false;
 }
 
-bool pair_db_touch_session(pair_db_t *db,
-                           const pair_device_id_t *device_id,
-                           uint32_t seen_at_ms,
-                           uint16_t vendor_id,
-                           uint16_t product_id,
-                           uint16_t report_descriptor_len,
-                           uint8_t protocol_mode) {
+bool pair_db_touch_session(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint32_t seen_at_ms,
+    uint16_t vendor_id,
+    uint16_t product_id,
+    uint16_t report_descriptor_len,
+    uint8_t protocol_mode
+) {
     uint8_t index = 0U;
 
     if ((db == NULL) || (device_id == NULL)) {
@@ -153,7 +181,11 @@ bool pair_db_touch_session(pair_db_t *db,
     return true;
 }
 
-bool pair_db_set_reconnect_allowed(pair_db_t *db, const pair_device_id_t *device_id, bool reconnect_allowed) {
+bool pair_db_set_reconnect_allowed(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    bool reconnect_allowed
+) {
     uint8_t index = 0U;
 
     if ((db == NULL) || (device_id == NULL)) {
@@ -168,7 +200,11 @@ bool pair_db_set_reconnect_allowed(pair_db_t *db, const pair_device_id_t *device
     return true;
 }
 
-bool pair_db_mark_reconnect_success(pair_db_t *db, const pair_device_id_t *device_id, uint32_t now_ms) {
+bool pair_db_mark_reconnect_success(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint32_t now_ms
+) {
     uint8_t index = 0U;
 
     if ((db == NULL) || (device_id == NULL)) {
@@ -185,10 +221,12 @@ bool pair_db_mark_reconnect_success(pair_db_t *db, const pair_device_id_t *devic
     return true;
 }
 
-bool pair_db_mark_reconnect_failure(pair_db_t *db,
-                                    const pair_device_id_t *device_id,
-                                    uint8_t fail_count,
-                                    uint32_t retry_after_ms) {
+bool pair_db_mark_reconnect_failure(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint8_t fail_count,
+    uint32_t retry_after_ms
+) {
     uint8_t index = 0U;
 
     if ((db == NULL) || (device_id == NULL)) {
@@ -204,7 +242,11 @@ bool pair_db_mark_reconnect_failure(pair_db_t *db,
     return true;
 }
 
-bool pair_db_get_reconnect_candidate(const pair_db_t *db, uint32_t now_ms, pair_db_entry_t *out_entry) {
+bool pair_db_get_reconnect_candidate(
+    const pair_db_t * db,
+    uint32_t now_ms,
+    pair_db_entry_t * out_entry
+) {
     uint8_t index = 0U;
     bool found = false;
     pair_db_entry_t best = {0};
@@ -214,14 +256,17 @@ bool pair_db_get_reconnect_candidate(const pair_db_t *db, uint32_t now_ms, pair_
     }
 
     for (index = 0U; index < db->count; index++) {
-        const pair_db_entry_t *entry = &db->entries[index];
+        const pair_db_entry_t * entry = &db->entries[index];
 
-        if ((entry->reconnect_allowed == 0U) || !pair_db_time_reached(now_ms, entry->reconnect_retry_after_ms)) {
+        if ((entry->reconnect_allowed == 0U)
+            || !pair_db_time_reached(now_ms, entry->reconnect_retry_after_ms)) {
             continue;
         }
 
-        if (!found || (entry->reconnect_fail_count < best.reconnect_fail_count) ||
-            ((entry->reconnect_fail_count == best.reconnect_fail_count) && (entry->last_seen_ms > best.last_seen_ms))) {
+        if (!found
+            || (entry->reconnect_fail_count < best.reconnect_fail_count)
+            || ((entry->reconnect_fail_count == best.reconnect_fail_count)
+                && (entry->last_seen_ms > best.last_seen_ms))) {
             best = *entry;
             found = true;
         }
@@ -235,7 +280,11 @@ bool pair_db_get_reconnect_candidate(const pair_db_t *db, uint32_t now_ms, pair_
     return true;
 }
 
-bool pair_db_last_within_window(const pair_db_t *db, uint32_t now_ms, uint32_t window_ms) {
+bool pair_db_last_within_window(
+    const pair_db_t * db,
+    uint32_t now_ms,
+    uint32_t window_ms
+) {
     uint8_t last_index = 0U;
 
     if (db == NULL) {

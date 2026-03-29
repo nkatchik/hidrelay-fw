@@ -18,7 +18,11 @@ void pico_w_tinyusb_runtime_poll(void) {
 #endif
 }
 
-bool pico_w_tinyusb_runtime_send_in_report(uint8_t interface_number, const uint8_t *report, uint16_t report_len) {
+bool pico_w_tinyusb_runtime_send_in_report(
+    uint8_t interface_number,
+    const uint8_t * report,
+    uint16_t report_len
+) {
 #ifdef APP_PICO_HAS_TINYUSB
     if ((report_len > 0U) && (report == NULL)) {
         return false;

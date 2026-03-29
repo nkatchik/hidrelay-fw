@@ -21,9 +21,20 @@ typedef struct {
     uint32_t cue_phase_started_ms;
 } led_ui_t;
 
-void led_ui_init(led_ui_t *ui);
-void led_ui_set_state(led_ui_t *ui, led_ui_state_t state, uint32_t now_ms);
-void led_ui_trigger_long_blink(led_ui_t *ui, uint8_t blink_count, uint32_t now_ms);
-bool led_ui_tick(led_ui_t *ui, uint32_t now_ms);
+void led_ui_init(led_ui_t * ui);
+void led_ui_set_state(
+    led_ui_t * ui,
+    led_ui_state_t state,
+    uint32_t now_ms
+);
+void led_ui_trigger_long_blink(
+    led_ui_t * ui,
+    uint8_t blink_count,
+    uint32_t now_ms
+);
+bool led_ui_tick(
+    led_ui_t * ui,
+    uint32_t now_ms
+);
 
 #endif

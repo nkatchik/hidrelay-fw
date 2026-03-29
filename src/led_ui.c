@@ -11,7 +11,7 @@ enum {
     LED_UI_LONG_BLINK_OFF_MS = 350U
 };
 
-void led_ui_init(led_ui_t *ui) {
+void led_ui_init(led_ui_t * ui) {
     if (ui == NULL) {
         return;
     }
@@ -25,7 +25,11 @@ void led_ui_init(led_ui_t *ui) {
     ui->cue_phase_started_ms = 0U;
 }
 
-void led_ui_set_state(led_ui_t *ui, led_ui_state_t state, uint32_t now_ms) {
+void led_ui_set_state(
+    led_ui_t * ui,
+    led_ui_state_t state,
+    uint32_t now_ms
+) {
     if (ui == NULL) {
         return;
     }
@@ -45,7 +49,11 @@ void led_ui_set_state(led_ui_t *ui, led_ui_state_t state, uint32_t now_ms) {
     ui->led_on = true;
 }
 
-void led_ui_trigger_long_blink(led_ui_t *ui, uint8_t blink_count, uint32_t now_ms) {
+void led_ui_trigger_long_blink(
+    led_ui_t * ui,
+    uint8_t blink_count,
+    uint32_t now_ms
+) {
     if (ui == NULL) {
         return;
     }
@@ -61,7 +69,10 @@ void led_ui_trigger_long_blink(led_ui_t *ui, uint8_t blink_count, uint32_t now_m
     ui->led_on = true;
 }
 
-bool led_ui_tick(led_ui_t *ui, uint32_t now_ms) {
+bool led_ui_tick(
+    led_ui_t * ui,
+    uint32_t now_ms
+) {
     if (ui == NULL) {
         return false;
     }
@@ -83,8 +94,8 @@ bool led_ui_tick(led_ui_t *ui, uint32_t now_ms) {
             return ui->led_on;
         }
 
-        if ((ui->cue_remaining_blink > 0U) &&
-            ((now_ms - ui->cue_phase_started_ms) >= LED_UI_LONG_BLINK_OFF_MS)) {
+        if ((ui->cue_remaining_blink > 0U)
+            && ((now_ms - ui->cue_phase_started_ms) >= LED_UI_LONG_BLINK_OFF_MS)) {
             ui->cue_led_on = true;
             ui->cue_phase_started_ms = now_ms;
         }
