@@ -28,6 +28,7 @@ Current implementation is a buildable skeleton with:
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - explicit SSP/PIN confirmation handling gated by pairing mode
 - runtime diagnostics available as structured snapshots via `platform_diag_take(...)`, with optional stdio mirror
+- host-visible diagnostics transport over TinyUSB CDC with framed binary snapshot streaming
 - queue backpressure telemetry with drop counters/high-water marks
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
 - flash-backed pair database persistence with session metadata (schema v3, sector reserved ahead of BTstack flash banks)
@@ -89,6 +90,7 @@ When stack options are enabled:
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
 - queue saturation drops oldest pending reports and updates telemetry counters
+- diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
 
 ## Repository Layout
 
@@ -118,6 +120,31 @@ LED behavior:
 - remove-last success: one long blink
 - factory reset: three long blinks
 
+## Diagnostics CDC Frame
+
+When TinyUSB is enabled, diagnostics snapshots are streamed on CDC interface `0` as binary frames:
+
+- byte `0`: magic `'H'` (`0x48`)
+- byte `1`: magic `'R'` (`0x52`)
+- byte `2`: frame version (`1`)
+- byte `3`: payload length (`33`)
+- bytes `4..`: little-endian payload:
+  - `u32 sequence`
+  - `u8 bt_state`
+  - `u8 active_device_count`
+  - `u8 usb_interface_count`
+  - `u8 usb_tx_depth`
+  - `u8 bt_tx_depth`
+  - `u8 usb_tx_high_watermark`
+  - `u8 bt_tx_high_watermark`
+  - `u8 reconnect_last_result`
+  - `u8 reconnect_last_status_code`
+  - `u32 usb_tx_dropped`
+  - `u32 bt_tx_dropped`
+  - `u32 reconnect_attempt_count`
+  - `u32 reconnect_success_count`
+  - `u32 reconnect_failure_count`
+
 ## Coding Rules
 
 Project-owned C code uses `__attribute__((cleanup(...)))` for resource disposal.
@@ -134,7 +161,7 @@ See:
 
 Next implementation steps:
 
-- expose structured diagnostics queue over a host-visible transport (USB CDC/vendor endpoint)
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - add key migration/rotation and recovery controls for persisted Bluetooth security material
 - extend descriptor handling from policy-only fallback into explicit report translation/remapping for host edge cases
+- define host-side tooling/protocol docs for long-run CDC diagnostics capture

@@ -8,12 +8,18 @@
 #include "platform_pico_w_pair_store.h"
 #include "platform_pico_w_stack.h"
 #include "platform_pico_w_state.h"
+#include "platform_pico_w_tinyusb_runtime.h"
 
 static pico_w_state_t g_state = {
     .initialized = false,
 };
 enum {
     PICO_W_DIAG_QUEUE_SIZE = 16U,
+    PICO_W_DIAG_FRAME_VERSION = 1U,
+    PICO_W_DIAG_FRAME_MAGIC_0 = 0x48U,
+    PICO_W_DIAG_FRAME_MAGIC_1 = 0x52U,
+    PICO_W_DIAG_FRAME_PAYLOAD_LEN = 33U,
+    PICO_W_DIAG_FRAME_LEN = 4U + PICO_W_DIAG_FRAME_PAYLOAD_LEN,
 };
 static hid_transport_diag_snapshot_t g_last_diag = {0};
 static bool g_last_diag_valid = false;
@@ -21,12 +27,88 @@ static hid_transport_diag_snapshot_t g_diag_queue[PICO_W_DIAG_QUEUE_SIZE] = {0};
 static uint8_t g_diag_queue_head = 0U;
 static uint8_t g_diag_queue_tail = 0U;
 static uint8_t g_diag_queue_count = 0U;
+static uint32_t g_diag_sequence = 0U;
+
+static void pico_w_diag_put_u32(
+    uint8_t * frame,
+    uint16_t * offset,
+    uint32_t value
+) {
+    uint16_t write_offset = 0U;
+
+    if ((frame == NULL) || (offset == NULL)) {
+        return;
+    }
+
+    write_offset = *offset;
+    frame[write_offset++] = (uint8_t)(value & 0xFFU);
+    frame[write_offset++] = (uint8_t)((value >> 8U) & 0xFFU);
+    frame[write_offset++] = (uint8_t)((value >> 16U) & 0xFFU);
+    frame[write_offset++] = (uint8_t)((value >> 24U) & 0xFFU);
+    *offset = write_offset;
+}
+
+static uint16_t pico_w_diag_encode_frame(
+    const hid_transport_diag_snapshot_t * diag,
+    uint32_t sequence,
+    uint8_t * frame,
+    uint16_t frame_capacity
+) {
+    uint16_t offset = 0U;
+
+    if ((diag == NULL) || (frame == NULL) || (frame_capacity < PICO_W_DIAG_FRAME_LEN)) {
+        return 0U;
+    }
+
+    frame[offset++] = PICO_W_DIAG_FRAME_MAGIC_0;
+    frame[offset++] = PICO_W_DIAG_FRAME_MAGIC_1;
+    frame[offset++] = PICO_W_DIAG_FRAME_VERSION;
+    frame[offset++] = PICO_W_DIAG_FRAME_PAYLOAD_LEN;
+
+    pico_w_diag_put_u32(frame, &offset, sequence);
+    frame[offset++] = diag->bt_state;
+    frame[offset++] = diag->active_device_count;
+    frame[offset++] = diag->usb_interface_count;
+    frame[offset++] = diag->usb_tx_depth;
+    frame[offset++] = diag->bt_tx_depth;
+    frame[offset++] = diag->usb_tx_high_watermark;
+    frame[offset++] = diag->bt_tx_high_watermark;
+    frame[offset++] = diag->reconnect_last_result;
+    frame[offset++] = diag->reconnect_last_status_code;
+
+    pico_w_diag_put_u32(frame, &offset, diag->usb_tx_dropped);
+    pico_w_diag_put_u32(frame, &offset, diag->bt_tx_dropped);
+    pico_w_diag_put_u32(frame, &offset, diag->reconnect_attempt_count);
+    pico_w_diag_put_u32(frame, &offset, diag->reconnect_success_count);
+    pico_w_diag_put_u32(frame, &offset, diag->reconnect_failure_count);
+
+    return offset;
+}
+
+static void pico_w_diag_send_usb(const hid_transport_diag_snapshot_t * diag) {
+    uint8_t frame[PICO_W_DIAG_FRAME_LEN] = {0};
+    uint16_t frame_len = 0U;
+
+    if (diag == NULL) {
+        return;
+    }
+
+    g_diag_sequence = g_diag_sequence + 1U;
+    frame_len = pico_w_diag_encode_frame(diag, g_diag_sequence, frame, sizeof(frame));
+
+    if (frame_len == 0U) {
+        return;
+    }
+
+    (void)pico_w_tinyusb_runtime_diag_write(frame, frame_len);
+}
 
 static void pico_w_diag_queue_reset(void) {
     (void)memset(g_diag_queue, 0, sizeof(g_diag_queue));
     g_diag_queue_head = 0U;
     g_diag_queue_tail = 0U;
     g_diag_queue_count = 0U;
+    g_diag_sequence = 0U;
 }
 
 static void pico_w_diag_queue_push(const hid_transport_diag_snapshot_t * diag) {
@@ -54,6 +136,7 @@ static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
     }
 
     pico_w_diag_queue_push(diag);
+    pico_w_diag_send_usb(diag);
 
     printf(
         "[diag] bt_state=%u active=%u usb_itf=%u usb_q=%u bt_q=%u usb_drop=%lu bt_drop=%lu "

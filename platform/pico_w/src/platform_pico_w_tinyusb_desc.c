@@ -16,15 +16,25 @@ enum {
     HIDRELAY_HID_EP_OUT = 0x01U,
     HIDRELAY_HID_EP_SIZE = 16U,
     HIDRELAY_HID_EP_INTERVAL_MS = 4U,
+    HIDRELAY_CDC_EP_NOTIF = 0x89U,
+    HIDRELAY_CDC_EP_OUT = 0x09U,
+    HIDRELAY_CDC_EP_IN = 0x8AU,
+    HIDRELAY_CDC_EP_NOTIF_SIZE = 8U,
+    HIDRELAY_CDC_EP_DATA_SIZE = 64U,
+    HIDRELAY_CDC_EP_INTERVAL_MS = 16U,
+    HIDRELAY_CDC_INTERFACE_COUNT = 2U,
+    HIDRELAY_CDC_STRING_INDEX = 4U,
     HIDRELAY_STRING_LIMIT = 31U,
     HIDRELAY_MAX_INTERFACE = 8U,
     HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN = 9U,
-    HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U
+    HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U,
+    HIDRELAY_CDC_DESCRIPTOR_LEN = 8U + 9U + 5U + 5U + 4U + 5U + 7U + 9U + 7U + 7U
 };
 
 static uint8_t g_config_desc
     [HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
-        + (HIDRELAY_MAX_INTERFACE * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)] = {0};
+        + (HIDRELAY_MAX_INTERFACE * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)
+        + HIDRELAY_CDC_DESCRIPTOR_LEN] = {0};
 static uint16_t g_config_desc_len = HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN;
 
 static const tusb_desc_device_t g_device_desc = {
@@ -228,23 +238,116 @@ static void hidrelay_descriptor_put_u16(
     buffer[1] = (uint8_t)((value >> 8U) & 0xFFU);
 }
 
+static uint16_t hidrelay_append_cdc_descriptor(
+    uint8_t * buffer,
+    uint16_t offset,
+    uint8_t cdc_control_interface_number
+) {
+    uint8_t cdc_data_interface_number = (uint8_t)(cdc_control_interface_number + 1U);
+
+    if (buffer == NULL) {
+        return offset;
+    }
+
+    buffer[offset++] = 8U;
+    buffer[offset++] = TUSB_DESC_INTERFACE_ASSOCIATION;
+    buffer[offset++] = cdc_control_interface_number;
+    buffer[offset++] = HIDRELAY_CDC_INTERFACE_COUNT;
+    buffer[offset++] = TUSB_CLASS_CDC;
+    buffer[offset++] = CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL;
+    buffer[offset++] = CDC_COMM_PROTOCOL_ATCOMMAND;
+    buffer[offset++] = HIDRELAY_CDC_STRING_INDEX;
+
+    buffer[offset++] = 9U;
+    buffer[offset++] = TUSB_DESC_INTERFACE;
+    buffer[offset++] = cdc_control_interface_number;
+    buffer[offset++] = 0U;
+    buffer[offset++] = 1U;
+    buffer[offset++] = TUSB_CLASS_CDC;
+    buffer[offset++] = CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL;
+    buffer[offset++] = CDC_COMM_PROTOCOL_ATCOMMAND;
+    buffer[offset++] = HIDRELAY_CDC_STRING_INDEX;
+
+    buffer[offset++] = 5U;
+    buffer[offset++] = TUSB_DESC_CS_INTERFACE;
+    buffer[offset++] = CDC_FUNC_DESC_HEADER;
+    hidrelay_descriptor_put_u16(&buffer[offset], 0x0120U);
+    offset = (uint16_t)(offset + 2U);
+
+    buffer[offset++] = 5U;
+    buffer[offset++] = TUSB_DESC_CS_INTERFACE;
+    buffer[offset++] = CDC_FUNC_DESC_CALL_MANAGEMENT;
+    buffer[offset++] = 0x00U;
+    buffer[offset++] = cdc_data_interface_number;
+
+    buffer[offset++] = 4U;
+    buffer[offset++] = TUSB_DESC_CS_INTERFACE;
+    buffer[offset++] = CDC_FUNC_DESC_ABSTRACT_CONTROL_MANAGEMENT;
+    buffer[offset++] = 0x02U;
+
+    buffer[offset++] = 5U;
+    buffer[offset++] = TUSB_DESC_CS_INTERFACE;
+    buffer[offset++] = CDC_FUNC_DESC_UNION;
+    buffer[offset++] = cdc_control_interface_number;
+    buffer[offset++] = cdc_data_interface_number;
+
+    buffer[offset++] = 7U;
+    buffer[offset++] = TUSB_DESC_ENDPOINT;
+    buffer[offset++] = HIDRELAY_CDC_EP_NOTIF;
+    buffer[offset++] = TUSB_XFER_INTERRUPT;
+    hidrelay_descriptor_put_u16(&buffer[offset], HIDRELAY_CDC_EP_NOTIF_SIZE);
+    offset = (uint16_t)(offset + 2U);
+    buffer[offset++] = HIDRELAY_CDC_EP_INTERVAL_MS;
+
+    buffer[offset++] = 9U;
+    buffer[offset++] = TUSB_DESC_INTERFACE;
+    buffer[offset++] = cdc_data_interface_number;
+    buffer[offset++] = 0U;
+    buffer[offset++] = 2U;
+    buffer[offset++] = TUSB_CLASS_CDC_DATA;
+    buffer[offset++] = 0U;
+    buffer[offset++] = 0U;
+    buffer[offset++] = 0U;
+
+    buffer[offset++] = 7U;
+    buffer[offset++] = TUSB_DESC_ENDPOINT;
+    buffer[offset++] = HIDRELAY_CDC_EP_OUT;
+    buffer[offset++] = TUSB_XFER_BULK;
+    hidrelay_descriptor_put_u16(&buffer[offset], HIDRELAY_CDC_EP_DATA_SIZE);
+    offset = (uint16_t)(offset + 2U);
+    buffer[offset++] = 0U;
+
+    buffer[offset++] = 7U;
+    buffer[offset++] = TUSB_DESC_ENDPOINT;
+    buffer[offset++] = HIDRELAY_CDC_EP_IN;
+    buffer[offset++] = TUSB_XFER_BULK;
+    hidrelay_descriptor_put_u16(&buffer[offset], HIDRELAY_CDC_EP_DATA_SIZE);
+    offset = (uint16_t)(offset + 2U);
+    buffer[offset++] = 0U;
+
+    return offset;
+}
+
 static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
     uint16_t offset = 0U;
     uint8_t index = 0U;
+    uint8_t total_interface_count = 0U;
+    uint16_t total_length = 0U;
 
     if (interface_count > HIDRELAY_MAX_INTERFACE) {
         interface_count = HIDRELAY_MAX_INTERFACE;
     }
 
+    total_interface_count = (uint8_t)(interface_count + HIDRELAY_CDC_INTERFACE_COUNT);
+    total_length = (uint16_t)(HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
+        + (interface_count * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)
+        + HIDRELAY_CDC_DESCRIPTOR_LEN);
+
     g_config_desc[offset++] = 9U;
     g_config_desc[offset++] = TUSB_DESC_CONFIGURATION;
-    hidrelay_descriptor_put_u16(
-        &g_config_desc[offset],
-        (uint16_t)(HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
-            + (interface_count * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN))
-    );
+    hidrelay_descriptor_put_u16(&g_config_desc[offset], total_length);
     offset = (uint16_t)(offset + 2U);
-    g_config_desc[offset++] = interface_count;
+    g_config_desc[offset++] = total_interface_count;
     g_config_desc[offset++] = 1U;
     g_config_desc[offset++] = 0U;
     g_config_desc[offset++] = 0x80U;
@@ -294,6 +397,8 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
         g_config_desc[offset++] = HIDRELAY_HID_EP_INTERVAL_MS;
     }
 
+    offset = hidrelay_append_cdc_descriptor(g_config_desc, offset, interface_count);
+
     return offset;
 }
 
@@ -325,6 +430,7 @@ uint16_t const * tud_descriptor_string_cb(
         "hidrelay-fw",
         "HID Relay Hub",
         "00000001",
+        "Diag CDC",
     };
     uint8_t char_count = 0U;
     const char * text = NULL;

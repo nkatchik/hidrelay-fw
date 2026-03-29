@@ -139,11 +139,13 @@ Implemented now:
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state
 - runtime bridge/pairing diagnostics emitted on state change via stdio log lines (including reconnect counters/result + status code)
 - structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`)
+- TinyUSB composite descriptor now includes a CDC diagnostics function (HID interfaces + CDC control/data pair)
+- diagnostics snapshots are streamed over TinyUSB CDC as framed binary records (magic/version/payload + sequence)
 
 Still pending for production behavior:
 
-- host-visible diagnostics transport for structured queue output (USB CDC/vendor endpoint)
 - reconnect retry policy tuning using long-run telemetry and deployment data
 - Bluetooth key migration/rotation and recovery controls
 - descriptor translation/remapping for host edge cases beyond current fallback policy
+- host-side CDC diagnostics tooling/protocol documentation for long-run capture workflows
 - command UX refinement and full failure-recovery handling

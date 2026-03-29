@@ -1,5 +1,7 @@
 #include "platform_pico_w_tinyusb_runtime.h"
 
+#include <stddef.h>
+
 #ifdef APP_PICO_HAS_TINYUSB
 #include "tusb.h"
 #endif
@@ -44,3 +46,61 @@ bool pico_w_tinyusb_runtime_send_in_report(
     return false;
 #endif
 }
+
+bool pico_w_tinyusb_runtime_diag_write(
+    const uint8_t * data,
+    uint16_t data_len
+) {
+#ifdef APP_PICO_HAS_TINYUSB
+    uint16_t remaining = data_len;
+    const uint8_t * cursor = data;
+
+    if ((data_len > 0U) && (data == NULL)) {
+        return false;
+    }
+
+    if (data_len == 0U) {
+        return true;
+    }
+
+    if (!tud_ready() || !tud_cdc_n_connected(0U)) {
+        return false;
+    }
+
+    while (remaining > 0U) {
+        uint32_t available = tud_cdc_n_write_available(0U);
+        uint32_t chunk = 0U;
+        uint32_t written = 0U;
+
+        if (available == 0U) {
+            (void)tud_cdc_n_write_flush(0U);
+            return false;
+        }
+
+        chunk = (remaining < available) ? remaining : available;
+        written = tud_cdc_n_write(0U, cursor, chunk);
+
+        if (written == 0U) {
+            return false;
+        }
+
+        cursor += written;
+        remaining = (uint16_t)(remaining - written);
+    }
+
+    (void)tud_cdc_n_write_flush(0U);
+    return true;
+#else
+    (void)data;
+    (void)data_len;
+    return false;
+#endif
+}
+
+#ifdef APP_PICO_HAS_TINYUSB
+void tud_cdc_rx_cb(uint8_t itf) {
+    while (tud_cdc_n_available(itf) > 0U) {
+        (void)tud_cdc_n_read_char(itf);
+    }
+}
+#endif

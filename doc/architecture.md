@@ -100,7 +100,19 @@ Pico-specific linkage is isolated under this directory.
 - Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - Platform glue now records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio.
+- Diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
 - BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
+
+## Diagnostics Transport
+
+- Source: app emits `hid_transport_diag_snapshot_t` each tick through `platform_output_t`.
+- Queue: platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
+- Host path: TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
+- Framing:
+  - `magic`: `0x48 0x52` (`'H' 'R'`)
+  - `version`: `1`
+  - `payload_len`: `33`
+  - payload fields: sequence + key queue/reconnect counters from `hid_transport_diag_snapshot_t`
 
 ## Build/Bootstrap Model
 
@@ -147,8 +159,8 @@ Additional style constraints in this repository:
 
 ## Planned Bridging Flow (Next Iteration)
 
-1. Expose structured diagnostics queue over a host-visible transport path (USB CDC/vendor endpoint).
-2. Tune reconnect retry thresholds/escalation with long-run field telemetry.
-3. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
-4. Extend descriptor handling beyond fallback policy into explicit report translation/remapping for host edge cases.
+1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
+2. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
+3. Extend descriptor handling beyond fallback policy into explicit report translation/remapping for host edge cases.
+4. Define host-side CDC diagnostics tooling/protocol docs for long-run captures.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.
