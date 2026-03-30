@@ -265,6 +265,7 @@ void app_tick(
 ) {
     button_command_t command = BUTTON_COMMAND_NONE;
     pair_db_t pair_db_before = {0};
+    hid_transport_forget_request_t forget_request = {.valid = false, .device_id = {.bytes = {0}}};
     usb_bridge_telemetry_t bridge_telemetry = {0};
     bt_manager_state_t bt_state = BT_MANAGER_STATE_IDLE;
     pair_db_entry_t reconnect_candidate = {0};
@@ -281,12 +282,25 @@ void app_tick(
     if (command == BUTTON_COMMAND_PAIR_ANY) {
         (void)bt_manager_start_pair_any(&app->bt_manager, input->now_ms);
     } else if (command == BUTTON_COMMAND_REMOVE_LAST) {
+        pair_device_id_t removed_device_id = {0};
+        bool removed_device_known = false;
+
+        if (pair_db_count(&app->pair_db) > 0U) {
+            const uint8_t last_index = (uint8_t)(pair_db_count(&app->pair_db) - 1U);
+            removed_device_known = pair_db_get(&app->pair_db, last_index, &removed_device_id);
+        }
+
         if (bt_manager_remove_last_if_recent(
                 &app->bt_manager,
                 input->now_ms,
                 APP_REMOVE_LAST_MAX_AGE_MS
             )) {
             led_ui_trigger_long_blink(&app->led_ui, APP_REMOVE_LAST_BLINK_COUNT, input->now_ms);
+
+            if (removed_device_known) {
+                forget_request.valid = true;
+                forget_request.device_id = removed_device_id;
+            }
         }
     } else if (command == BUTTON_COMMAND_REMOVE_ALL) {
         (void)bt_manager_remove_all(&app->bt_manager);
@@ -346,15 +360,18 @@ void app_tick(
             interface_info.report_descriptor_len;
         output->usb_interface_plan[interface_index].protocol_mode = interface_info.protocol_mode;
         output->usb_interface_plan[interface_index].hid_cid = interface_info.hid_cid;
+        output->usb_interface_plan[interface_index].device_id = interface_info.device_id;
     }
 
     output->reconnect_request.valid = false;
+    output->forget_request.valid = false;
     output->factory_reset_requested = false;
     (void)memset(
         &output->reconnect_request.device_id,
         0,
         sizeof(output->reconnect_request.device_id)
     );
+    (void)memset(&output->forget_request.device_id, 0, sizeof(output->forget_request.device_id));
 
     if (app->reconnect_inflight
         && !pair_db_find(&app->pair_db, &app->reconnect_device_id, &reconnect_index)) {
@@ -415,6 +432,7 @@ void app_tick(
     output->diag.reconnect_failure_count = app->reconnect_failure_count;
     output->diag.reconnect_last_result = app->reconnect_last_result;
     output->diag.reconnect_last_status_code = app->reconnect_last_status_code;
+    output->forget_request = forget_request;
 
     if (app->factory_reset_armed && (input->now_ms >= app->factory_reset_due_ms)) {
         output->factory_reset_requested = true;

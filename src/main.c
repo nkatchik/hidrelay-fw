@@ -23,6 +23,7 @@ int main(void) {
         .active_device_count = 0U,
         .usb_interface_plan = {0},
         .reconnect_request = {.valid = false, .device_id = {.bytes = {0}}},
+        .forget_request = {.valid = false, .device_id = {.bytes = {0}}},
         .diag = {0},
         .usb_tx = {.valid = false, .interface_number = 0U, .report_len = 0U, .report = {0}},
         .bt_tx =
@@ -61,6 +62,7 @@ int main(void) {
             sizeof(platform_output.usb_interface_plan)
         );
         platform_output.reconnect_request = app_output.reconnect_request;
+        platform_output.forget_request = app_output.forget_request;
         platform_output.diag = app_output.diag;
         platform_output.usb_tx = app_output.usb_tx;
         platform_output.bt_tx = app_output.bt_tx;

@@ -65,12 +65,18 @@ typedef struct {
     uint16_t hid_cid;
     uint16_t report_descriptor_len;
     uint8_t protocol_mode;
+    pair_device_id_t device_id;
 } hid_transport_usb_interface_plan_t;
 
 typedef struct {
     bool valid;
     pair_device_id_t device_id;
 } hid_transport_reconnect_request_t;
+
+typedef struct {
+    bool valid;
+    pair_device_id_t device_id;
+} hid_transport_forget_request_t;
 
 typedef struct {
     uint8_t bt_state;

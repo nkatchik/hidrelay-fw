@@ -224,6 +224,10 @@ void platform_apply(const platform_output_t * output) {
         return;
     }
 
+    if (output->forget_request.valid) {
+        (void)pico_w_stack_forget_device(&output->forget_request.device_id);
+    }
+
     pico_w_stack_set_usb_plan(
         output->usb_interface_count,
         output->usb_descriptor_generation,

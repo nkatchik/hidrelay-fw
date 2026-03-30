@@ -157,13 +157,14 @@ Implemented now:
 - structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`) when telemetry is enabled
 - optional TinyUSB CDC diagnostics function (HID interfaces + CDC control/data pair) gated by `APP_PLATFORM_ENABLE_DIAG_CDC`
 - when telemetry+CDC are enabled, diagnostics snapshots are streamed over TinyUSB CDC as framed binary records (magic/version/payload + sequence)
+- remove-last command now emits a per-device forget request from app to platform, and Pico W stack drops link-key/bonding state for that device
 - factory reset command now erases Pair DB + BTstack persisted security material and reboots after cue completion
 - host-side CDC diagnostics capture utility (`build/tool/diag_capture`) outputs decoded CSV frames
 
 Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
-- Bluetooth key migration/rotation and recovery controls
+- Bluetooth key migration/rotation and explicit operator recovery controls beyond current per-device forget/factory reset
 - descriptor translation/remapping for host edge cases beyond current fallback policy
 - soak-test runbook and operational guidance for long-run CDC diagnostics trend capture
 - command UX refinement and full failure-recovery handling

@@ -33,6 +33,7 @@ Current implementation is a buildable skeleton with:
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
 - flash-backed pair database persistence with session metadata (schema v3, sector reserved ahead of BTstack flash banks)
 - factory reset path that erases Pair DB and BTstack key material from flash after the 3-blink cue, then reboots
+- remove-last flow now issues per-device forget requests into platform stack so link keys/bonding state are revoked for that device
 - BOOTSEL button command FSM for:
   - pair-any
   - remove-last
@@ -117,6 +118,7 @@ When stack options are enabled:
 - queue saturation drops oldest pending reports and updates telemetry counters
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, diagnostics snapshots are mirrored to stdio and exposed via `platform_diag_take(...)`
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
+- remove-last now also requests platform-side BT security cleanup for that specific device (link key/bonding records)
 - factory reset now clears Pair DB + BTstack persisted security data and triggers reboot
 
 ## Repository Layout
@@ -197,6 +199,6 @@ See:
 Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
-- add key migration/rotation and recovery controls for persisted Bluetooth security material
+- extend per-device security lifecycle controls with explicit migration/rotation and operator recovery paths
 - extend descriptor handling from policy-only fallback into explicit report translation/remapping for host edge cases
 - add long-run soak/runbook guidance for CDC diagnostics capture analysis

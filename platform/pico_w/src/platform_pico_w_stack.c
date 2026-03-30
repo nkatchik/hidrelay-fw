@@ -4,6 +4,7 @@
 #include <string.h>
 
 #ifdef APP_PICO_HAS_BTSTACK
+#include "ble/le_device_db.h"
 #include "ble/le_device_db_tlv.h"
 #include "ble/sm.h"
 #include "btstack_event.h"
@@ -53,6 +54,40 @@ static bool pico_w_stack_push_event(const hid_transport_event_t * event) {
     return true;
 }
 
+static bool pico_w_stack_device_id_equal(
+    const pair_device_id_t * lhs,
+    const pair_device_id_t * rhs
+) {
+    if ((lhs == NULL) || (rhs == NULL)) {
+        return false;
+    }
+
+    return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
+}
+
+static bool pico_w_stack_find_hid_cid_for_device(
+    const pair_device_id_t * device_id,
+    uint16_t * out_hid_cid
+) {
+    uint8_t index = 0U;
+
+    if ((device_id == NULL) || (out_hid_cid == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < g_usb_interface_count; index++) {
+        if (!pico_w_stack_device_id_equal(&g_usb_interface_plan[index].device_id, device_id)
+            || (g_usb_interface_plan[index].hid_cid == 0U)) {
+            continue;
+        }
+
+        *out_hid_cid = g_usb_interface_plan[index].hid_cid;
+        return true;
+    }
+
+    return false;
+}
+
 #ifdef APP_PICO_HAS_BTSTACK
 static uint8_t g_btstack_hid_descriptor_storage[1024] = {0};
 static btstack_tlv_flash_bank_t g_btstack_tlv_flash_bank_context = {0};
@@ -83,6 +118,17 @@ static void pico_w_stack_copy_device_id_from_addr(
     }
 
     (void)memcpy(device_id->bytes, addr, sizeof(device_id->bytes));
+}
+
+static void pico_w_stack_copy_addr_from_device_id(
+    bd_addr_t addr,
+    const pair_device_id_t * device_id
+) {
+    if ((addr == NULL) || (device_id == NULL)) {
+        return;
+    }
+
+    (void)memcpy(addr, device_id->bytes, sizeof(device_id->bytes));
 }
 
 static uint8_t pico_w_stack_classify_reconnect_failure(uint8_t status_code) {
@@ -619,6 +665,51 @@ bool pico_w_stack_request_reconnect(const pair_device_id_t * device_id) {
     g_btstack_connect_pending = true;
     g_btstack_reconnect_pending = true;
     pico_w_stack_try_connect_candidate();
+    return true;
+#else
+    (void)device_id;
+    return false;
+#endif
+}
+
+bool pico_w_stack_forget_device(const pair_device_id_t * device_id) {
+#ifdef APP_PICO_HAS_BTSTACK
+    bd_addr_t device_addr = {0};
+    uint16_t hid_cid = 0U;
+    int entry_index = 0;
+
+    if (!pico_w_stack_device_id_valid(device_id) || !g_btstack_hci_ready) {
+        return false;
+    }
+
+    pico_w_stack_copy_addr_from_device_id(device_addr, device_id);
+
+    if (pico_w_stack_find_hid_cid_for_device(device_id, &hid_cid)) {
+        hid_host_disconnect(hid_cid);
+    }
+
+    gap_drop_link_key_for_bd_addr(device_addr);
+    gap_delete_bonding(BD_ADDR_TYPE_ACL, device_addr);
+    gap_delete_bonding(BD_ADDR_TYPE_LE_PUBLIC, device_addr);
+    gap_delete_bonding(BD_ADDR_TYPE_LE_RANDOM, device_addr);
+    gap_delete_bonding(BD_ADDR_TYPE_LE_PUBLIC_IDENTITY, device_addr);
+    gap_delete_bonding(BD_ADDR_TYPE_LE_RANDOM_IDENTITY, device_addr);
+
+    for (entry_index = 0; entry_index < le_device_db_max_count(); entry_index++) {
+        int entry_addr_type = BD_ADDR_TYPE_UNKNOWN;
+        bd_addr_t entry_addr = {0};
+        sm_key_t entry_irk = {0};
+
+        le_device_db_info(entry_index, &entry_addr_type, entry_addr, entry_irk);
+        (void)entry_addr_type;
+
+        if (memcmp(entry_addr, device_addr, sizeof(entry_addr)) != 0) {
+            continue;
+        }
+
+        le_device_db_remove(entry_index);
+    }
+
     return true;
 #else
     (void)device_id;

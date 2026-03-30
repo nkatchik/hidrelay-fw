@@ -15,6 +15,7 @@ void pico_w_stack_set_usb_plan(
 );
 void pico_w_stack_set_pairing_active(bool pairing_active);
 bool pico_w_stack_request_reconnect(const pair_device_id_t * device_id);
+bool pico_w_stack_forget_device(const pair_device_id_t * device_id);
 uint8_t pico_w_stack_usb_interface_count(void);
 const uint8_t * pico_w_stack_usb_report_descriptor(
     uint8_t interface_number,
