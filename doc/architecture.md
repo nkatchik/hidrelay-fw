@@ -52,6 +52,7 @@ Common logic never imports Pico-specific SDK headers.
   - platform boundary: init, poll inputs, apply outputs
   - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
   - structured diagnostics dequeue hook: `platform_diag_take`
+  - optional operator command ingress from TinyUSB CDC line commands into `platform_input_t.operator_command`
 
 ## Pico W Platform Glue
 
@@ -126,6 +127,7 @@ Pico-specific linkage is isolated under this directory.
 - Source: app emits `hid_transport_diag_snapshot_t` each tick through `platform_output_t`.
 - Queue: when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
 - Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
+- Operator command path: the same CDC interface accepts newline-delimited control commands (`LOCKOUT_CLEAR_ALL`, `LOCKOUT_CLEAR_LAST`, `ROTATE_LAST`) and maps them into app operator commands.
 - Host capture helper: `tool/src/diag_capture.c` decodes CDC frames into CSV for offline analysis.
 - Host summary helper: `tool/bin/diag_summary` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
 - Framing:

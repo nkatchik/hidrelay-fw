@@ -219,6 +219,8 @@ void platform_poll(platform_input_t * input) {
     input->operator_command = APP_OPERATOR_COMMAND_NONE;
     input->transport_event.type = HID_TRANSPORT_EVENT_NONE;
 
+    (void)pico_w_tinyusb_runtime_take_operator_command(&input->operator_command);
+
     if (!pico_w_stack_take_event(&input->transport_event)) {
         input->transport_event.type = HID_TRANSPORT_EVENT_NONE;
     }

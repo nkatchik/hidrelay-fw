@@ -183,7 +183,7 @@ Implemented now:
 - reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery after repeated connect/timeout failures
 - auth reconnect failures now emit explicit per-device security-rotation requests from app to platform
-- operator command groundwork now supports manual lockout-clear and rotate-security triggers through app/platform input structs
+- operator command path now supports manual lockout-clear and rotate-security triggers, with CDC line-command ingress when diagnostics CDC is enabled (`LOCKOUT_CLEAR_ALL`, `LOCKOUT_CLEAR_LAST`, `ROTATE_LAST`)
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization in stack TX/RX paths)
@@ -204,7 +204,7 @@ Implemented now:
 Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
-- connect operator recovery controls to a real management ingress path (beyond current app/platform command groundwork)
+- harden operator recovery command channel (framing/auth/rate limits) beyond the current basic CDC line-command ingress
 - descriptor translation/remapping for host edge cases beyond current boot-profile groundwork
 - alerting/inbox workflow integration layered on top of soak diagnostics gate failures
 - command UX refinement and full failure-recovery handling
