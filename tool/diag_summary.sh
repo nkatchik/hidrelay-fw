@@ -2,10 +2,36 @@
 set -eu
 
 usage() {
-    printf '%s\n' "Usage: $0 --input <diag.csv>"
+    printf '%s\n' \
+        "Usage: $0 --input <diag.csv> [options]" \
+        "" \
+        "Options:" \
+        "  --require-no-drops                 Enforce zero drop deltas for USB/BT/stack event queues" \
+        "  --max-usb-drop-delta <n>           Maximum allowed usb_tx_dropped_delta" \
+        "  --max-bt-drop-delta <n>            Maximum allowed bt_tx_dropped_delta" \
+        "  --max-stack-event-drop-delta <n>   Maximum allowed stack_event_dropped_delta" \
+        "  --max-reconnect-failure-delta <n>  Maximum allowed reconnect_failure_delta" \
+        "  -h, --help                         Show this help text"
+}
+
+parse_non_negative_int() {
+    value="$1"
+
+    case "$value" in
+        ''|*[!0-9]*)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
 }
 
 input_path=""
+max_usb_drop_delta="-1"
+max_bt_drop_delta="-1"
+max_stack_event_drop_delta="-1"
+max_reconnect_failure_delta="-1"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -17,6 +43,47 @@ while [ "$#" -gt 0 ]; do
                 exit 2
             fi
             input_path="$1"
+            ;;
+        --require-no-drops)
+            max_usb_drop_delta="0"
+            max_bt_drop_delta="0"
+            max_stack_event_drop_delta="0"
+            ;;
+        --max-usb-drop-delta)
+            shift
+            if [ "$#" -eq 0 ] || ! parse_non_negative_int "$1"; then
+                printf '%s\n' "Invalid value for --max-usb-drop-delta" >&2
+                usage >&2
+                exit 2
+            fi
+            max_usb_drop_delta="$1"
+            ;;
+        --max-bt-drop-delta)
+            shift
+            if [ "$#" -eq 0 ] || ! parse_non_negative_int "$1"; then
+                printf '%s\n' "Invalid value for --max-bt-drop-delta" >&2
+                usage >&2
+                exit 2
+            fi
+            max_bt_drop_delta="$1"
+            ;;
+        --max-stack-event-drop-delta)
+            shift
+            if [ "$#" -eq 0 ] || ! parse_non_negative_int "$1"; then
+                printf '%s\n' "Invalid value for --max-stack-event-drop-delta" >&2
+                usage >&2
+                exit 2
+            fi
+            max_stack_event_drop_delta="$1"
+            ;;
+        --max-reconnect-failure-delta)
+            shift
+            if [ "$#" -eq 0 ] || ! parse_non_negative_int "$1"; then
+                printf '%s\n' "Invalid value for --max-reconnect-failure-delta" >&2
+                usage >&2
+                exit 2
+            fi
+            max_reconnect_failure_delta="$1"
             ;;
         -h|--help)
             usage
@@ -41,7 +108,26 @@ if [ ! -f "$input_path" ]; then
     exit 2
 fi
 
-awk -F, '
+awk -F, \
+    -v max_usb_drop_delta="$max_usb_drop_delta" \
+    -v max_bt_drop_delta="$max_bt_drop_delta" \
+    -v max_stack_event_drop_delta="$max_stack_event_drop_delta" \
+    -v max_reconnect_failure_delta="$max_reconnect_failure_delta" \
+'
+function gate_check(metric_name, actual, limit,    status) {
+    if (limit < 0) {
+        return
+    }
+
+    gate_enabled = 1
+    status = (actual <= limit) ? "pass" : "fail"
+    printf "gate_%s,actual=%.0f,limit=%.0f,status=%s\n", metric_name, actual, limit, status
+
+    if (status == "fail") {
+        gate_failed = 1
+    }
+}
+
 NR == 1 {
     for (i = 1; i <= NF; i++) {
         col[$i] = i
@@ -189,6 +275,20 @@ END {
         printf "result,warning_drops_detected\n"
     } else {
         printf "result,ok_no_drops\n"
+    }
+
+    gate_check("usb_tx_dropped_delta", usb_drop_delta, max_usb_drop_delta)
+    gate_check("bt_tx_dropped_delta", bt_drop_delta, max_bt_drop_delta)
+    gate_check("stack_event_dropped_delta", stack_event_drop_delta, max_stack_event_drop_delta)
+    gate_check("reconnect_failure_delta", reconnect_failure_delta, max_reconnect_failure_delta)
+
+    if (gate_enabled == 1) {
+        if (gate_failed == 1) {
+            printf "gate_result,fail\n"
+            exit 3
+        }
+
+        printf "gate_result,pass\n"
     }
 }
 ' "$input_path"

@@ -30,6 +30,7 @@ Useful targets:
 - `make tool-cache-probe`
 - `make tool-diag-capture`
 - `make tool-diag-summary INPUT=diag.csv`
+- `make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n]`
 
 ## Cached Artifacts
 
@@ -167,6 +168,7 @@ Implemented now:
 - factory reset command now erases Pair DB + BTstack persisted security material and reboots after cue completion
 - host-side CDC diagnostics capture utility (`build/tool/diag_capture`) outputs decoded CSV frames
 - host-side diagnostics summary helper (`tool/diag_summary.sh`) reports soak max/delta counters from CSV captures
+- host-side diagnostics gate mode now enforces thresholds and exits non-zero for automation (`make tool-diag-gate`)
 - soak capture/trend runbook documented in `doc/soak.md`
 
 Still pending for production behavior:
@@ -174,5 +176,5 @@ Still pending for production behavior:
 - reconnect retry policy tuning using long-run telemetry and deployment data
 - Bluetooth key migration/rotation and explicit operator recovery controls beyond current per-device forget/factory reset
 - descriptor translation/remapping for host edge cases beyond current fallback policy
-- automated threshold checks/alerts layered on top of soak diagnostics summaries
+- alerting/inbox workflow integration layered on top of soak diagnostics gate failures
 - command UX refinement and full failure-recovery handling

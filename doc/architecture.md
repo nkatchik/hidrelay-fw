@@ -115,7 +115,7 @@ Pico-specific linkage is isolated under this directory.
 - Queue: when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
 - Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
 - Host capture helper: `tool/diag_capture.c` decodes CDC frames into CSV for offline analysis.
-- Host summary helper: `tool/diag_summary.sh` computes soak-level max/delta metrics from captured CSV.
+- Host summary helper: `tool/diag_summary.sh` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
 - Framing:
   - `magic`: `0x48 0x52` (`'H' 'R'`)
   - `version`: `1`
@@ -172,5 +172,5 @@ Additional style constraints in this repository:
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
 2. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
 3. Extend descriptor handling beyond fallback policy into explicit report translation/remapping for host edge cases.
-4. Add automated threshold checks/alerts on top of soak diagnostics summaries.
+4. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Validate long-run bridge stability and queue behavior with diagnostics capture and trend checks.
+Validate long-run bridge stability and queue behavior with diagnostics capture, trend checks, and threshold gates.
 
 ## Prerequisites
 
@@ -64,6 +64,28 @@ This prints:
 - reconnect counter deltas
 - drop counter deltas (`usb_tx`, `bt_tx`, `stack_event`)
 - a simple result line (`ok_no_drops` or `warning_drops_detected`)
+
+## Gate
+
+Enforce strict no-drop gate:
+
+```sh
+make tool-diag-gate INPUT=soak.csv
+```
+
+Optionally gate reconnect failures too:
+
+```sh
+make tool-diag-gate INPUT=soak.csv MAX_RECONNECT_FAILURE_DELTA=0
+```
+
+Gate behavior:
+
+- `make tool-diag-gate ...` returns non-zero on any gate failure.
+- Direct script exit codes:
+  - exit `0`: all configured thresholds passed
+  - exit `3`: at least one configured threshold failed
+  - exit `2`: invalid input/arguments
 
 ## Operational Checks
 

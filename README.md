@@ -189,6 +189,13 @@ Capture and decode frames to CSV on host:
 make tool-diag-capture
 build/tool/diag_capture --device /dev/tty.usbmodemXXXX --baud 115200 --output diag.csv
 make tool-diag-summary INPUT=diag.csv
+make tool-diag-gate INPUT=diag.csv
+```
+
+`make tool-diag-gate` exits non-zero when drop deltas are non-zero. Optionally add reconnect-failure gating:
+
+```sh
+make tool-diag-gate INPUT=diag.csv MAX_RECONNECT_FAILURE_DELTA=0
 ```
 
 ## Coding Rules
@@ -211,4 +218,4 @@ Next implementation steps:
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - extend per-device security lifecycle controls with explicit migration/rotation and operator recovery paths
 - extend descriptor handling from policy-only fallback into explicit report translation/remapping for host edge cases
-- add automated threshold checks/alerts on top of soak diagnostics summaries
+- add alerting/inbox workflow integration around soak gate failures (without runtime telemetry in release builds)

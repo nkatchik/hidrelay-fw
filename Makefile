@@ -16,7 +16,7 @@ CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
 CMAKE ?= cmake
 HOST_CC ?= gcc
 
-.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-cache-probe tool-diag-capture tool-diag-summary
+.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate
 
 help:
 	@printf '%s\n' \
@@ -31,7 +31,8 @@ help:
 		'  make distclean         - Remove all local build/cache artifacts' \
 		'  make tool-cache-probe  - Build host-side cleanup demonstration tool' \
 		'  make tool-diag-capture - Build host-side CDC diagnostics capture tool' \
-		'  make tool-diag-summary INPUT=diag.csv - Summarize captured diagnostics CSV'
+		'  make tool-diag-summary INPUT=diag.csv - Summarize captured diagnostics CSV' \
+		'  make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n] - Enforce soak thresholds'
 
 platform-list:
 	@find "$(APP_SOURCE_DIR)/platform" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort
@@ -89,6 +90,18 @@ tool-diag-summary:
 		exit 2; \
 	fi
 	@./tool/diag_summary.sh --input "$(INPUT)"
+
+tool-diag-gate:
+	@if [ -z "$(INPUT)" ]; then \
+		echo 'Usage: make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n]'; \
+		exit 2; \
+	fi
+	@if [ -n "$(MAX_RECONNECT_FAILURE_DELTA)" ]; then \
+		./tool/diag_summary.sh --input "$(INPUT)" --require-no-drops \
+			--max-reconnect-failure-delta "$(MAX_RECONNECT_FAILURE_DELTA)"; \
+	else \
+		./tool/diag_summary.sh --input "$(INPUT)" --require-no-drops; \
+	fi
 
 build/tool/cache_probe: tool/cache_probe.c src/util/cleanup.c include/util/cleanup.h
 	@mkdir -p build/tool
