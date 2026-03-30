@@ -31,7 +31,8 @@ Current implementation is a buildable skeleton with:
 - optional host-visible diagnostics transport over TinyUSB CDC with framed binary snapshot streaming (`APP_PLATFORM_ENABLE_DIAG_CDC`, requires telemetry)
 - queue backpressure telemetry with drop counters/high-water marks
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
-- flash-backed pair database persistence with session metadata (schema v3, sector reserved ahead of BTstack flash banks)
+- flash-backed pair database persistence with session metadata (schema v4, dual-slot A/B journal ahead of BTstack flash banks)
+- coalesced Pair DB save policy in main loop (2s debounce, 15s max stale window, 5s retry backoff) to reduce flash wear under bursty updates
 - factory reset path that erases Pair DB and BTstack key material from flash after the 3-blink cue, then reboots
 - remove-last flow now issues per-device forget requests into platform stack so link keys/bonding state are revoked for that device
 - BOOTSEL button command FSM for:
@@ -120,6 +121,8 @@ When stack options are enabled:
 - queue saturation drops oldest pending reports and updates telemetry counters
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, diagnostics snapshots are mirrored to stdio and exposed via `platform_diag_take(...)`
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
+- diagnostics now include Pico stack event-queue telemetry (depth/high-water/drop counters) for dropped-event visibility
+- Pair DB save path now suppresses no-op writes and alternates flash slots using sequence-based latest selection
 - remove-last now also requests platform-side BT security cleanup for that specific device (link key/bonding records)
 - factory reset now clears Pair DB + BTstack persisted security data and triggers reboot
 
@@ -159,7 +162,7 @@ When TinyUSB is enabled and both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLA
 - byte `0`: magic `'H'` (`0x48`)
 - byte `1`: magic `'R'` (`0x52`)
 - byte `2`: frame version (`1`)
-- byte `3`: payload length (`33`)
+- byte `3`: payload length (`39`)
 - bytes `4..`: little-endian payload:
   - `u32 sequence`
   - `u8 bt_state`
@@ -176,12 +179,16 @@ When TinyUSB is enabled and both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLA
   - `u32 reconnect_attempt_count`
   - `u32 reconnect_success_count`
   - `u32 reconnect_failure_count`
+  - `u8 stack_event_depth`
+  - `u8 stack_event_high_watermark`
+  - `u32 stack_event_dropped`
 
 Capture and decode frames to CSV on host:
 
 ```sh
 make tool-diag-capture
 build/tool/diag_capture --device /dev/tty.usbmodemXXXX --baud 115200 --output diag.csv
+make tool-diag-summary INPUT=diag.csv
 ```
 
 ## Coding Rules
@@ -197,10 +204,11 @@ See:
 
 - `doc/architecture.md`
 - `doc/build.md`
+- `doc/soak.md`
 
 Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - extend per-device security lifecycle controls with explicit migration/rotation and operator recovery paths
 - extend descriptor handling from policy-only fallback into explicit report translation/remapping for host edge cases
-- add long-run soak/runbook guidance for CDC diagnostics capture analysis
+- add automated threshold checks/alerts on top of soak diagnostics summaries

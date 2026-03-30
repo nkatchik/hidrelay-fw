@@ -427,6 +427,9 @@ void app_tick(
     output->diag.bt_tx_high_watermark = output->bt_tx_queue_high_watermark;
     output->diag.usb_tx_dropped = output->usb_tx_dropped;
     output->diag.bt_tx_dropped = output->bt_tx_dropped;
+    output->diag.stack_event_depth = 0U;
+    output->diag.stack_event_high_watermark = 0U;
+    output->diag.stack_event_dropped = 0U;
     output->diag.reconnect_attempt_count = app->reconnect_attempt_count;
     output->diag.reconnect_success_count = app->reconnect_success_count;
     output->diag.reconnect_failure_count = app->reconnect_failure_count;

@@ -16,7 +16,7 @@ CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
 CMAKE ?= cmake
 HOST_CC ?= gcc
 
-.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-cache-probe tool-diag-capture
+.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-cache-probe tool-diag-capture tool-diag-summary
 
 help:
 	@printf '%s\n' \
@@ -30,7 +30,8 @@ help:
 		'  make clean             - Remove build directory for APP_PLATFORM' \
 		'  make distclean         - Remove all local build/cache artifacts' \
 		'  make tool-cache-probe  - Build host-side cleanup demonstration tool' \
-		'  make tool-diag-capture - Build host-side CDC diagnostics capture tool'
+		'  make tool-diag-capture - Build host-side CDC diagnostics capture tool' \
+		'  make tool-diag-summary INPUT=diag.csv - Summarize captured diagnostics CSV'
 
 platform-list:
 	@find "$(APP_SOURCE_DIR)/platform" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort
@@ -81,6 +82,13 @@ sync-compile-commands:
 tool-cache-probe: build/tool/cache_probe
 
 tool-diag-capture: build/tool/diag_capture
+
+tool-diag-summary:
+	@if [ -z "$(INPUT)" ]; then \
+		echo 'Usage: make tool-diag-summary INPUT=diag.csv'; \
+		exit 2; \
+	fi
+	@./tool/diag_summary.sh --input "$(INPUT)"
 
 build/tool/cache_probe: tool/cache_probe.c src/util/cleanup.c include/util/cleanup.h
 	@mkdir -p build/tool

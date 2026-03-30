@@ -16,7 +16,7 @@ enum {
     DIAG_FRAME_MAGIC_0 = 0x48U,
     DIAG_FRAME_MAGIC_1 = 0x52U,
     DIAG_FRAME_VERSION = 1U,
-    DIAG_FRAME_PAYLOAD_LEN = 33U,
+    DIAG_FRAME_PAYLOAD_LEN = 39U,
     DIAG_FRAME_LEN = 4U + DIAG_FRAME_PAYLOAD_LEN,
     DIAG_DEFAULT_BAUD = 115200U,
 };
@@ -37,6 +37,9 @@ typedef struct {
     uint32_t reconnect_attempt_count;
     uint32_t reconnect_success_count;
     uint32_t reconnect_failure_count;
+    uint8_t stack_event_depth;
+    uint8_t stack_event_high_watermark;
+    uint32_t stack_event_dropped;
 } diag_frame_t;
 
 typedef struct {
@@ -160,6 +163,10 @@ static bool diag_decode_frame(
     out_frame->reconnect_success_count = diag_read_u32le(&frame[offset]);
     offset = (uint16_t)(offset + 4U);
     out_frame->reconnect_failure_count = diag_read_u32le(&frame[offset]);
+    offset = (uint16_t)(offset + 4U);
+    out_frame->stack_event_depth = frame[offset++];
+    out_frame->stack_event_high_watermark = frame[offset++];
+    out_frame->stack_event_dropped = diag_read_u32le(&frame[offset]);
 
     return true;
 }
@@ -236,7 +243,8 @@ static void diag_write_csv_header(FILE * stream) {
         "host_ms,sequence,bt_state,active_device_count,usb_interface_count,"
         "usb_tx_depth,bt_tx_depth,usb_tx_high_watermark,bt_tx_high_watermark,"
         "reconnect_last_result,reconnect_last_status_code,usb_tx_dropped,bt_tx_dropped,"
-        "reconnect_attempt_count,reconnect_success_count,reconnect_failure_count\n"
+        "reconnect_attempt_count,reconnect_success_count,reconnect_failure_count,"
+        "stack_event_depth,stack_event_high_watermark,stack_event_dropped\n"
     );
 }
 
@@ -251,7 +259,7 @@ static void diag_write_csv_row(
 
     (void)fprintf(
         stream,
-        "%llu,%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%lu,%lu,%lu,%lu\n",
+        "%llu,%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%lu,%lu,%lu,%lu,%u,%u,%lu\n",
         (unsigned long long)host_ms,
         (unsigned long)frame->sequence,
         frame->bt_state,
@@ -267,7 +275,10 @@ static void diag_write_csv_row(
         (unsigned long)frame->bt_tx_dropped,
         (unsigned long)frame->reconnect_attempt_count,
         (unsigned long)frame->reconnect_success_count,
-        (unsigned long)frame->reconnect_failure_count
+        (unsigned long)frame->reconnect_failure_count,
+        frame->stack_event_depth,
+        frame->stack_event_high_watermark,
+        (unsigned long)frame->stack_event_dropped
     );
     (void)fflush(stream);
 }

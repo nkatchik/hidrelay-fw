@@ -29,6 +29,7 @@ Useful targets:
 - `make distclean`
 - `make tool-cache-probe`
 - `make tool-diag-capture`
+- `make tool-diag-summary INPUT=diag.csv`
 
 ## Cached Artifacts
 
@@ -146,7 +147,9 @@ Implemented now:
 - TinyUSB output-report callback ingestion into app transport events
 - bidirectional queued report forwarding with protocol-aware BT send path
 - queue backpressure telemetry (depth/high-water/drop counters) in `usb_bridge`
-- flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`) with session metadata schema v3 (sector reserved ahead of BTstack TLV banks)
+- flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`) with session metadata schema v4 and dual-slot A/B journal (two sectors reserved ahead of BTstack TLV banks)
+- Pair DB save path now suppresses no-op writes and uses sequence-based latest-slot selection
+- main loop coalesces Pair DB persistence writes (2s debounce, 15s max stale, 5s retry backoff) to reduce flash wear
 - BTstack TLV-backed persistence for classic link keys and LE device database
 - pair-any inquiry/connect flow gated by pairing state and class-of-device policy
 - reconnect retry policy with per-device backoff windows and timeout-based failure classification
@@ -159,15 +162,17 @@ Implemented now:
 - runtime bridge/pairing diagnostics emitted on state change via stdio log lines when `APP_PLATFORM_ENABLE_TELEMETRY=ON` (including reconnect counters/result + status code)
 - structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`) when telemetry is enabled
 - optional TinyUSB CDC diagnostics function (HID interfaces + CDC control/data pair) gated by `APP_PLATFORM_ENABLE_DIAG_CDC`
-- when telemetry+CDC are enabled, diagnostics snapshots are streamed over TinyUSB CDC as framed binary records (magic/version/payload + sequence)
+- when telemetry+CDC are enabled, diagnostics snapshots are streamed over TinyUSB CDC as framed binary records (magic/version/payload + sequence) including Pico stack event-queue depth/high-water/drop counters
 - remove-last command now emits a per-device forget request from app to platform, and Pico W stack drops link-key/bonding state for that device
 - factory reset command now erases Pair DB + BTstack persisted security material and reboots after cue completion
 - host-side CDC diagnostics capture utility (`build/tool/diag_capture`) outputs decoded CSV frames
+- host-side diagnostics summary helper (`tool/diag_summary.sh`) reports soak max/delta counters from CSV captures
+- soak capture/trend runbook documented in `doc/soak.md`
 
 Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
 - Bluetooth key migration/rotation and explicit operator recovery controls beyond current per-device forget/factory reset
 - descriptor translation/remapping for host edge cases beyond current fallback policy
-- soak-test runbook and operational guidance for long-run CDC diagnostics trend capture
+- automated threshold checks/alerts layered on top of soak diagnostics summaries
 - command UX refinement and full failure-recovery handling

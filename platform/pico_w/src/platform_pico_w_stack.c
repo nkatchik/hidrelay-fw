@@ -38,6 +38,8 @@ static hid_transport_event_t g_event_queue[PICO_W_STACK_EVENT_QUEUE_SIZE] = {0};
 static uint8_t g_event_queue_head = 0U;
 static uint8_t g_event_queue_tail = 0U;
 static uint8_t g_event_queue_count = 0U;
+static uint8_t g_event_queue_high_watermark = 0U;
+static uint32_t g_event_queue_dropped = 0U;
 
 static bool pico_w_stack_push_event(const hid_transport_event_t * event) {
     if ((event == NULL) || (event->type == HID_TRANSPORT_EVENT_NONE)) {
@@ -45,12 +47,18 @@ static bool pico_w_stack_push_event(const hid_transport_event_t * event) {
     }
 
     if (g_event_queue_count >= PICO_W_STACK_EVENT_QUEUE_SIZE) {
+        g_event_queue_dropped = g_event_queue_dropped + 1U;
         return false;
     }
 
     g_event_queue[g_event_queue_tail] = *event;
     g_event_queue_tail = (uint8_t)((g_event_queue_tail + 1U) % PICO_W_STACK_EVENT_QUEUE_SIZE);
     g_event_queue_count = (uint8_t)(g_event_queue_count + 1U);
+
+    if (g_event_queue_count > g_event_queue_high_watermark) {
+        g_event_queue_high_watermark = g_event_queue_count;
+    }
+
     return true;
 }
 
@@ -510,6 +518,8 @@ bool pico_w_stack_init(void) {
     g_event_queue_head = 0U;
     g_event_queue_tail = 0U;
     g_event_queue_count = 0U;
+    g_event_queue_high_watermark = 0U;
+    g_event_queue_dropped = 0U;
 
 #ifdef APP_PICO_HAS_BTSTACK
     async_context_t * context = cyw43_arch_async_context();
@@ -869,4 +879,15 @@ bool pico_w_stack_send_bt_report(
     (void)report_len;
     return false;
 #endif
+}
+
+bool pico_w_stack_event_telemetry_get(pico_w_stack_event_telemetry_t * out_telemetry) {
+    if (out_telemetry == NULL) {
+        return false;
+    }
+
+    out_telemetry->event_queue_depth = g_event_queue_count;
+    out_telemetry->event_queue_high_watermark = g_event_queue_high_watermark;
+    out_telemetry->event_queue_dropped = g_event_queue_dropped;
+    return true;
 }

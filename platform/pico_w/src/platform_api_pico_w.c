@@ -21,7 +21,7 @@ enum {
     PICO_W_DIAG_FRAME_VERSION = 1U,
     PICO_W_DIAG_FRAME_MAGIC_0 = 0x48U,
     PICO_W_DIAG_FRAME_MAGIC_1 = 0x52U,
-    PICO_W_DIAG_FRAME_PAYLOAD_LEN = 33U,
+    PICO_W_DIAG_FRAME_PAYLOAD_LEN = 39U,
     PICO_W_DIAG_FRAME_LEN = 4U + PICO_W_DIAG_FRAME_PAYLOAD_LEN,
 };
 static hid_transport_diag_snapshot_t g_last_diag = {0};
@@ -86,6 +86,9 @@ static uint16_t pico_w_diag_encode_frame(
     pico_w_diag_put_u32(frame, &offset, diag->reconnect_attempt_count);
     pico_w_diag_put_u32(frame, &offset, diag->reconnect_success_count);
     pico_w_diag_put_u32(frame, &offset, diag->reconnect_failure_count);
+    frame[offset++] = diag->stack_event_depth;
+    frame[offset++] = diag->stack_event_high_watermark;
+    pico_w_diag_put_u32(frame, &offset, diag->stack_event_dropped);
 
     return offset;
 }
@@ -148,16 +151,19 @@ static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
     pico_w_diag_send_usb(diag);
 
     printf(
-        "[diag] bt_state=%u active=%u usb_itf=%u usb_q=%u bt_q=%u usb_drop=%lu bt_drop=%lu "
-        "r_attempt=%lu "
+        "[diag] bt_state=%u active=%u usb_itf=%u usb_q=%u bt_q=%u ev_q=%u ev_q_hw=%u "
+        "usb_drop=%lu bt_drop=%lu ev_drop=%lu r_attempt=%lu "
         "r_success=%lu r_fail=%lu r_last=%u r_status=%u\n",
         diag->bt_state,
         diag->active_device_count,
         diag->usb_interface_count,
         diag->usb_tx_depth,
         diag->bt_tx_depth,
+        diag->stack_event_depth,
+        diag->stack_event_high_watermark,
         (unsigned long)diag->usb_tx_dropped,
         (unsigned long)diag->bt_tx_dropped,
+        (unsigned long)diag->stack_event_dropped,
         (unsigned long)diag->reconnect_attempt_count,
         (unsigned long)diag->reconnect_success_count,
         (unsigned long)diag->reconnect_failure_count,
@@ -220,6 +226,10 @@ void platform_poll(platform_input_t * input) {
 }
 
 void platform_apply(const platform_output_t * output) {
+#if defined(APP_PICO_HAS_TELEMETRY)
+    pico_w_stack_event_telemetry_t stack_telemetry = {0};
+    hid_transport_diag_snapshot_t diag = {0};
+#endif
     if ((output == NULL) || !pico_w_state_is_initialized(&g_state)) {
         return;
     }
@@ -261,7 +271,19 @@ void platform_apply(const platform_output_t * output) {
         return;
     }
 
+#if defined(APP_PICO_HAS_TELEMETRY)
+    diag = output->diag;
+
+    if (pico_w_stack_event_telemetry_get(&stack_telemetry)) {
+        diag.stack_event_depth = stack_telemetry.event_queue_depth;
+        diag.stack_event_high_watermark = stack_telemetry.event_queue_high_watermark;
+        diag.stack_event_dropped = stack_telemetry.event_queue_dropped;
+    }
+
+    pico_w_diag_publish(&diag);
+#else
     pico_w_diag_publish(&output->diag);
+#endif
 
     pico_w_hw_set_led(output->led_on);
     pico_w_hw_sleep_ms(output->sleep_ms);

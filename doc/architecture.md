@@ -105,6 +105,8 @@ Pico-specific linkage is isolated under this directory.
 - Platform glue records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio when telemetry is enabled.
 - When both `APP_PLATFORM_ENABLE_TELEMETRY` and `APP_PLATFORM_ENABLE_DIAG_CDC` are enabled, diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
 - BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
+- Pair DB persistence now uses a dual-slot flash journal with sequence-based latest selection and no-op write suppression.
+- Main loop now coalesces Pair DB writes with debounce/max-stale windows to reduce flash wear from bursty metadata updates.
 - Factory reset command now erases Pair DB + BTstack persistence sectors and reboots after the LED cue sequence.
 
 ## Diagnostics Transport
@@ -113,11 +115,12 @@ Pico-specific linkage is isolated under this directory.
 - Queue: when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
 - Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
 - Host capture helper: `tool/diag_capture.c` decodes CDC frames into CSV for offline analysis.
+- Host summary helper: `tool/diag_summary.sh` computes soak-level max/delta metrics from captured CSV.
 - Framing:
   - `magic`: `0x48 0x52` (`'H' 'R'`)
   - `version`: `1`
-  - `payload_len`: `33`
-  - payload fields: sequence + key queue/reconnect counters from `hid_transport_diag_snapshot_t`
+  - `payload_len`: `39`
+  - payload fields: sequence + bridge queue counters + stack event-queue counters + reconnect counters from `hid_transport_diag_snapshot_t`
 
 ## Build/Bootstrap Model
 
@@ -133,14 +136,15 @@ No global Pico SDK or global Arm cross toolchain is required.
 
 ## Pair DB Persistence
 
-- Pair DB is serialized into a fixed blob format with magic/version/checksum.
-- Pico W implementation stores this blob in a dedicated sector ahead of BTstack storage
-  (`PICO_FLASH_SIZE_BYTES - PICO_W_BTSTACK_FLASH_BANK_TOTAL_SIZE - FLASH_SECTOR_SIZE`).
+- Pair DB is serialized into a fixed blob format with magic/version/sequence/checksum.
+- Pico W implementation stores Pair DB in two alternating sectors ahead of BTstack storage
+  (`PICO_FLASH_SIZE_BYTES - PICO_W_BTSTACK_FLASH_BANK_TOTAL_SIZE - (2 * FLASH_SECTOR_SIZE)`).
 - BTstack TLV persistence uses two sectors at the end of flash for link-key and LE device data.
 - On boot, `platform_pair_db_load` seeds app state if the stored blob validates.
-- On Pair DB mutation, the main loop calls `platform_pair_db_save`.
-- Current on-flash schema version is `3`; schema mismatches fall back to an empty DB.
-- Factory reset erases the Pair DB sector and BTstack TLV sectors together, then reboots to clear runtime stack state.
+- On Pair DB mutation, the main loop coalesces writes before `platform_pair_db_save` (2s debounce, 15s max stale, 5s retry backoff).
+- Current on-flash schema version is `4`; schema mismatches fall back to an empty DB.
+- A legacy schema `3` blob at the former single-slot offset is still accepted on boot for migration.
+- Factory reset erases both Pair DB sectors and BTstack TLV sectors together, then reboots to clear runtime stack state.
 
 ## Resource Cleanup Policy
 
@@ -168,5 +172,5 @@ Additional style constraints in this repository:
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
 2. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
 3. Extend descriptor handling beyond fallback policy into explicit report translation/remapping for host edge cases.
-4. Add soak-test runbook guidance around CDC diagnostics capture and trend analysis.
+4. Add automated threshold checks/alerts on top of soak diagnostics summaries.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

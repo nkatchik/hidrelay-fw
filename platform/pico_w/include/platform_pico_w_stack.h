@@ -6,6 +6,12 @@
 
 #include "hid_transport.h"
 
+typedef struct {
+    uint8_t event_queue_depth;
+    uint8_t event_queue_high_watermark;
+    uint32_t event_queue_dropped;
+} pico_w_stack_event_telemetry_t;
+
 bool pico_w_stack_init(void);
 void pico_w_stack_poll(uint32_t now_ms);
 void pico_w_stack_set_usb_plan(
@@ -40,5 +46,6 @@ bool pico_w_stack_send_bt_report(
     const uint8_t * report,
     uint16_t report_len
 );
+bool pico_w_stack_event_telemetry_get(pico_w_stack_event_telemetry_t * out_telemetry);
 
 #endif

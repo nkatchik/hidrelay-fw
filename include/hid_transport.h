@@ -86,8 +86,11 @@ typedef struct {
     uint8_t bt_tx_depth;
     uint8_t usb_tx_high_watermark;
     uint8_t bt_tx_high_watermark;
+    uint8_t stack_event_depth;
+    uint8_t stack_event_high_watermark;
     uint32_t usb_tx_dropped;
     uint32_t bt_tx_dropped;
+    uint32_t stack_event_dropped;
     uint32_t reconnect_attempt_count;
     uint32_t reconnect_success_count;
     uint32_t reconnect_failure_count;
