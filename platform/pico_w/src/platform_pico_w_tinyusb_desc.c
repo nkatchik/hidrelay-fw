@@ -8,6 +8,14 @@
 #include "platform_pico_w_stack.h"
 #include "tusb.h"
 
+#if defined(APP_PICO_HAS_DIAG_CDC)
+#define HIDRELAY_CDC_DESCRIPTOR_LEN (8U + 9U + 5U + 5U + 4U + 5U + 7U + 9U + 7U + 7U)
+#define HIDRELAY_CDC_INTERFACE_COUNT 2U
+#else
+#define HIDRELAY_CDC_DESCRIPTOR_LEN 0U
+#define HIDRELAY_CDC_INTERFACE_COUNT 0U
+#endif
+
 enum {
     HIDRELAY_USB_VID = 0x2E8AU,
     HIDRELAY_USB_PID = 0x4001U,
@@ -16,19 +24,19 @@ enum {
     HIDRELAY_HID_EP_OUT = 0x01U,
     HIDRELAY_HID_EP_SIZE = 16U,
     HIDRELAY_HID_EP_INTERVAL_MS = 4U,
+#if defined(APP_PICO_HAS_DIAG_CDC)
     HIDRELAY_CDC_EP_NOTIF = 0x89U,
     HIDRELAY_CDC_EP_OUT = 0x09U,
     HIDRELAY_CDC_EP_IN = 0x8AU,
     HIDRELAY_CDC_EP_NOTIF_SIZE = 8U,
     HIDRELAY_CDC_EP_DATA_SIZE = 64U,
     HIDRELAY_CDC_EP_INTERVAL_MS = 16U,
-    HIDRELAY_CDC_INTERFACE_COUNT = 2U,
     HIDRELAY_CDC_STRING_INDEX = 4U,
+#endif
     HIDRELAY_STRING_LIMIT = 31U,
     HIDRELAY_MAX_INTERFACE = 8U,
     HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN = 9U,
-    HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U,
-    HIDRELAY_CDC_DESCRIPTOR_LEN = 8U + 9U + 5U + 5U + 4U + 5U + 7U + 9U + 7U + 7U
+    HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN = 9U + 9U + 7U + 7U
 };
 
 static uint8_t g_config_desc
@@ -238,6 +246,7 @@ static void hidrelay_descriptor_put_u16(
     buffer[1] = (uint8_t)((value >> 8U) & 0xFFU);
 }
 
+#if defined(APP_PICO_HAS_DIAG_CDC)
 static uint16_t hidrelay_append_cdc_descriptor(
     uint8_t * buffer,
     uint16_t offset,
@@ -327,6 +336,17 @@ static uint16_t hidrelay_append_cdc_descriptor(
 
     return offset;
 }
+#else
+static uint16_t hidrelay_append_cdc_descriptor(
+    uint8_t * buffer,
+    uint16_t offset,
+    uint8_t cdc_control_interface_number
+) {
+    (void)buffer;
+    (void)cdc_control_interface_number;
+    return offset;
+}
+#endif
 
 static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
     uint16_t offset = 0U;
@@ -430,7 +450,9 @@ uint16_t const * tud_descriptor_string_cb(
         "hidrelay-fw",
         "HID Relay Hub",
         "00000001",
+#if defined(APP_PICO_HAS_DIAG_CDC)
         "Diag CDC",
+#endif
     };
     uint8_t char_count = 0U;
     const char * text = NULL;

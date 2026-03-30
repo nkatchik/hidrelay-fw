@@ -73,6 +73,8 @@ Common logic never imports Pico-specific SDK headers.
 - optional Pico SDK stack linkage flags:
   - `APP_PLATFORM_ENABLE_TINYUSB`
   - `APP_PLATFORM_ENABLE_BTSTACK`
+  - `APP_PLATFORM_ENABLE_TELEMETRY` (debug/development diagnostics surfaces)
+  - `APP_PLATFORM_ENABLE_DIAG_CDC` (optional debug/development CDC diagnostics transport)
 
 Pico-specific linkage is isolated under this directory.
 
@@ -99,16 +101,16 @@ Pico-specific linkage is isolated under this directory.
 - TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
 - Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
-- Platform glue now records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio.
-- Diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
+- Platform glue records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio when telemetry is enabled.
+- When both `APP_PLATFORM_ENABLE_TELEMETRY` and `APP_PLATFORM_ENABLE_DIAG_CDC` are enabled, diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
 - BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
 - Factory reset command now erases Pair DB + BTstack persistence sectors and reboots after the LED cue sequence.
 
 ## Diagnostics Transport
 
 - Source: app emits `hid_transport_diag_snapshot_t` each tick through `platform_output_t`.
-- Queue: platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
-- Host path: TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
+- Queue: when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
+- Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
 - Host capture helper: `tool/diag_capture.c` decodes CDC frames into CSV for offline analysis.
 - Framing:
   - `magic`: `0x48 0x52` (`'H' 'R'`)

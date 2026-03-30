@@ -25,7 +25,15 @@ extern "C" {
 #define CFG_TUD_ENDPOINT0_SIZE 64
 #endif
 
+#if defined(APP_PICO_HAS_DIAG_CDC) && APP_PICO_HAS_DIAG_CDC
 #define CFG_TUD_CDC 1
+#define CFG_TUD_CDC_EP_BUFSIZE 64
+#define CFG_TUD_CDC_RX_BUFSIZE 256
+#define CFG_TUD_CDC_TX_BUFSIZE 256
+#else
+#define CFG_TUD_CDC 0
+#endif
+
 #define CFG_TUD_MSC 0
 #define CFG_TUD_MIDI 0
 #define CFG_TUD_VENDOR 0
@@ -37,9 +45,6 @@ extern "C" {
 
 #define CFG_TUD_HID 8
 #define CFG_TUD_HID_EP_BUFSIZE 16
-#define CFG_TUD_CDC_EP_BUFSIZE 64
-#define CFG_TUD_CDC_RX_BUFSIZE 256
-#define CFG_TUD_CDC_TX_BUFSIZE 256
 
 #ifdef __cplusplus
 }

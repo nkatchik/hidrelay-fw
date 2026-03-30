@@ -14,6 +14,8 @@
 static pico_w_state_t g_state = {
     .initialized = false,
 };
+
+#if defined(APP_PICO_HAS_TELEMETRY)
 enum {
     PICO_W_DIAG_QUEUE_SIZE = 16U,
     PICO_W_DIAG_FRAME_VERSION = 1U,
@@ -29,7 +31,9 @@ static uint8_t g_diag_queue_head = 0U;
 static uint8_t g_diag_queue_tail = 0U;
 static uint8_t g_diag_queue_count = 0U;
 static uint32_t g_diag_sequence = 0U;
+#endif
 
+#if defined(APP_PICO_HAS_TELEMETRY)
 static void pico_w_diag_put_u32(
     uint8_t * frame,
     uint16_t * offset,
@@ -87,6 +91,7 @@ static uint16_t pico_w_diag_encode_frame(
 }
 
 static void pico_w_diag_send_usb(const hid_transport_diag_snapshot_t * diag) {
+#if defined(APP_PICO_HAS_DIAG_CDC)
     uint8_t frame[PICO_W_DIAG_FRAME_LEN] = {0};
     uint16_t frame_len = 0U;
 
@@ -102,6 +107,9 @@ static void pico_w_diag_send_usb(const hid_transport_diag_snapshot_t * diag) {
     }
 
     (void)pico_w_tinyusb_runtime_diag_write(frame, frame_len);
+#else
+    (void)diag;
+#endif
 }
 
 static void pico_w_diag_queue_reset(void) {
@@ -159,6 +167,11 @@ static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
     g_last_diag = *diag;
     g_last_diag_valid = true;
 }
+#else
+static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
+    (void)diag;
+}
+#endif
 
 static void pico_w_factory_reset(void) {
     (void)pico_w_pair_store_factory_reset_all();
@@ -170,11 +183,13 @@ static void pico_w_factory_reset(void) {
 }
 
 bool platform_init(void) {
+#if defined(APP_PICO_HAS_TELEMETRY)
     stdio_init_all();
-    pico_w_state_reset(&g_state);
     pico_w_diag_queue_reset();
     g_last_diag_valid = false;
     (void)memset(&g_last_diag, 0, sizeof(g_last_diag));
+#endif
+    pico_w_state_reset(&g_state);
 
     if (!pico_w_hw_init_radio()) {
         return false;
@@ -265,6 +280,7 @@ bool platform_pair_db_save(const pair_db_t * db) {
 }
 
 bool platform_diag_take(hid_transport_diag_snapshot_t * out_diag) {
+#if defined(APP_PICO_HAS_TELEMETRY)
     if ((out_diag == NULL)
         || !pico_w_state_is_initialized(&g_state)
         || (g_diag_queue_count == 0U)) {
@@ -276,4 +292,8 @@ bool platform_diag_take(hid_transport_diag_snapshot_t * out_diag) {
     g_diag_queue_head = (uint8_t)((g_diag_queue_head + 1U) % PICO_W_DIAG_QUEUE_SIZE);
     g_diag_queue_count = (uint8_t)(g_diag_queue_count - 1U);
     return true;
+#else
+    (void)out_diag;
+    return false;
+#endif
 }

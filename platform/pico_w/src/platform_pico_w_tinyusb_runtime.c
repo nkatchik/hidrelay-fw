@@ -51,7 +51,7 @@ bool pico_w_tinyusb_runtime_diag_write(
     const uint8_t * data,
     uint16_t data_len
 ) {
-#ifdef APP_PICO_HAS_TINYUSB
+#if defined(APP_PICO_HAS_TINYUSB) && defined(APP_PICO_HAS_DIAG_CDC)
     uint16_t remaining = data_len;
     const uint8_t * cursor = data;
 
@@ -97,7 +97,7 @@ bool pico_w_tinyusb_runtime_diag_write(
 #endif
 }
 
-#ifdef APP_PICO_HAS_TINYUSB
+#if defined(APP_PICO_HAS_TINYUSB) && defined(APP_PICO_HAS_DIAG_CDC)
 void tud_cdc_rx_cb(uint8_t itf) {
     while (tud_cdc_n_available(itf) > 0U) {
         (void)tud_cdc_n_read_char(itf);

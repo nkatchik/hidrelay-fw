@@ -10,6 +10,10 @@ function(pico_w_configure_target target_name)
             APP_PLATFORM_PICO_W=1
     )
 
+    if(APP_PLATFORM_ENABLE_TELEMETRY)
+        target_compile_definitions(${target_name} PRIVATE APP_PICO_HAS_TELEMETRY=1)
+    endif()
+
     target_link_libraries(${target_name}
         PRIVATE
             hidrelay_core
@@ -20,6 +24,12 @@ function(pico_w_configure_target target_name)
     if(APP_PLATFORM_ENABLE_TINYUSB)
         target_link_libraries(${target_name} PRIVATE tinyusb_device tinyusb_board)
         target_compile_definitions(${target_name} PRIVATE APP_PICO_HAS_TINYUSB=1)
+
+        if(APP_PLATFORM_ENABLE_DIAG_CDC)
+            target_compile_definitions(${target_name} PRIVATE APP_PICO_HAS_DIAG_CDC=1)
+        endif()
+    elseif(APP_PLATFORM_ENABLE_DIAG_CDC)
+        message(WARNING "APP_PLATFORM_ENABLE_DIAG_CDC is ON but APP_PLATFORM_ENABLE_TINYUSB is OFF; diagnostics CDC is disabled.")
     endif()
 
     if(APP_PLATFORM_ENABLE_BTSTACK)

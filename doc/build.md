@@ -78,6 +78,8 @@ Pico W stack toggles:
 
 - `APP_PLATFORM_ENABLE_TINYUSB` (default `OFF`)
 - `APP_PLATFORM_ENABLE_BTSTACK` (default `OFF`)
+- `APP_PLATFORM_ENABLE_TELEMETRY` (default `ON` for `Debug`, otherwise `OFF`)
+- `APP_PLATFORM_ENABLE_DIAG_CDC` (default follows `APP_PLATFORM_ENABLE_TELEMETRY`; requires TinyUSB + telemetry)
 
 They are disabled by default for fast baseline builds. Project-local starter TinyUSB/BTstack headers are provided for stack-enabled development builds.
 
@@ -89,6 +91,19 @@ cmake -S . -B build/pico_w_stack \
   -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
   -DAPP_PLATFORM_ENABLE_BTSTACK=ON
 cmake --build build/pico_w_stack --parallel
+```
+
+Debug/development stack build with diagnostics CDC:
+
+```sh
+cmake -S . -B build/pico_w_debug \
+  -DAPP_PLATFORM=pico_w \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
+  -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
+  -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
+  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON
+cmake --build build/pico_w_debug --parallel
 ```
 
 Project-local stack config headers used by this path:
@@ -138,10 +153,10 @@ Implemented now:
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state
-- runtime bridge/pairing diagnostics emitted on state change via stdio log lines (including reconnect counters/result + status code)
-- structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`)
-- TinyUSB composite descriptor now includes a CDC diagnostics function (HID interfaces + CDC control/data pair)
-- diagnostics snapshots are streamed over TinyUSB CDC as framed binary records (magic/version/payload + sequence)
+- runtime bridge/pairing diagnostics emitted on state change via stdio log lines when `APP_PLATFORM_ENABLE_TELEMETRY=ON` (including reconnect counters/result + status code)
+- structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`) when telemetry is enabled
+- optional TinyUSB CDC diagnostics function (HID interfaces + CDC control/data pair) gated by `APP_PLATFORM_ENABLE_DIAG_CDC`
+- when telemetry+CDC are enabled, diagnostics snapshots are streamed over TinyUSB CDC as framed binary records (magic/version/payload + sequence)
 - factory reset command now erases Pair DB + BTstack persisted security material and reboots after cue completion
 - host-side CDC diagnostics capture utility (`build/tool/diag_capture`) outputs decoded CSV frames
 

@@ -27,8 +27,8 @@ Current implementation is a buildable skeleton with:
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - explicit SSP/PIN confirmation handling gated by pairing mode
-- runtime diagnostics available as structured snapshots via `platform_diag_take(...)`, with optional stdio mirror
-- host-visible diagnostics transport over TinyUSB CDC with framed binary snapshot streaming
+- optional runtime telemetry surfaces (structured snapshots + stdio mirror) enabled in debug/dev builds (`APP_PLATFORM_ENABLE_TELEMETRY`)
+- optional host-visible diagnostics transport over TinyUSB CDC with framed binary snapshot streaming (`APP_PLATFORM_ENABLE_DIAG_CDC`, requires telemetry)
 - queue backpressure telemetry with drop counters/high-water marks
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
 - flash-backed pair database persistence with session metadata (schema v3, sector reserved ahead of BTstack flash banks)
@@ -69,6 +69,30 @@ cmake -S . -B build/pico_w \
 cmake --build build/pico_w --parallel
 ```
 
+Enable CDC diagnostics transport in debug/development builds:
+
+```sh
+cmake -S . -B build/pico_w_debug \
+  -DAPP_PLATFORM=pico_w \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
+  -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
+  -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
+  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON
+cmake --build build/pico_w_debug --parallel
+```
+
+Release builds keep telemetry disabled by default:
+
+```sh
+cmake -S . -B build/pico_w_release \
+  -DAPP_PLATFORM=pico_w \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
+  -DAPP_PLATFORM_ENABLE_BTSTACK=ON
+cmake --build build/pico_w_release --parallel
+```
+
 These options remain off by default for fast baseline iteration, but the repository now includes working starter configs in:
 
 - `platform/pico_w/include/tusb_config.h`
@@ -91,7 +115,8 @@ When stack options are enabled:
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
 - queue saturation drops oldest pending reports and updates telemetry counters
-- diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
+- when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, diagnostics snapshots are mirrored to stdio and exposed via `platform_diag_take(...)`
+- when `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
 - factory reset now clears Pair DB + BTstack persisted security data and triggers reboot
 
 ## Repository Layout
@@ -101,7 +126,6 @@ When stack options are enabled:
 - `include/` - public headers for app/platform modules
 - `src/` - platform-agnostic firmware logic
 - `platform/` - platform-specific glue (`platform/pico_w/` now)
-- `tool/` - host-side helper code (`cache_probe` cleanup demo)
 - `tool/` - host-side helper code (`cache_probe`, `diag_capture`)
 
 Generated/downloaded artifacts are local and git-ignored:
@@ -126,7 +150,7 @@ LED behavior:
 
 ## Diagnostics CDC Frame
 
-When TinyUSB is enabled, diagnostics snapshots are streamed on CDC interface `0` as binary frames:
+When TinyUSB is enabled and both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are streamed on CDC interface `0` as binary frames:
 
 - byte `0`: magic `'H'` (`0x48`)
 - byte `1`: magic `'R'` (`0x52`)
