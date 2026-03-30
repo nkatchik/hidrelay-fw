@@ -2,9 +2,23 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "🗑️ Clean (Full)",
+            "type": "shell",
+            "command": "make distclean && make distclean && echo '✅ Full clean completed' || echo '❌ Clean failed'",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "echo": false,
+                "showReuseMessage": false,
+                "clear": true
+            }
+        },
+        {
             "label": "🗑️ Clean",
             "type": "shell",
-            "command": "make clean",
+            "command": "make clean && echo '✅ Cleaned build artifacts' || echo '❌ Clean failed'",
             "group": {
                 "kind": "build",
                 "isDefault": false
@@ -18,10 +32,24 @@
         {
             "label": "🛠️ Build",
             "type": "shell",
-            "command": "make build",
+            "command": "make build && echo '✅ Build successful' || echo '❌ Build failed'",
             "group": {
                 "kind": "build",
                 "isDefault": true
+            },
+            "presentation": {
+                "echo": false,
+                "showReuseMessage": false,
+                "clear": true
+            }
+        },
+        {
+            "label": "⚡ Flash",
+            "type": "shell",
+            "command": "flash",
+            "group": {
+                "kind": "build",
+                "isDefault": false
             },
             "presentation": {
                 "echo": false,

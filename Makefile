@@ -7,6 +7,9 @@ BUILD_ROOT ?= $(APP_SOURCE_DIR)/build
 BUILD_DIR := $(BUILD_ROOT)/$(APP_PLATFORM)
 BOOTSTRAP_CACHE := $(APP_CACHE_DIR)/bootstrap/$(APP_PLATFORM).cmake
 TOOLCHAIN_FILE := $(APP_CACHE_DIR)/toolchain/$(APP_PLATFORM).cmake
+PICO_NO_PICOTOOL ?= OFF
+CMAKE_POLICY_VERSION_MINIMUM ?= 3.5
+CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
 
 CMAKE ?= cmake
 HOST_CC ?= gcc
@@ -48,14 +51,15 @@ bootstrap: git-hooks-bootstrap
 		-P $(APP_SOURCE_DIR)/cmake/Bootstrap.cmake
 
 configure: bootstrap
-	@$(CMAKE) -S $(APP_SOURCE_DIR) -B $(BUILD_DIR) \
+	@$(CMAKE_ENV) $(CMAKE) -S $(APP_SOURCE_DIR) -B $(BUILD_DIR) \
 		-DAPP_PLATFORM=$(APP_PLATFORM) \
 		-DAPP_CACHE_DIR=$(APP_CACHE_DIR) \
+		-DPICO_NO_PICOTOOL=$(PICO_NO_PICOTOOL) \
 		-DCMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE) \
 		-C $(BOOTSTRAP_CACHE)
 
 build: configure
-	@$(CMAKE) --build $(BUILD_DIR) --parallel
+	@$(CMAKE_ENV) $(CMAKE) --build $(BUILD_DIR) --parallel
 
 clean:
 	@rm -rf $(BUILD_DIR)

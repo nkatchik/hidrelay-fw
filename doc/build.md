@@ -44,8 +44,9 @@ Build trees are under `build/<platform>/`.
 
 For default Pico W builds, outputs are generated under `build/pico_w/platform/pico_w/`, including:
 
-- `hidrelay_fw` (ELF)
+- `hidrelay_fw.elf`
 - `hidrelay_fw.bin`
+- `hidrelay_fw.uf2`
 - `hidrelay_fw.map`
 - `hidrelay_fw.dis`
 
@@ -111,7 +112,9 @@ Project-local stack config headers used by this path:
 - `platform/pico_w/include/tusb_config.h`
 - `platform/pico_w/include/btstack_config.h`
 
-`PICO_NO_PICOTOOL` is enabled by default to avoid extra host-tool dependencies during initial skeleton work.
+`PICO_NO_PICOTOOL` is disabled by default so UF2 is produced on `make build`.
+Use `make PICO_NO_PICOTOOL=ON build` to skip picotool post-processing and generate only ELF/BIN/MAP/DIS outputs.
+The top-level `Makefile` also exports `CMAKE_POLICY_VERSION_MINIMUM=3.5` during configure/build to keep Pico SDK picotool integration compatible with newer host CMake versions.
 
 ## Warning Policy
 

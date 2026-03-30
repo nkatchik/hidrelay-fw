@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "${script_dir}/../.." && pwd)"
+
+if [[ $# -gt 1 ]]; then
+    echo "Usage: flash [platform]" >&2
+    exit 2
+fi
+
+if [[ $# -eq 1 ]]; then
+    app_platform="$1"
+    selected_target="requested platform: ${app_platform}"
+else
+    latest_uf2=""
+    while IFS= read -r uf2_path; do
+        if [[ -z "${latest_uf2}" || "${uf2_path}" -nt "${latest_uf2}" ]]; then
+            latest_uf2="${uf2_path}"
+        fi
+    done < <(find "${repo_root}/build" -type f -name "*.uf2" 2>/dev/null)
+
+    if [[ -z "${latest_uf2}" ]]; then
+        echo "❌ No UF2 artifact found in build/. Run the build task first." >&2
+        exit 1
+    fi
+
+    rel_from_build="${latest_uf2#${repo_root}/build/}"
+    app_platform="${rel_from_build%%/*}"
+
+    if [[ -z "${app_platform}" || "${app_platform}" == "${rel_from_build}" ]]; then
+        echo "❌ Could not infer platform from latest UF2 path: ${latest_uf2}" >&2
+        exit 1
+    fi
+
+    selected_target="latest UF2: ${rel_from_build}"
+fi
+
+platform_flash_script="${repo_root}/platform/${app_platform}/bin/flash"
+if [[ ! -x "${platform_flash_script}" ]]; then
+    echo "❌ Missing platform flash script: platform/${app_platform}/bin/flash" >&2
+    exit 1
+fi
+
+echo "Using ${selected_target}"
+"${platform_flash_script}" "${repo_root}" "${app_platform}"

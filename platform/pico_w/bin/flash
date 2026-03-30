@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+app_platform="${2:-pico_w}"
+
+uf2_path="${repo_root}/build/${app_platform}/platform/${app_platform}/hidrelay_fw.uf2"
+if [[ ! -f "${uf2_path}" ]]; then
+    echo "❌ UF2 artifact not found at expected path: build/${app_platform}/platform/${app_platform}/hidrelay_fw.uf2" >&2
+    exit 1
+fi
+
+pico_volume="RPI-RP2"
+pico_mount=""
+mount_roots=("/Volumes")
+if [[ -n "${USER:-}" ]]; then
+    mount_roots+=("/media/${USER}" "/run/media/${USER}")
+fi
+
+for root in "${mount_roots[@]}"; do
+    mount="${root}/${pico_volume}"
+    if [[ -d "${mount}" ]]; then
+        pico_mount="${mount}"
+        break
+    fi
+done
+
+if [[ -z "${pico_mount}" ]]; then
+    echo "❌ Pico drive not found. Hold BOOTSEL while plugging in so ${pico_volume} appears." >&2
+    exit 1
+fi
+
+cp "${uf2_path}" "${pico_mount}/"
+sync
+echo "✅ Flashed $(basename "${uf2_path}") to ${pico_mount}"

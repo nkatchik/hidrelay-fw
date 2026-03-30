@@ -9,6 +9,7 @@ function(pico_w_configure_target target_name)
         PRIVATE
             APP_PLATFORM_PICO_W=1
     )
+    set_target_properties(${target_name} PROPERTIES SUFFIX ".elf")
 
     if(APP_PLATFORM_ENABLE_TELEMETRY)
         target_compile_definitions(${target_name} PRIVATE APP_PICO_HAS_TELEMETRY=1)

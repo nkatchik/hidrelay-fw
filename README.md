@@ -46,6 +46,8 @@ make bootstrap
 make build
 ```
 
+Default Pico W firmware artifacts are written to `build/pico_w/platform/pico_w/`, including `hidrelay_fw.uf2`.
+
 `make bootstrap` now also configures local git hooks (`core.hooksPath=.githooks`) when run inside a git worktree.
 
 Show discovered targets:

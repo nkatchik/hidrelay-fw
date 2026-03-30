@@ -5,7 +5,7 @@ if(NOT DEFINED PICO_BOARD)
 endif()
 
 if(NOT DEFINED PICO_NO_PICOTOOL)
-    set(PICO_NO_PICOTOOL ON CACHE BOOL "Skip picotool fetch/build in default local firmware builds." FORCE)
+    set(PICO_NO_PICOTOOL OFF CACHE BOOL "Enable picotool post-processing so UF2 is produced by default." FORCE)
 endif()
 
 option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK." OFF)

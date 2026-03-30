@@ -9,11 +9,21 @@
         "${workspaceFolder}/platform/*/include"
     ],
     "C_Cpp.files.exclude": {
-        "**/.cache/sdk/**/bazel/**": true
+        ".cache": true,
+        "build": true
     },
     "C_Cpp.intelliSenseEngine": "default",
     "[c]": {
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "ms-vscode.cpptools"
-    }
+    },
+    "terminal.integrated.env.osx": {
+        "PATH": "${workspaceFolder}/.vscode/bin:${env:PATH}"
+    },
+    "terminal.integrated.env.linux": {
+        "PATH": "${workspaceFolder}/.vscode/bin:${env:PATH}"
+    },
+    "terminal.integrated.env.windows": {
+        "Path": "${workspaceFolder}\\.vscode\\bin;${env:Path}"
+    },
 }
