@@ -7,6 +7,8 @@ BUILD_ROOT ?= $(APP_SOURCE_DIR)/build
 BUILD_DIR := $(BUILD_ROOT)/$(APP_PLATFORM)
 BOOTSTRAP_CACHE := $(APP_CACHE_DIR)/bootstrap/$(APP_PLATFORM).cmake
 TOOLCHAIN_FILE := $(APP_CACHE_DIR)/toolchain/$(APP_PLATFORM).cmake
+COMPILE_COMMANDS_SOURCE := $(BUILD_DIR)/compile_commands.json
+COMPILE_COMMANDS_LINK := $(BUILD_ROOT)/compile_commands.json
 PICO_NO_PICOTOOL ?= OFF
 CMAKE_POLICY_VERSION_MINIMUM ?= 3.5
 CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
@@ -14,7 +16,7 @@ CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
 CMAKE ?= cmake
 HOST_CC ?= gcc
 
-.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean tool-cache-probe tool-diag-capture
+.PHONY: help platform-list git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-cache-probe tool-diag-capture
 
 help:
 	@printf '%s\n' \
@@ -57,6 +59,7 @@ configure: bootstrap
 		-DPICO_NO_PICOTOOL=$(PICO_NO_PICOTOOL) \
 		-DCMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE) \
 		-C $(BOOTSTRAP_CACHE)
+	@$(MAKE) --no-print-directory sync-compile-commands APP_PLATFORM=$(APP_PLATFORM)
 
 build: configure
 	@$(CMAKE_ENV) $(CMAKE) --build $(BUILD_DIR) --parallel
@@ -66,6 +69,14 @@ clean:
 
 distclean:
 	@rm -rf $(BUILD_ROOT) $(APP_CACHE_DIR)
+
+sync-compile-commands:
+	@if [ ! -f "$(COMPILE_COMMANDS_SOURCE)" ]; then \
+		echo "Missing $(COMPILE_COMMANDS_SOURCE). Run make configure APP_PLATFORM=$(APP_PLATFORM) first."; \
+		exit 1; \
+	fi
+	@ln -sfn "$(COMPILE_COMMANDS_SOURCE)" "$(COMPILE_COMMANDS_LINK)"
+	@echo "Using compile commands: $(COMPILE_COMMANDS_SOURCE)"
 
 tool-cache-probe: build/tool/cache_probe
 
