@@ -26,6 +26,7 @@ Current implementation is a buildable skeleton with:
 - reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
+- initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization)
 - explicit SSP/PIN confirmation handling gated by pairing mode
 - optional runtime telemetry surfaces (structured snapshots + stdio mirror) enabled in debug/dev builds (`APP_PLATFORM_ENABLE_TELEMETRY`)
 - optional host-visible diagnostics transport over TinyUSB CDC with framed binary snapshot streaming (`APP_PLATFORM_ENABLE_DIAG_CDC`, requires telemetry)
@@ -137,6 +138,7 @@ When stack options are enabled:
 - app reconnect failure handling now applies per-result retry policy updates with cooldown-based auto-recovery windows
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
 - descriptor acceptance/fallback now runs through shared policy checks, with boot-profile fallback descriptors for incompatible boot-mode reports
+- boot-profile fallback paths now apply report remap normalization in Pico stack TX/RX (keyboard/mouse payload + report-id shaping)
 - BTstack key material and LE device records persist via TLV flash storage
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
@@ -239,5 +241,5 @@ Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - extend per-device security lifecycle controls with explicit migration/rotation and operator recovery paths
-- extend descriptor handling from policy-only fallback into explicit report translation/remapping for host edge cases
+- extend descriptor remap from current boot-profile groundwork into broader host edge-case translation coverage
 - add alerting/inbox workflow integration around soak gate failures (without runtime telemetry in release builds)

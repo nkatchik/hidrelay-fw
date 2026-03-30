@@ -44,6 +44,9 @@ Common logic never imports Pico-specific SDK headers.
   - shared HID report-descriptor acceptance/fallback policy
   - enforces structural and compatibility guardrails before descriptor exposure to USB host
   - classifies fallback profile (boot keyboard, boot mouse, generic) when native descriptors are rejected
+- `hid_report_remap`:
+  - shared report remap helpers used when fallback descriptors are active
+  - currently normalizes boot keyboard/mouse payload and report-id shaping for BT->USB and USB->BT paths
 - `platform_api`:
   - platform boundary: init, poll inputs, apply outputs
   - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
@@ -105,6 +108,7 @@ Pico-specific linkage is isolated under this directory.
 - App reconnect policy now escalates to timed reconnect lockout after repeated connect/timeout failures, with automatic recovery when cooldown expires.
 - TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
 - Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
+- Boot fallback profiles now feed report remap helpers so keyboard/mouse payload shape matches fallback descriptor expectations in both directions.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - Platform glue records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio when telemetry is enabled.
 - When both `APP_PLATFORM_ENABLE_TELEMETRY` and `APP_PLATFORM_ENABLE_DIAG_CDC` are enabled, diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
@@ -176,6 +180,6 @@ Additional style constraints in this repository:
 
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
 2. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
-3. Extend descriptor handling beyond fallback policy into explicit report translation/remapping for host edge cases.
+3. Extend descriptor remap beyond current boot-profile groundwork into broader host edge-case translation/remapping.
 4. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

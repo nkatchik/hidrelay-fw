@@ -20,6 +20,8 @@
 #include "pico/cyw43_arch.h"
 #endif
 
+#include "hid_report_policy.h"
+#include "hid_report_remap.h"
 #include "platform_pico_w_tinyusb_runtime.h"
 
 enum {
@@ -788,6 +790,17 @@ uint8_t pico_w_stack_usb_protocol_mode(uint8_t interface_number) {
     return g_usb_interface_plan[interface_number].protocol_mode;
 }
 
+static uint8_t pico_w_stack_report_remap_profile(uint8_t interface_number) {
+    const uint8_t * descriptor = NULL;
+    uint16_t descriptor_len = 0U;
+    const uint8_t protocol_mode = pico_w_stack_usb_protocol_mode(interface_number);
+    hid_report_policy_decision_t decision = {0};
+
+    descriptor = pico_w_stack_usb_report_descriptor(interface_number, &descriptor_len);
+    hid_report_policy_decide(descriptor, descriptor_len, protocol_mode, &decision);
+    return hid_report_remap_profile_from_policy(&decision);
+}
+
 bool pico_w_stack_take_event(hid_transport_event_t * out_event) {
     if (out_event == NULL) {
         return false;
@@ -812,17 +825,28 @@ void pico_w_stack_ingest_usb_report(
     uint16_t report_len
 ) {
     hid_transport_event_t event = {0};
+    uint8_t remapped_report[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint16_t remapped_report_len = 0U;
+    const uint8_t remap_profile = pico_w_stack_report_remap_profile(interface_number);
+    const uint8_t protocol_mode = pico_w_stack_usb_protocol_mode(interface_number);
 
-    if ((report_len > HID_TRANSPORT_REPORT_MAX_LEN) || ((report_len > 0U) && (report == NULL))) {
+    if (!hid_report_remap_usb_to_bt(
+            remap_profile,
+            protocol_mode,
+            report,
+            report_len,
+            remapped_report,
+            &remapped_report_len
+        )) {
         return;
     }
 
     event.type = HID_TRANSPORT_EVENT_USB_HID_REPORT;
     event.interface_number = interface_number;
-    event.report_len = report_len;
+    event.report_len = remapped_report_len;
 
-    if (report_len > 0U) {
-        (void)memcpy(event.report, report, report_len);
+    if (remapped_report_len > 0U) {
+        (void)memcpy(event.report, remapped_report, remapped_report_len);
     }
 
     (void)pico_w_stack_push_event(&event);
@@ -833,7 +857,25 @@ bool pico_w_stack_send_usb_report(
     const uint8_t * report,
     uint16_t report_len
 ) {
-    return pico_w_tinyusb_runtime_send_in_report(interface_number, report, report_len);
+    uint8_t remapped_report[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint16_t remapped_report_len = 0U;
+    const uint8_t remap_profile = pico_w_stack_report_remap_profile(interface_number);
+
+    if (!hid_report_remap_bt_to_usb(
+            remap_profile,
+            report,
+            report_len,
+            remapped_report,
+            &remapped_report_len
+        )) {
+        return false;
+    }
+
+    return pico_w_tinyusb_runtime_send_in_report(
+        interface_number,
+        remapped_report,
+        remapped_report_len
+    );
 }
 
 bool pico_w_stack_send_bt_report(

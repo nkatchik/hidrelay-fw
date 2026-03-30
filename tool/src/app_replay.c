@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "hid_report_remap.h"
 
 typedef bool (*app_replay_test_fn_t)(void);
 
@@ -353,6 +354,95 @@ static bool app_replay_test_bridge_drops_oldest_on_overflow(void) {
     return app_replay_expect_u32_eq(tx.report[0], 1U, "oldest report should be dropped first");
 }
 
+static bool app_replay_test_remap_boot_keyboard_bt_to_usb(void) {
+    uint8_t output[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint16_t output_len = 0U;
+    const uint8_t bt_report_with_id[] =
+        {0x01U, 0x00U, 0x00U, 0x04U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+
+    if (!hid_report_remap_bt_to_usb(
+            HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD,
+            bt_report_with_id,
+            (uint16_t)sizeof(bt_report_with_id),
+            output,
+            &output_len
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            output_len,
+            8U,
+            "boot keyboard BT->USB should drop report-id byte"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        output[2],
+        0x04U,
+        "boot keyboard keycode payload should be preserved"
+    );
+}
+
+static bool app_replay_test_remap_boot_keyboard_usb_to_bt_report_mode(void) {
+    uint8_t output[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint16_t output_len = 0U;
+    const uint8_t usb_report[] = {0x00U, 0x00U, 0x04U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+
+    if (!hid_report_remap_usb_to_bt(
+            HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD,
+            HID_TRANSPORT_PROTOCOL_REPORT,
+            usb_report,
+            (uint16_t)sizeof(usb_report),
+            output,
+            &output_len
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            output_len,
+            9U,
+            "boot keyboard USB->BT report mode should prepend report-id byte"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(output[0], 0x01U, "boot keyboard report-id hint should be 1")) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(output[3], 0x04U, "boot keyboard payload should be preserved");
+}
+
+static bool app_replay_test_remap_boot_mouse_usb_to_bt_boot_mode(void) {
+    uint8_t output[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint16_t output_len = 0U;
+    const uint8_t usb_report[] = {0x01U, 0x10U, 0xF0U};
+
+    if (!hid_report_remap_usb_to_bt(
+            HID_REPORT_REMAP_PROFILE_BOOT_MOUSE,
+            HID_TRANSPORT_PROTOCOL_BOOT,
+            usb_report,
+            (uint16_t)sizeof(usb_report),
+            output,
+            &output_len
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            output_len,
+            3U,
+            "boot mouse USB->BT boot mode should remain payload-only"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(output[2], 0xF0U, "boot mouse payload should be preserved");
+}
+
 int main(void) {
     const app_replay_test_case_t cases[] = {
         {.name = "pair_any_from_long_press", .fn = app_replay_test_pair_any_from_long_press},
@@ -363,6 +453,12 @@ int main(void) {
         {.name = "threshold_lockout_recovery", .fn = app_replay_test_threshold_lockout_recovery},
         {.name = "bridge_drops_oldest_on_overflow",
             .fn = app_replay_test_bridge_drops_oldest_on_overflow},
+        {.name = "remap_boot_keyboard_bt_to_usb",
+            .fn = app_replay_test_remap_boot_keyboard_bt_to_usb},
+        {.name = "remap_boot_keyboard_usb_to_bt_report_mode",
+            .fn = app_replay_test_remap_boot_keyboard_usb_to_bt_report_mode},
+        {.name = "remap_boot_mouse_usb_to_bt_boot_mode",
+            .fn = app_replay_test_remap_boot_mouse_usb_to_bt_boot_mode},
     };
     const size_t case_count = sizeof(cases) / sizeof(cases[0]);
     size_t index = 0U;
