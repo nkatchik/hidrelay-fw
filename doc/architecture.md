@@ -78,6 +78,7 @@ Common logic never imports Pico-specific SDK headers.
   - `APP_PLATFORM_ENABLE_BTSTACK`
   - `APP_PLATFORM_ENABLE_TELEMETRY` (debug/development diagnostics surfaces)
   - `APP_PLATFORM_ENABLE_DIAG_CDC` (optional debug/development CDC diagnostics transport)
+  - `APP_PLATFORM_ALLOW_RELEASE_TELEMETRY` (explicit escape hatch for release-like development builds)
 
 Pico-specific linkage is isolated under this directory.
 
@@ -110,6 +111,7 @@ Pico-specific linkage is isolated under this directory.
 - BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
 - Pair DB persistence now uses a dual-slot flash journal with sequence-based latest selection and no-op write suppression.
 - Main loop now coalesces Pair DB writes with debounce/max-stale windows to reduce flash wear from bursty metadata updates.
+- Release guardrails now reject telemetry/diagnostics options in `Release` unless explicitly overridden.
 - Factory reset command now erases Pair DB + BTstack persistence sectors and reboots after the LED cue sequence.
 
 ## Diagnostics Transport

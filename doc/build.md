@@ -85,6 +85,7 @@ Pico W stack toggles:
 - `APP_PLATFORM_ENABLE_BTSTACK` (default `OFF`)
 - `APP_PLATFORM_ENABLE_TELEMETRY` (default `ON` for `Debug`, otherwise `OFF`)
 - `APP_PLATFORM_ENABLE_DIAG_CDC` (default follows `APP_PLATFORM_ENABLE_TELEMETRY`; requires TinyUSB + telemetry)
+- `APP_PLATFORM_ALLOW_RELEASE_TELEMETRY` (default `OFF`; required to permit telemetry/diag options with `CMAKE_BUILD_TYPE=Release`)
 
 They are disabled by default for fast baseline builds. Project-local starter TinyUSB/BTstack headers are provided for stack-enabled development builds.
 
@@ -109,6 +110,29 @@ cmake -S . -B build/pico_w_debug \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
   -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON
 cmake --build build/pico_w_debug --parallel
+```
+
+Release guardrail example (expected configure failure):
+
+```sh
+cmake -S . -B build/pico_w_release_guard \
+  -DAPP_PLATFORM=pico_w \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DAPP_PLATFORM_ENABLE_TELEMETRY=ON
+```
+
+Explicit development-only override for release-like builds:
+
+```sh
+cmake -S . -B build/pico_w_release_devdiag \
+  -DAPP_PLATFORM=pico_w \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
+  -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
+  -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
+  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
+  -DAPP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON
+cmake --build build/pico_w_release_devdiag --parallel
 ```
 
 Project-local stack config headers used by this path:
@@ -171,6 +195,7 @@ Implemented now:
 - host-side diagnostics summary helper (`tool/bin/diag_summary`) reports soak max/delta counters from CSV captures
 - host-side diagnostics gate mode now enforces thresholds and exits non-zero for automation (`make tool-diag-gate`)
 - host-side deterministic app replay validator (`build/tool/app_replay`) covers button command mapping, reconnect scheduling/lockout recovery, and queue overflow behavior (`make test-host`)
+- release build guardrails reject telemetry/diagnostics in `Release` unless explicitly overridden (`APP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON`)
 - soak capture/trend runbook documented in `doc/soak.md`
 
 Still pending for production behavior:

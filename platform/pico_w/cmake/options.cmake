@@ -26,6 +26,8 @@ set(PICO_NO_PICOTOOL OFF CACHE BOOL "Enable picotool post-processing so UF2 is p
 
 option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK." OFF)
 option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." OFF)
+option(APP_PLATFORM_ALLOW_RELEASE_TELEMETRY
+    "Allow telemetry/diagnostics options in Release builds (development use only)." OFF)
 
 if(NOT DEFINED APP_PLATFORM_ENABLE_TELEMETRY)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -47,4 +49,15 @@ if(APP_PLATFORM_ENABLE_DIAG_CDC AND (NOT APP_PLATFORM_ENABLE_TELEMETRY))
     message(WARNING
         "APP_PLATFORM_ENABLE_DIAG_CDC requires APP_PLATFORM_ENABLE_TELEMETRY=ON; forcing diagnostics CDC OFF.")
     set(APP_PLATFORM_ENABLE_DIAG_CDC OFF CACHE BOOL "Expose diagnostics over TinyUSB CDC on Pico W." FORCE)
+endif()
+
+string(TOUPPER "${CMAKE_BUILD_TYPE}" APP_PLATFORM_BUILD_TYPE_UPPER)
+if((APP_PLATFORM_BUILD_TYPE_UPPER STREQUAL "RELEASE")
+    AND (NOT APP_PLATFORM_ALLOW_RELEASE_TELEMETRY))
+    if(APP_PLATFORM_ENABLE_TELEMETRY OR APP_PLATFORM_ENABLE_DIAG_CDC)
+        message(FATAL_ERROR
+            "Release guard: telemetry/diagnostics are disabled for production builds. "
+            "Unset APP_PLATFORM_ENABLE_TELEMETRY/APP_PLATFORM_ENABLE_DIAG_CDC, or set "
+            "APP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON only for explicit development/debug releases.")
+    endif()
 endif()

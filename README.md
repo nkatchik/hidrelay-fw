@@ -29,6 +29,7 @@ Current implementation is a buildable skeleton with:
 - explicit SSP/PIN confirmation handling gated by pairing mode
 - optional runtime telemetry surfaces (structured snapshots + stdio mirror) enabled in debug/dev builds (`APP_PLATFORM_ENABLE_TELEMETRY`)
 - optional host-visible diagnostics transport over TinyUSB CDC with framed binary snapshot streaming (`APP_PLATFORM_ENABLE_DIAG_CDC`, requires telemetry)
+- release guardrails reject telemetry/diagnostics in `Release` builds unless explicitly overridden (`APP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON`)
 - queue backpressure telemetry with drop counters/high-water marks
 - host-side deterministic app replay validator (`make test-host`) for reconnect/button/queue regression checks without hardware soak
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
@@ -102,6 +103,20 @@ cmake -S . -B build/pico_w_release \
   -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
   -DAPP_PLATFORM_ENABLE_BTSTACK=ON
 cmake --build build/pico_w_release --parallel
+```
+
+Release guardrails will fail configure if telemetry/diagnostics are enabled in `Release`. For explicit development-only override:
+
+```sh
+cmake -S . -B build/pico_w_release_devdiag \
+  -DAPP_PLATFORM=pico_w \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
+  -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
+  -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
+  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
+  -DAPP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON
+cmake --build build/pico_w_release_devdiag --parallel
 ```
 
 These options remain off by default for fast baseline iteration, but the repository now includes working starter configs in:
