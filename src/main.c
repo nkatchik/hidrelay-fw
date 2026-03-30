@@ -70,6 +70,7 @@ int main(void) {
 
         app_input.button_pressed = platform_input.button_pressed;
         app_input.now_ms = platform_input.uptime_ms;
+        app_input.operator_command = platform_input.operator_command;
         app_input.transport_event = platform_input.transport_event;
 
         app_tick(&app, &app_input, &app_output);

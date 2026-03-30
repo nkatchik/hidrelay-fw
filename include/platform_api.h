@@ -4,12 +4,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "app.h"
 #include "hid_transport.h"
 #include "pair_db.h"
 
 typedef struct {
     bool button_pressed;
     uint32_t uptime_ms;
+    app_operator_command_t operator_command;
     hid_transport_event_t transport_event;
 } platform_input_t;
 

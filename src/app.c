@@ -254,6 +254,49 @@ static void app_handle_transport_event(
     }
 }
 
+static void app_handle_operator_command(
+    app_t * app,
+    app_operator_command_t command,
+    uint32_t now_ms
+) {
+    pair_device_id_t last_device_id = {0};
+    uint8_t last_index = 0U;
+
+    if ((app == NULL) || (command == APP_OPERATOR_COMMAND_NONE)) {
+        return;
+    }
+
+    if (pair_db_count(&app->pair_db) > 0U) {
+        last_index = (uint8_t)(pair_db_count(&app->pair_db) - 1U);
+        if (!pair_db_get(&app->pair_db, last_index, &last_device_id)) {
+            return;
+        }
+    }
+
+    if (command == APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_ALL) {
+        (void)pair_db_clear_reconnect_lockout_all(&app->pair_db, now_ms);
+        return;
+    }
+
+    if (command == APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_LAST) {
+        if (pair_db_count(&app->pair_db) == 0U) {
+            return;
+        }
+
+        (void)pair_db_clear_reconnect_lockout(&app->pair_db, &last_device_id, now_ms);
+        return;
+    }
+
+    if ((command == APP_OPERATOR_COMMAND_ROTATE_SECURITY_LAST)
+        && (pair_db_count(&app->pair_db) > 0U)) {
+        app_schedule_security_rotate(
+            app,
+            &last_device_id,
+            HID_TRANSPORT_SECURITY_ROTATE_REASON_OPERATOR_RECOVERY
+        );
+    }
+}
+
 void app_init(
     app_t * app,
     const pair_db_t * initial_pair_db
@@ -335,6 +378,7 @@ void app_tick(
     }
 
     app_handle_transport_event(app, input);
+    app_handle_operator_command(app, input->operator_command, input->now_ms);
     (void)pair_db_reconnect_recover_expired(&app->pair_db, input->now_ms);
 
     if (app->reconnect_inflight

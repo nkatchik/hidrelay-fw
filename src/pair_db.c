@@ -244,6 +244,56 @@ bool pair_db_mark_reconnect_failure(
     return true;
 }
 
+bool pair_db_clear_reconnect_lockout(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint32_t now_ms
+) {
+    uint8_t index = 0U;
+
+    if ((db == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    if (!pair_db_find(db, device_id, &index)) {
+        return false;
+    }
+
+    db->entries[index].reconnect_allowed = 1U;
+    db->entries[index].reconnect_fail_count = 0U;
+    db->entries[index].reconnect_retry_after_ms = now_ms;
+    return true;
+}
+
+bool pair_db_clear_reconnect_lockout_all(
+    pair_db_t * db,
+    uint32_t now_ms
+) {
+    uint8_t index = 0U;
+    bool changed = false;
+
+    if (db == NULL) {
+        return false;
+    }
+
+    for (index = 0U; index < db->count; index++) {
+        pair_db_entry_t * entry = &db->entries[index];
+
+        if ((entry->reconnect_allowed != 0U)
+            && (entry->reconnect_fail_count == 0U)
+            && pair_db_time_reached(now_ms, entry->reconnect_retry_after_ms)) {
+            continue;
+        }
+
+        entry->reconnect_allowed = 1U;
+        entry->reconnect_fail_count = 0U;
+        entry->reconnect_retry_after_ms = now_ms;
+        changed = true;
+    }
+
+    return changed;
+}
+
 bool pair_db_reconnect_recover_expired(
     pair_db_t * db,
     uint32_t now_ms

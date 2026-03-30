@@ -29,10 +29,11 @@ static bool app_replay_device_id_equal(
     return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
 }
 
-static void app_replay_tick(
+static void app_replay_tick_with_command(
     app_t * app,
     uint32_t now_ms,
     bool button_pressed,
+    app_operator_command_t operator_command,
     const hid_transport_event_t * event,
     app_output_t * out
 ) {
@@ -44,6 +45,7 @@ static void app_replay_tick(
 
     input.button_pressed = button_pressed;
     input.now_ms = now_ms;
+    input.operator_command = operator_command;
     input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
 
     if (event != NULL) {
@@ -52,6 +54,23 @@ static void app_replay_tick(
 
     (void)memset(out, 0, sizeof(*out));
     app_tick(app, &input, out);
+}
+
+static void app_replay_tick(
+    app_t * app,
+    uint32_t now_ms,
+    bool button_pressed,
+    const hid_transport_event_t * event,
+    app_output_t * out
+) {
+    app_replay_tick_with_command(
+        app,
+        now_ms,
+        button_pressed,
+        APP_OPERATOR_COMMAND_NONE,
+        event,
+        out
+    );
 }
 
 static bool app_replay_expect_true(
@@ -465,6 +484,91 @@ static bool app_replay_test_remap_boot_mouse_usb_to_bt_boot_mode(void) {
     return app_replay_expect_u32_eq(output[2], 0xF0U, "boot mouse payload should be preserved");
 }
 
+static bool app_replay_test_operator_clear_lockout_last(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x06U);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    if (!pair_db_mark_reconnect_failure(&app.pair_db, &device_id, 3U, 60000U)) {
+        return false;
+    }
+
+    if (!pair_db_set_reconnect_allowed(&app.pair_db, &device_id, false)) {
+        return false;
+    }
+
+    app_replay_tick_with_command(
+        &app,
+        1000U,
+        false,
+        APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_LAST,
+        NULL,
+        &out
+    );
+
+    if (!app_replay_expect_true(
+            out.reconnect_request.valid,
+            "operator clear lockout last should re-enable reconnect scheduling"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        app_replay_device_id_equal(&out.reconnect_request.device_id, &device_id),
+        "clear lockout last should schedule reconnect for last paired device"
+    );
+}
+
+static bool app_replay_test_operator_rotate_security_last(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x07U);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+    app_replay_tick_with_command(
+        &app,
+        1000U,
+        false,
+        APP_OPERATOR_COMMAND_ROTATE_SECURITY_LAST,
+        NULL,
+        &out
+    );
+
+    if (!app_replay_expect_true(
+            out.security_rotate_request.valid,
+            "operator rotate security should emit security rotate request"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            out.security_rotate_request.reason,
+            HID_TRANSPORT_SECURITY_ROTATE_REASON_OPERATOR_RECOVERY,
+            "operator rotate request should carry operator-recovery reason"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        app_replay_device_id_equal(&out.security_rotate_request.device_id, &device_id),
+        "operator rotate request should target last paired device"
+    );
+}
+
 int main(void) {
     const app_replay_test_case_t cases[] = {
         {.name = "pair_any_from_long_press", .fn = app_replay_test_pair_any_from_long_press},
@@ -481,6 +585,9 @@ int main(void) {
             .fn = app_replay_test_remap_boot_keyboard_usb_to_bt_report_mode},
         {.name = "remap_boot_mouse_usb_to_bt_boot_mode",
             .fn = app_replay_test_remap_boot_mouse_usb_to_bt_boot_mode},
+        {.name = "operator_clear_lockout_last", .fn = app_replay_test_operator_clear_lockout_last},
+        {.name = "operator_rotate_security_last",
+            .fn = app_replay_test_operator_rotate_security_last},
     };
     const size_t case_count = sizeof(cases) / sizeof(cases[0]);
     size_t index = 0U;

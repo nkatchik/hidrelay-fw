@@ -11,9 +11,17 @@
 #include "pair_db.h"
 #include "usb_bridge.h"
 
+typedef enum {
+    APP_OPERATOR_COMMAND_NONE = 0,
+    APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_ALL,
+    APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_LAST,
+    APP_OPERATOR_COMMAND_ROTATE_SECURITY_LAST
+} app_operator_command_t;
+
 typedef struct {
     bool button_pressed;
     uint32_t now_ms;
+    app_operator_command_t operator_command;
     hid_transport_event_t transport_event;
 } app_input_t;
 

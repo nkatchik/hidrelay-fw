@@ -25,6 +25,7 @@ Current implementation is a buildable skeleton with:
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
 - auth failure path now emits explicit security-rotation requests to platform stack (current Pico W implementation revokes stored key/bonding state for target device)
+- operator command surface groundwork in app/platform inputs for manual lockout-clear and security-rotation triggers (external ingress still pending)
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization)
@@ -243,5 +244,6 @@ Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - wire operator command surfaces to trigger manual per-device security rotation/lockout-clear flows
+- connect operator command ingress to a real management channel (for example CDC control protocol)
 - extend descriptor remap from current boot-profile groundwork into broader host edge-case translation coverage
 - add alerting/inbox workflow integration around soak gate failures (without runtime telemetry in release builds)

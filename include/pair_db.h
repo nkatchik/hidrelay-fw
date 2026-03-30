@@ -77,6 +77,15 @@ bool pair_db_mark_reconnect_failure(
     uint8_t fail_count,
     uint32_t retry_after_ms
 );
+bool pair_db_clear_reconnect_lockout(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint32_t now_ms
+);
+bool pair_db_clear_reconnect_lockout_all(
+    pair_db_t * db,
+    uint32_t now_ms
+);
 bool pair_db_reconnect_recover_expired(
     pair_db_t * db,
     uint32_t now_ms
