@@ -18,7 +18,7 @@ CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
 CMAKE ?= cmake
 HOST_CC ?= gcc
 
-.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate
+.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-app-replay test-host
 
 help:
 	@printf '%s\n' \
@@ -34,7 +34,9 @@ help:
 		'  make tool-cache-probe  - Build host-side cleanup demonstration tool' \
 		'  make tool-diag-capture - Build host-side CDC diagnostics capture tool' \
 		'  make tool-diag-summary INPUT=diag.csv - Summarize captured diagnostics CSV' \
-		'  make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n] - Enforce soak thresholds'
+		'  make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n] - Enforce soak thresholds' \
+		'  make tool-app-replay   - Build host-side app replay validator' \
+		'  make test-host         - Run host-side app replay validator'
 
 platform-list:
 	@find "$(APP_SOURCE_DIR)/platform" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort
@@ -109,6 +111,13 @@ tool-cache-probe:
 tool-diag-capture:
 	@$(MAKE) --no-print-directory tool-configure
 	@$(CMAKE) --build $(TOOL_BUILD_DIR) --target diag_capture --parallel
+
+tool-app-replay:
+	@$(MAKE) --no-print-directory tool-configure
+	@$(CMAKE) --build $(TOOL_BUILD_DIR) --target app_replay --parallel
+
+test-host: tool-app-replay
+	@$(TOOL_BUILD_DIR)/app_replay
 
 tool-diag-summary:
 	@if [ -z "$(INPUT)" ]; then \

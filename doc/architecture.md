@@ -37,6 +37,9 @@ Common logic never imports Pico-specific SDK headers.
   - tracks descriptor generation for dynamic USB descriptor rebuild triggers
   - holds bounded routing queues for BT->USB and USB->BT HID reports
   - tracks queue depth/high-water/drop telemetry for backpressure visibility
+- `tool/app_replay`:
+  - deterministic host-side replay harness for app-loop regression checks without target hardware
+  - validates button-command mapping, reconnect scheduling/lockout recovery, and queue overflow semantics
 - `hid_report_policy`:
   - shared HID report-descriptor acceptance/fallback policy
   - enforces structural and compatibility guardrails before descriptor exposure to USB host

@@ -57,3 +57,40 @@ target_link_libraries(diag_capture
     PRIVATE
         tool_common
 )
+
+add_library(app_replay_core STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/bt_manager.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/button_fsm.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/led_ui.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/pair_db.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/usb_bridge.c
+)
+
+target_compile_features(app_replay_core PRIVATE c_std_17)
+
+target_compile_options(app_replay_core
+    PRIVATE
+        ${HIDRELAY_TOOL_WARNINGS}
+)
+
+target_include_directories(app_replay_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
+add_executable(app_replay
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app_replay.c
+)
+
+target_compile_features(app_replay PRIVATE c_std_17)
+
+target_compile_options(app_replay
+    PRIVATE
+        ${HIDRELAY_TOOL_WARNINGS}
+)
+
+target_link_libraries(app_replay
+    PRIVATE
+        app_replay_core
+)

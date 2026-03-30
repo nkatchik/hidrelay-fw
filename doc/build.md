@@ -31,6 +31,8 @@ Useful targets:
 - `make tool-diag-capture`
 - `make tool-diag-summary INPUT=diag.csv`
 - `make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n]`
+- `make tool-app-replay`
+- `make test-host`
 
 ## Cached Artifacts
 
@@ -168,6 +170,7 @@ Implemented now:
 - host-side CDC diagnostics capture utility (`build/tool/diag_capture`) outputs decoded CSV frames
 - host-side diagnostics summary helper (`tool/bin/diag_summary`) reports soak max/delta counters from CSV captures
 - host-side diagnostics gate mode now enforces thresholds and exits non-zero for automation (`make tool-diag-gate`)
+- host-side deterministic app replay validator (`build/tool/app_replay`) covers button command mapping, reconnect scheduling/lockout recovery, and queue overflow behavior (`make test-host`)
 - soak capture/trend runbook documented in `doc/soak.md`
 
 Still pending for production behavior:

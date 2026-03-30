@@ -30,6 +30,7 @@ Current implementation is a buildable skeleton with:
 - optional runtime telemetry surfaces (structured snapshots + stdio mirror) enabled in debug/dev builds (`APP_PLATFORM_ENABLE_TELEMETRY`)
 - optional host-visible diagnostics transport over TinyUSB CDC with framed binary snapshot streaming (`APP_PLATFORM_ENABLE_DIAG_CDC`, requires telemetry)
 - queue backpressure telemetry with drop counters/high-water marks
+- host-side deterministic app replay validator (`make test-host`) for reconnect/button/queue regression checks without hardware soak
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
 - flash-backed pair database persistence with session metadata (schema v4, dual-slot A/B journal ahead of BTstack flash banks)
 - coalesced Pair DB save policy in main loop (2s debounce, 15s max stale window, 5s retry backoff) to reduce flash wear under bursty updates
@@ -45,6 +46,12 @@ Current implementation is a buildable skeleton with:
 ```sh
 make bootstrap APP_PLATFORM=pico_w
 make build APP_PLATFORM=pico_w
+```
+
+Run host-side deterministic validation (no board required):
+
+```sh
+make test-host
 ```
 
 Default Pico W firmware artifacts are written to `build/pico_w/platform/pico_w/`, including `hidrelay_fw.uf2`.
