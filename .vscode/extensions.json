@@ -1,6 +1,7 @@
 {
     "recommendations": [
         "actboy168.tasks",
+        "augustocdias.tasks-shell-input",
         "ms-vscode.cpptools"
     ]
 }

@@ -2,7 +2,7 @@
 
 Bare-metal firmware skeleton for an open source Bluetooth HID to USB HID hub.
 
-Default target: **Raspberry Pi Pico W**.
+Primary target: **Raspberry Pi Pico W**.
 
 This repository is intentionally conservative: it focuses on build/bootstrap structure and clean module boundaries, with incremental BTstack/TinyUSB integration and stubbed HID bridge behavior.
 
@@ -11,7 +11,7 @@ This repository is intentionally conservative: it focuses on build/bootstrap str
 Current implementation is a buildable skeleton with:
 
 - local toolchain and SDK bootstrap
-- platform-selectable CMake layout (auto-discovers from `platform/<name>/`)
+- platform-selectable CMake layout (`APP_PLATFORM` required)
 - app event loop and module boundaries for future HID bridging
 - optional Pico W stack bring-up for BTstack + TinyUSB with local config headers
 - BT manager active-HID session model with BTstack event ingestion (`bt_manager_ingest_hid_*`)
@@ -43,8 +43,8 @@ Current implementation is a buildable skeleton with:
 ## Quick Start
 
 ```sh
-make bootstrap
-make build
+make bootstrap APP_PLATFORM=pico_w
+make build APP_PLATFORM=pico_w
 ```
 
 Default Pico W firmware artifacts are written to `build/pico_w/platform/pico_w/`, including `hidrelay_fw.uf2`.
@@ -57,7 +57,7 @@ Show discovered targets:
 make platform-list
 ```
 
-The default target is the first discovered folder in `platform/` (currently `pico_w`). Override with:
+`APP_PLATFORM` is required. Build with:
 
 ```sh
 make APP_PLATFORM=pico_w build

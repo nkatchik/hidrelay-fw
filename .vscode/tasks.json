@@ -32,7 +32,7 @@
         {
             "label": "🛠️ Build",
             "type": "shell",
-            "command": "make build && echo '✅ Build successful' || echo '❌ Build failed'",
+            "command": "make build APP_PLATFORM=${input:appPlatform} tool-cache-probe tool-diag-capture && echo '✅ Build successful' || echo '❌ Build failed'",
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -55,6 +55,20 @@
                 "echo": false,
                 "showReuseMessage": false,
                 "clear": true
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "appPlatform",
+            "type": "command",
+            "command": "shellCommand.execute",
+            "args": {
+                "command": "find \"${workspaceFolder}/platform\" -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; | LC_ALL=C sort",
+                "description": "Select target platform",
+                "taskId": "appPlatform",
+                "rememberPrevious": true,
+                "useSingleResult": true
             }
         }
     ]

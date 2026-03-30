@@ -2,4 +2,6 @@ set(PICO_SDK_PATH "@PICO_SDK_PATH@" CACHE PATH "Local Pico SDK checkout")
 set(ARM_GCC_ROOT "@ARM_GCC_ROOT@" CACHE PATH "Local Arm GNU toolchain root")
 set(PICO_TOOLCHAIN_PATH "@ARM_GCC_ROOT@" CACHE PATH "Path searched by Pico SDK for arm-none-eabi tools")
 
+list(PREPEND CMAKE_MODULE_PATH "@PICO_W_PLATFORM_CMAKE_MODULE_DIR@")
+
 include("@PICO_SDK_TOOLCHAIN_FILE@")

@@ -8,7 +8,7 @@ Validate long-run bridge stability and queue behavior with diagnostics capture, 
 
 - Pico W flashed with a debug/development build that enables telemetry + diagnostics CDC.
 - Host can access the Pico CDC port (for example `/dev/tty.usbmodemXXXX`).
-- `make tool-diag-capture` and `tool/diag_summary.sh` available in this repository.
+- `make tool-diag-capture` and `tool/bin/diag_summary` available in this repository.
 
 ## Build
 

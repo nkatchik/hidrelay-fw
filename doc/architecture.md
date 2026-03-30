@@ -114,8 +114,8 @@ Pico-specific linkage is isolated under this directory.
 - Source: app emits `hid_transport_diag_snapshot_t` each tick through `platform_output_t`.
 - Queue: when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
 - Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
-- Host capture helper: `tool/diag_capture.c` decodes CDC frames into CSV for offline analysis.
-- Host summary helper: `tool/diag_summary.sh` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
+- Host capture helper: `tool/src/diag_capture.c` decodes CDC frames into CSV for offline analysis.
+- Host summary helper: `tool/bin/diag_summary` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
 - Framing:
   - `magic`: `0x48 0x52` (`'H' 'R'`)
   - `version`: `1`
@@ -124,12 +124,12 @@ Pico-specific linkage is isolated under this directory.
 
 ## Build/Bootstrap Model
 
-- `make bootstrap`:
+- `make bootstrap APP_PLATFORM=<target>`:
   - downloads local Pico SDK checkout (`.cache/sdk/...`)
   - initializes Pico SDK submodules (TinyUSB, BTstack, etc.)
   - downloads local Arm embedded GCC (`.cache/tool/...`)
   - generates a toolchain file and CMake cache seed in `.cache/`
-- `make build`:
+- `make build APP_PLATFORM=<target>`:
   - runs configure and compile using local cached artifacts
 
 No global Pico SDK or global Arm cross toolchain is required.
@@ -159,7 +159,7 @@ Project code uses mandatory cleanup attributes.
   - `UTIL_SCOPED_FILE`
   - `UTIL_SCOPED_FD`
 
-The host helper `tool/cache_probe.c` demonstrates scoped cleanup with heap buffers, `FILE *`, and file descriptors.
+The host helper `tool/src/cache_probe.c` demonstrates scoped cleanup with heap buffers, `FILE *`, and file descriptors.
 
 Additional style constraints in this repository:
 

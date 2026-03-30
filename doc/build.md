@@ -14,18 +14,18 @@ No global Pico SDK, BTstack, TinyUSB, or Arm cross-toolchain install is required
 ## Commands
 
 ```sh
-make bootstrap
-make build
+make bootstrap APP_PLATFORM=pico_w
+make build APP_PLATFORM=pico_w
 ```
 
 Useful targets:
 
 - `make help`
 - `make platform-list`
-- `make bootstrap`
-- `make configure`
-- `make build`
-- `make clean`
+- `make bootstrap APP_PLATFORM=<target>`
+- `make configure APP_PLATFORM=<target>`
+- `make build APP_PLATFORM=<target>`
+- `make clean [APP_PLATFORM=<target>]`
 - `make distclean`
 - `make tool-cache-probe`
 - `make tool-diag-capture`
@@ -67,7 +67,7 @@ Update these in:
 
 Platform is selected by CMake cache variable:
 
-- `APP_PLATFORM` (default: `auto`, which resolves to the first discovered folder under `platform/`)
+- `APP_PLATFORM` (required; run `make platform-list` to see available targets)
 
 To add a new platform:
 
@@ -114,9 +114,8 @@ Project-local stack config headers used by this path:
 - `platform/pico_w/include/tusb_config.h`
 - `platform/pico_w/include/btstack_config.h`
 
-`PICO_NO_PICOTOOL` is disabled by default so UF2 is produced on `make build`.
-Use `make PICO_NO_PICOTOOL=ON build` to skip picotool post-processing and generate only ELF/BIN/MAP/DIS outputs.
-The top-level `Makefile` also exports `CMAKE_POLICY_VERSION_MINIMUM=3.5` during configure/build to keep Pico SDK picotool integration compatible with newer host CMake versions.
+UF2 output is required in this repository's default workflow; `PICO_NO_PICOTOOL=ON` is not supported.
+Pico SDK/picotool compatibility defaults are platform-owned in `platform/pico_w/cmake/options.cmake`: it sets `CMAKE_POLICY_DEFAULT_CMP0169=OLD` and defaults `PICOTOOL_FETCH_FROM_GIT_PATH` to `${APP_CACHE_DIR}/picotool`.
 
 ## Warning Policy
 
@@ -167,7 +166,7 @@ Implemented now:
 - remove-last command now emits a per-device forget request from app to platform, and Pico W stack drops link-key/bonding state for that device
 - factory reset command now erases Pair DB + BTstack persisted security material and reboots after cue completion
 - host-side CDC diagnostics capture utility (`build/tool/diag_capture`) outputs decoded CSV frames
-- host-side diagnostics summary helper (`tool/diag_summary.sh`) reports soak max/delta counters from CSV captures
+- host-side diagnostics summary helper (`tool/bin/diag_summary`) reports soak max/delta counters from CSV captures
 - host-side diagnostics gate mode now enforces thresholds and exits non-zero for automation (`make tool-diag-gate`)
 - soak capture/trend runbook documented in `doc/soak.md`
 

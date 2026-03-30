@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.23)
 
-set(APP_PLATFORM "auto" CACHE STRING "Target platform folder name, or 'auto'.")
+set(APP_PLATFORM "" CACHE STRING "Target platform folder name (required).")
 set(APP_AUTO_FETCH_DEPS ON CACHE BOOL "Fetch missing platform dependencies during configure.")
 set(APP_CACHE_DIR "${CMAKE_SOURCE_DIR}/.cache" CACHE PATH "Local cache directory for SDK/toolchain artifacts.")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -11,7 +11,7 @@ include(PlatformSelect)
 include(PlatformBootstrap)
 
 app_resolve_platform("${CMAKE_SOURCE_DIR}" "${APP_PLATFORM}" APP_PLATFORM_RESOLVED)
-set(APP_PLATFORM "${APP_PLATFORM_RESOLVED}" CACHE STRING "Target platform folder name, or 'auto'." FORCE)
+set(APP_PLATFORM "${APP_PLATFORM_RESOLVED}" CACHE STRING "Target platform folder name (required)." FORCE)
 
 app_bootstrap_platform_environment(
     SOURCE_DIR "${CMAKE_SOURCE_DIR}"

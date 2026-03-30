@@ -2,10 +2,6 @@ if(NOT DEFINED APP_SOURCE_DIR)
     get_filename_component(APP_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 endif()
 
-if(NOT DEFINED APP_PLATFORM)
-    set(APP_PLATFORM "auto")
-endif()
-
 set(APP_CACHE_DIR "${APP_SOURCE_DIR}/.cache")
 
 file(MAKE_DIRECTORY
@@ -21,6 +17,20 @@ list(APPEND CMAKE_MODULE_PATH "${APP_SOURCE_DIR}/cmake")
 
 include(PlatformSelect)
 include(PlatformBootstrap)
+
+if((NOT DEFINED APP_PLATFORM) OR ("${APP_PLATFORM}" STREQUAL "") OR ("${APP_PLATFORM}" STREQUAL "auto"))
+    app_list_platform("${APP_SOURCE_DIR}" _platforms)
+    if(_platforms STREQUAL "")
+        message(FATAL_ERROR
+            "No platform targets found under ${APP_SOURCE_DIR}/platform. "
+            "Add at least one platform/<name>/CMakeLists.txt")
+    endif()
+
+    list(JOIN _platforms ", " _supported_csv)
+    message(FATAL_ERROR
+        "APP_PLATFORM must be specified for bootstrap. "
+        "Run with -DAPP_PLATFORM=<target>. Available targets: ${_supported_csv}")
+endif()
 
 app_resolve_platform("${APP_SOURCE_DIR}" "${APP_PLATFORM}" APP_PLATFORM_RESOLVED)
 

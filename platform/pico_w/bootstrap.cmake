@@ -111,6 +111,8 @@ function(platform_bootstrap_toolchain)
         message(FATAL_ERROR "Missing platform toolchain template: ${_template}")
     endif()
 
+    set(PICO_W_PLATFORM_CMAKE_MODULE_DIR "${ARG_SOURCE_DIR}/platform/${ARG_PLATFORM}/cmake")
+
     set(_generated_toolchain "${_toolchain_dir}/${ARG_PLATFORM}.cmake")
     configure_file("${_template}" "${_generated_toolchain}" @ONLY)
 

@@ -1,12 +1,28 @@
 include_guard(GLOBAL)
 
+# Pico SDK 2.0 still uses FetchContent_Populate for picotool.
+# Keep compatibility local to this platform instead of root build glue.
+if(NOT DEFINED CMAKE_POLICY_DEFAULT_CMP0169)
+    set(CMAKE_POLICY_DEFAULT_CMP0169 OLD)
+endif()
+
+if(NOT DEFINED PICOTOOL_FETCH_FROM_GIT_PATH)
+    set(PICOTOOL_FETCH_FROM_GIT_PATH
+        "${APP_CACHE_DIR}/picotool"
+        CACHE PATH
+        "Shared picotool fetch cache used by Pico SDK projects.")
+endif()
+
 if(NOT DEFINED PICO_BOARD)
     set(PICO_BOARD pico_w CACHE STRING "Pico board type for platform/pico_w" FORCE)
 endif()
 
-if(NOT DEFINED PICO_NO_PICOTOOL)
-    set(PICO_NO_PICOTOOL OFF CACHE BOOL "Enable picotool post-processing so UF2 is produced by default." FORCE)
+if(PICO_NO_PICOTOOL)
+    message(FATAL_ERROR
+        "PICO_NO_PICOTOOL=ON is not supported in this repository; UF2 output is required for flashing.")
 endif()
+
+set(PICO_NO_PICOTOOL OFF CACHE BOOL "Enable picotool post-processing so UF2 is produced." FORCE)
 
 option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK." OFF)
 option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." OFF)

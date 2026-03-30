@@ -27,7 +27,16 @@ function(app_resolve_platform source_dir requested_platform out_platform)
     set(_resolved "${requested_platform}")
 
     if((_resolved STREQUAL "") OR (_resolved STREQUAL "auto"))
-        list(GET _platforms 0 _resolved)
+        list(JOIN _platforms ", " _supported_csv)
+        if(_resolved STREQUAL "auto")
+            message(FATAL_ERROR
+                "APP_PLATFORM='auto' is not supported. "
+                "Set APP_PLATFORM to one of: ${_supported_csv}")
+        else()
+            message(FATAL_ERROR
+                "APP_PLATFORM must be specified. "
+                "Set APP_PLATFORM to one of: ${_supported_csv}")
+        endif()
     endif()
 
     list(FIND _platforms "${_resolved}" _index)
