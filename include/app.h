@@ -33,6 +33,7 @@ typedef struct {
     hid_transport_usb_interface_plan_t usb_interface_plan[HID_TRANSPORT_MAX_INTERFACE];
     hid_transport_reconnect_request_t reconnect_request;
     hid_transport_forget_request_t forget_request;
+    hid_transport_security_rotate_request_t security_rotate_request;
     hid_transport_diag_snapshot_t diag;
     hid_transport_usb_tx_t usb_tx;
     hid_transport_bt_tx_t bt_tx;
@@ -54,6 +55,9 @@ typedef struct {
     uint32_t reconnect_failure_count;
     uint8_t reconnect_last_result;
     uint8_t reconnect_last_status_code;
+    bool security_rotate_pending;
+    pair_device_id_t security_rotate_device_id;
+    uint8_t security_rotate_reason;
     bool factory_reset_armed;
     uint32_t factory_reset_due_ms;
 } app_t;

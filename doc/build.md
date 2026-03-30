@@ -182,6 +182,7 @@ Implemented now:
 - reconnect outcome signaling from platform stack (stack reject/connect/auth result classes)
 - reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery after repeated connect/timeout failures
+- auth reconnect failures now emit explicit per-device security-rotation requests from app to platform
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization in stack TX/RX paths)
@@ -202,7 +203,7 @@ Implemented now:
 Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
-- Bluetooth key migration/rotation and explicit operator recovery controls beyond current per-device forget/factory reset
+- Bluetooth key migration/rotation and explicit operator recovery controls beyond current auth-failure-triggered rotation hook
 - descriptor translation/remapping for host edge cases beyond current boot-profile groundwork
 - alerting/inbox workflow integration layered on top of soak diagnostics gate failures
 - command UX refinement and full failure-recovery handling

@@ -20,7 +20,7 @@ Common logic never imports Pico-specific SDK headers.
 - `app`:
   - owns the main app state and event loop logic
   - wires the button FSM, LED UI, pair DB, BT manager, and USB bridge stubs
-  - emits reconnect requests, per-device forget requests, and diagnostic snapshots as part of platform output
+  - emits reconnect requests, per-device forget/security-rotate requests, and diagnostic snapshots as part of platform output
 - `button_fsm`:
   - translates BOOTSEL press patterns into high-level commands (`pair-any`, `remove-last`, `remove-all`)
 - `led_ui`:
@@ -102,6 +102,7 @@ Pico-specific linkage is isolated under this directory.
 - App now emits reconnect requests from persisted Pair DB metadata when idle, with per-device backoff windows.
 - Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
 - Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
+- App auth-failure handling now emits per-device security-rotate requests; Pico W currently maps this to key/bond revocation as a rotation hook.
 - App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
 - Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
 - App reconnect policy now applies per-result handling (transient stack reject retry, connect-failure backoff, auth-failure timed lockout).

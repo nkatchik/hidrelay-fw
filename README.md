@@ -24,6 +24,7 @@ Current implementation is a buildable skeleton with:
 - explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
+- auth failure path now emits explicit security-rotation requests to platform stack (current Pico W implementation revokes stored key/bonding state for target device)
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization)
@@ -136,6 +137,7 @@ When stack options are enabled:
 - app reconnect requests now run through per-device backoff windows and timeout tracking
 - reconnect result events are emitted from stack paths (immediate reject/connect/auth outcomes)
 - app reconnect failure handling now applies per-result retry policy updates with cooldown-based auto-recovery windows
+- auth reconnect failures now raise a security-rotation request hook that platform consumes for key/bond refresh
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
 - descriptor acceptance/fallback now runs through shared policy checks, with boot-profile fallback descriptors for incompatible boot-mode reports
 - boot-profile fallback paths now apply report remap normalization in Pico stack TX/RX (keyboard/mouse payload + report-id shaping)
@@ -240,6 +242,6 @@ See:
 Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
-- extend per-device security lifecycle controls with explicit migration/rotation and operator recovery paths
+- wire operator command surfaces to trigger manual per-device security rotation/lockout-clear flows
 - extend descriptor remap from current boot-profile groundwork into broader host edge-case translation coverage
 - add alerting/inbox workflow integration around soak gate failures (without runtime telemetry in release builds)

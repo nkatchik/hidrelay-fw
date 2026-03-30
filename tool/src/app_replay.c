@@ -241,6 +241,28 @@ static bool app_replay_test_auth_lockout_recovery(void) {
     event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED;
     app_replay_tick(&app, 100U, false, &event, &out);
 
+    if (!app_replay_expect_true(
+            out.security_rotate_request.valid,
+            "auth failure should emit security rotate request"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            app_replay_device_id_equal(&out.security_rotate_request.device_id, &device_id),
+            "security rotate request should target auth-failed device"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            out.security_rotate_request.reason,
+            HID_TRANSPORT_SECURITY_ROTATE_REASON_AUTH_FAILURE,
+            "security rotate reason should classify auth failures"
+        )) {
+        return false;
+    }
+
     app_replay_tick(&app, 3600099U, false, NULL, &out);
     if (!app_replay_expect_true(
             !out.reconnect_request.valid,
