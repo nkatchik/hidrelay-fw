@@ -155,8 +155,8 @@ Implemented now:
 - pair-any inquiry/connect flow gated by pairing state and class-of-device policy
 - reconnect retry policy with per-device backoff windows and timeout-based failure classification
 - reconnect outcome signaling from platform stack (stack reject/connect/auth result classes)
-- reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure disable)
-- reconnect escalation threshold disables auto-reconnect after repeated connect/timeout failures
+- reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
+- reconnect escalation threshold now applies timed lockout with automatic recovery after repeated connect/timeout failures
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state

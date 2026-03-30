@@ -176,6 +176,7 @@ bool pair_db_touch_session(
     db->entries[index].last_product_id = product_id;
     db->entries[index].last_report_descriptor_len = report_descriptor_len;
     db->entries[index].last_protocol_mode = protocol_mode;
+    db->entries[index].reconnect_allowed = 1U;
     db->entries[index].reconnect_fail_count = 0U;
     db->entries[index].reconnect_retry_after_ms = seen_at_ms;
     return true;
@@ -216,6 +217,7 @@ bool pair_db_mark_reconnect_success(
     }
 
     db->entries[index].last_seen_ms = now_ms;
+    db->entries[index].reconnect_allowed = 1U;
     db->entries[index].reconnect_fail_count = 0U;
     db->entries[index].reconnect_retry_after_ms = now_ms;
     return true;
@@ -240,6 +242,34 @@ bool pair_db_mark_reconnect_failure(
     db->entries[index].reconnect_fail_count = fail_count;
     db->entries[index].reconnect_retry_after_ms = retry_after_ms;
     return true;
+}
+
+bool pair_db_reconnect_recover_expired(
+    pair_db_t * db,
+    uint32_t now_ms
+) {
+    uint8_t index = 0U;
+    bool changed = false;
+
+    if (db == NULL) {
+        return false;
+    }
+
+    for (index = 0U; index < db->count; index++) {
+        pair_db_entry_t * entry = &db->entries[index];
+
+        if ((entry->reconnect_allowed != 0U)
+            || !pair_db_time_reached(now_ms, entry->reconnect_retry_after_ms)) {
+            continue;
+        }
+
+        entry->reconnect_allowed = 1U;
+        entry->reconnect_fail_count = 0U;
+        entry->reconnect_retry_after_ms = now_ms;
+        changed = true;
+    }
+
+    return changed;
 }
 
 bool pair_db_get_reconnect_candidate(

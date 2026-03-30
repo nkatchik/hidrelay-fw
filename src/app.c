@@ -12,6 +12,8 @@ enum {
     APP_RECONNECT_STACK_REJECT_RETRY_MS = 1000U,
     APP_RECONNECT_STACK_NOT_READY_RETRY_MS = 3000U,
     APP_RECONNECT_FAIL_DISABLE_THRESHOLD = 8U,
+    APP_RECONNECT_FAIL_DISABLE_COOLDOWN_MS = 10U * 60U * 1000U,
+    APP_RECONNECT_AUTH_LOCKOUT_MS = 60U * 60U * 1000U,
     APP_REMOVE_LAST_BLINK_COUNT = 1U,
     APP_FACTORY_RESET_BLINK_COUNT = 3U,
     APP_FACTORY_RESET_SEQUENCE_MS = 2600U
@@ -134,16 +136,17 @@ static void app_reconnect_mark_failure(
 
         if (fail_count >= APP_RECONNECT_FAIL_DISABLE_THRESHOLD) {
             disable_reconnect = true;
+            retry_after_ms = now_ms + APP_RECONNECT_FAIL_DISABLE_COOLDOWN_MS;
+        } else {
+            retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
         }
-
-        retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
     } else if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED) {
         if (fail_count < UINT8_MAX) {
             fail_count = (uint8_t)(fail_count + 1U);
         }
 
         disable_reconnect = true;
-        retry_after_ms = now_ms + app_reconnect_backoff_ms(APP_RECONNECT_MAX_BACKOFF_SHIFT + 1U);
+        retry_after_ms = now_ms + APP_RECONNECT_AUTH_LOCKOUT_MS;
     } else if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED) {
         retry_after_ms = now_ms
             + ((status_code == 2U) ? APP_RECONNECT_STACK_NOT_READY_RETRY_MS
@@ -310,6 +313,7 @@ void app_tick(
     }
 
     app_handle_transport_event(app, input);
+    (void)pair_db_reconnect_recover_expired(&app->pair_db, input->now_ms);
 
     if (app->reconnect_inflight
         && (input->transport_event.type == HID_TRANSPORT_EVENT_BT_HID_OPEN)

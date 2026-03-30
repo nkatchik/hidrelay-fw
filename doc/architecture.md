@@ -27,7 +27,7 @@ Common logic never imports Pico-specific SDK headers.
   - provides user-facing LED state behavior independent from GPIO details
 - `pair_db`:
   - paired-device store abstraction with paired timestamp and last-session metadata (descriptor length, protocol mode, vendor/product IDs, reconnect flag)
-  - tracks reconnect failure/backoff metadata per device for retry scheduling
+  - tracks reconnect failure/backoff metadata per device for retry scheduling and timed lockout recovery
   - persisted on Pico W in a flash-backed blob through platform pair-store hooks
 - `bt_manager`:
   - Bluetooth management API with pairing lifecycle and active HID session model
@@ -97,8 +97,8 @@ Pico-specific linkage is isolated under this directory.
 - Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
 - App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
 - Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
-- App reconnect policy now applies per-result handling (transient stack reject retry, connect-failure backoff, auth-failure disable).
-- App reconnect policy now escalates to auto-reconnect disable after repeated connect/timeout failures.
+- App reconnect policy now applies per-result handling (transient stack reject retry, connect-failure backoff, auth-failure timed lockout).
+- App reconnect policy now escalates to timed reconnect lockout after repeated connect/timeout failures, with automatic recovery when cooldown expires.
 - TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
 - Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.

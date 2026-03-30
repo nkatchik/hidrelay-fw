@@ -22,8 +22,8 @@ Current implementation is a buildable skeleton with:
 - per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
 - reconnect policy with multi-device candidate selection, per-device backoff, and timeout-based failure classification
 - explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
-- reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure disables auto-reconnect)
-- reconnect escalation threshold disables auto-reconnect after repeated connect/timeout failures
+- reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
+- reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - explicit SSP/PIN confirmation handling gated by pairing mode
@@ -112,7 +112,7 @@ When stack options are enabled:
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 - app reconnect requests now run through per-device backoff windows and timeout tracking
 - reconnect result events are emitted from stack paths (immediate reject/connect/auth outcomes)
-- app reconnect failure handling now applies per-result retry policy updates
+- app reconnect failure handling now applies per-result retry policy updates with cooldown-based auto-recovery windows
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
 - descriptor acceptance/fallback now runs through shared policy checks, with boot-profile fallback descriptors for incompatible boot-mode reports
 - BTstack key material and LE device records persist via TLV flash storage
