@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "hid_report_remap.h"
+#include "operator_command.h"
 
 typedef bool (*app_replay_test_fn_t)(void);
 
@@ -569,6 +570,35 @@ static bool app_replay_test_operator_rotate_security_last(void) {
     );
 }
 
+static bool app_replay_test_operator_command_parse_with_token(void) {
+    app_operator_command_t command = APP_OPERATOR_COMMAND_NONE;
+
+    if (!operator_command_parse_line("HIDRELAY LOCKOUT_CLEAR_ALL", "HIDRELAY", &command)) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        (uint32_t)command,
+        (uint32_t)APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_ALL,
+        "tokenized operator command should parse"
+    );
+}
+
+static bool app_replay_test_operator_command_parse_reject_without_token(void) {
+    app_operator_command_t command = APP_OPERATOR_COMMAND_NONE;
+
+    if (operator_command_parse_line("LOCKOUT_CLEAR_ALL", "HIDRELAY", &command)) {
+        (void)fprintf(stderr, "FAIL: command without token should be rejected\n");
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        (uint32_t)command,
+        (uint32_t)APP_OPERATOR_COMMAND_NONE,
+        "rejected command should not produce operator action"
+    );
+}
+
 int main(void) {
     const app_replay_test_case_t cases[] = {
         {.name = "pair_any_from_long_press", .fn = app_replay_test_pair_any_from_long_press},
@@ -588,6 +618,10 @@ int main(void) {
         {.name = "operator_clear_lockout_last", .fn = app_replay_test_operator_clear_lockout_last},
         {.name = "operator_rotate_security_last",
             .fn = app_replay_test_operator_rotate_security_last},
+        {.name = "operator_command_parse_with_token",
+            .fn = app_replay_test_operator_command_parse_with_token},
+        {.name = "operator_command_parse_reject_without_token",
+            .fn = app_replay_test_operator_command_parse_reject_without_token},
     };
     const size_t case_count = sizeof(cases) / sizeof(cases[0]);
     size_t index = 0U;

@@ -25,7 +25,7 @@ Current implementation is a buildable skeleton with:
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
 - auth failure path now emits explicit security-rotation requests to platform stack (current Pico W implementation revokes stored key/bonding state for target device)
-- operator command surface now accepts simple CDC line commands (when diagnostics CDC is enabled): `LOCKOUT_CLEAR_ALL`, `LOCKOUT_CLEAR_LAST`, `ROTATE_LAST`
+- operator command surface now accepts tokenized CDC line commands (when diagnostics CDC is enabled): `HIDRELAY LOCKOUT_CLEAR_ALL`, `HIDRELAY LOCKOUT_CLEAR_LAST`, `HIDRELAY ROTATE_LAST`
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization)
@@ -227,9 +227,11 @@ make tool-diag-gate INPUT=diag.csv MAX_RECONNECT_FAILURE_DELTA=0
 
 When diagnostics CDC is enabled, the same CDC interface accepts operator recovery commands as newline-delimited ASCII:
 
-- `LOCKOUT_CLEAR_ALL`
-- `LOCKOUT_CLEAR_LAST`
-- `ROTATE_LAST`
+- `HIDRELAY LOCKOUT_CLEAR_ALL`
+- `HIDRELAY LOCKOUT_CLEAR_LAST`
+- `HIDRELAY ROTATE_LAST`
+
+Operator commands are rate-limited to one accepted command every `500ms`.
 
 ## Coding Rules
 
@@ -249,6 +251,6 @@ See:
 Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
-- wire operator command surfaces to trigger manual per-device security rotation/lockout-clear flows
+- harden operator command channel semantics (token provisioning/rotation and authorization policy) beyond the current static token
 - extend descriptor remap from current boot-profile groundwork into broader host edge-case translation coverage
 - add alerting/inbox workflow integration around soak gate failures (without runtime telemetry in release builds)

@@ -3,14 +3,22 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "operator_command.h"
+
 #ifdef APP_PICO_HAS_TINYUSB
+#include "pico/time.h"
 #include "tusb.h"
+#endif
+
+#ifndef APP_PICO_OPERATOR_COMMAND_TOKEN
+#define APP_PICO_OPERATOR_COMMAND_TOKEN "HIDRELAY"
 #endif
 
 #if defined(APP_PICO_HAS_TINYUSB) && defined(APP_PICO_HAS_DIAG_CDC)
 enum {
     PICO_W_OPERATOR_COMMAND_QUEUE_SIZE = 8U,
     PICO_W_OPERATOR_COMMAND_LINE_MAX = 63U,
+    PICO_W_OPERATOR_COMMAND_MIN_INTERVAL_MS = 500U,
 };
 
 static app_operator_command_t g_operator_command_queue[PICO_W_OPERATOR_COMMAND_QUEUE_SIZE] = {
@@ -21,6 +29,8 @@ static uint8_t g_operator_command_queue_tail = 0U;
 static uint8_t g_operator_command_queue_count = 0U;
 static char g_operator_command_line[PICO_W_OPERATOR_COMMAND_LINE_MAX + 1U] = {0};
 static uint8_t g_operator_command_line_len = 0U;
+static uint32_t g_operator_command_last_accept_ms = 0U;
+static bool g_operator_command_has_accept = false;
 
 static void pico_w_tinyusb_runtime_operator_reset(void) {
     (void)memset(g_operator_command_queue, 0, sizeof(g_operator_command_queue));
@@ -29,6 +39,8 @@ static void pico_w_tinyusb_runtime_operator_reset(void) {
     g_operator_command_queue_count = 0U;
     (void)memset(g_operator_command_line, 0, sizeof(g_operator_command_line));
     g_operator_command_line_len = 0U;
+    g_operator_command_last_accept_ms = 0U;
+    g_operator_command_has_accept = false;
 }
 
 static bool pico_w_tinyusb_runtime_operator_push(app_operator_command_t command) {
@@ -49,32 +61,32 @@ static bool pico_w_tinyusb_runtime_operator_push(app_operator_command_t command)
     return true;
 }
 
-static app_operator_command_t pico_w_tinyusb_runtime_operator_parse_line(const char * line) {
-    if (line == NULL) {
-        return APP_OPERATOR_COMMAND_NONE;
-    }
-
-    if (strcmp(line, "LOCKOUT_CLEAR_ALL") == 0) {
-        return APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_ALL;
-    }
-
-    if (strcmp(line, "LOCKOUT_CLEAR_LAST") == 0) {
-        return APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_LAST;
-    }
-
-    if (strcmp(line, "ROTATE_LAST") == 0) {
-        return APP_OPERATOR_COMMAND_ROTATE_SECURITY_LAST;
-    }
-
-    return APP_OPERATOR_COMMAND_NONE;
-}
-
 static void pico_w_tinyusb_runtime_operator_commit_line(void) {
     app_operator_command_t command = APP_OPERATOR_COMMAND_NONE;
+    uint32_t now_ms = 0U;
 
     g_operator_command_line[g_operator_command_line_len] = '\0';
-    command = pico_w_tinyusb_runtime_operator_parse_line(g_operator_command_line);
-    (void)pico_w_tinyusb_runtime_operator_push(command);
+    if (!operator_command_parse_line(
+            g_operator_command_line,
+            APP_PICO_OPERATOR_COMMAND_TOKEN,
+            &command
+        )) {
+        command = APP_OPERATOR_COMMAND_NONE;
+    }
+
+    if (command != APP_OPERATOR_COMMAND_NONE) {
+        now_ms = to_ms_since_boot(get_absolute_time());
+
+        if (!g_operator_command_has_accept
+            || ((uint32_t)(now_ms - g_operator_command_last_accept_ms)
+                >= PICO_W_OPERATOR_COMMAND_MIN_INTERVAL_MS)) {
+            if (pico_w_tinyusb_runtime_operator_push(command)) {
+                g_operator_command_last_accept_ms = now_ms;
+                g_operator_command_has_accept = true;
+            }
+        }
+    }
+
     (void)memset(g_operator_command_line, 0, sizeof(g_operator_command_line));
     g_operator_command_line_len = 0U;
 }

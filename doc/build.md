@@ -183,7 +183,8 @@ Implemented now:
 - reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery after repeated connect/timeout failures
 - auth reconnect failures now emit explicit per-device security-rotation requests from app to platform
-- operator command path now supports manual lockout-clear and rotate-security triggers, with CDC line-command ingress when diagnostics CDC is enabled (`LOCKOUT_CLEAR_ALL`, `LOCKOUT_CLEAR_LAST`, `ROTATE_LAST`)
+- operator command path now supports manual lockout-clear and rotate-security triggers, with tokenized CDC line-command ingress when diagnostics CDC is enabled (`HIDRELAY LOCKOUT_CLEAR_ALL`, `HIDRELAY LOCKOUT_CLEAR_LAST`, `HIDRELAY ROTATE_LAST`)
+- operator command acceptance is rate-limited to one accepted command every 500ms
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization in stack TX/RX paths)
@@ -204,7 +205,7 @@ Implemented now:
 Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
-- harden operator recovery command channel (framing/auth/rate limits) beyond the current basic CDC line-command ingress
+- harden operator recovery command channel (token provisioning/rotation and authorization policy) beyond the current static-token + rate-limited ingress
 - descriptor translation/remapping for host edge cases beyond current boot-profile groundwork
 - alerting/inbox workflow integration layered on top of soak diagnostics gate failures
 - command UX refinement and full failure-recovery handling

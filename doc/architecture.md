@@ -48,6 +48,9 @@ Common logic never imports Pico-specific SDK headers.
 - `hid_report_remap`:
   - shared report remap helpers used when fallback descriptors are active
   - currently normalizes boot keyboard/mouse payload and report-id shaping for BT->USB and USB->BT paths
+- `operator_command`:
+  - shared parser for operator recovery commands
+  - validates newline-delimited command lines with optional token prefix enforcement
 - `platform_api`:
   - platform boundary: init, poll inputs, apply outputs
   - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
@@ -105,7 +108,8 @@ Pico-specific linkage is isolated under this directory.
 - Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
 - Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
 - App auth-failure handling now emits per-device security-rotate requests; Pico W currently maps this to key/bond revocation as a rotation hook.
-- Operator-command groundwork now clears reconnect lockouts or triggers security-rotation requests in app state; platform ingress source remains to be connected.
+- Operator command ingress is active on TinyUSB CDC when diagnostics CDC is enabled, with tokenized command parsing and a 500ms acceptance rate limit.
+- Operator-command handling now clears reconnect lockouts or triggers security-rotation requests in app state.
 - App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
 - Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
 - App reconnect policy now applies per-result handling (transient stack reject retry, connect-failure backoff, auth-failure timed lockout).
@@ -127,7 +131,8 @@ Pico-specific linkage is isolated under this directory.
 - Source: app emits `hid_transport_diag_snapshot_t` each tick through `platform_output_t`.
 - Queue: when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
 - Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
-- Operator command path: the same CDC interface accepts newline-delimited control commands (`LOCKOUT_CLEAR_ALL`, `LOCKOUT_CLEAR_LAST`, `ROTATE_LAST`) and maps them into app operator commands.
+- Operator command path: the same CDC interface accepts newline-delimited tokenized control commands (`HIDRELAY LOCKOUT_CLEAR_ALL`, `HIDRELAY LOCKOUT_CLEAR_LAST`, `HIDRELAY ROTATE_LAST`) and maps them into app operator commands.
+- Operator command acceptance is rate-limited to one accepted command every 500ms.
 - Host capture helper: `tool/src/diag_capture.c` decodes CDC frames into CSV for offline analysis.
 - Host summary helper: `tool/bin/diag_summary` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
 - Framing:
@@ -184,7 +189,7 @@ Additional style constraints in this repository:
 ## Planned Bridging Flow (Next Iteration)
 
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
-2. Add key migration/rotation and recovery controls for persisted Bluetooth security material.
+2. Harden operator recovery command channel semantics beyond the current static token (token provisioning/rotation and authorization policy).
 3. Extend descriptor remap beyond current boot-profile groundwork into broader host edge-case translation/remapping.
 4. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.
