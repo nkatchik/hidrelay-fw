@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "operator_auth.h"
 #include "operator_command.h"
 
 #ifdef APP_PICO_HAS_TINYUSB
@@ -10,17 +11,21 @@
 #include "tusb.h"
 #endif
 
-#ifndef APP_PICO_OPERATOR_COMMAND_TOKEN
-#define APP_PICO_OPERATOR_COMMAND_TOKEN "HIDRELAY"
+#ifndef APP_PICO_OPERATOR_AUTH_KEY_HEX
+#define APP_PICO_OPERATOR_AUTH_KEY_HEX ""
+#endif
+
+#ifndef APP_PICO_OPERATOR_AUTH_SESSION_TTL_MS
+#define APP_PICO_OPERATOR_AUTH_SESSION_TTL_MS 60000U
 #endif
 
 #if defined(APP_PICO_HAS_TINYUSB) && defined(APP_PICO_HAS_DIAG_CDC)
 enum {
     PICO_W_OPERATOR_COMMAND_QUEUE_SIZE = 8U,
-    PICO_W_OPERATOR_COMMAND_LINE_MAX = 63U,
+    PICO_W_OPERATOR_COMMAND_LINE_MAX = 191U,
     PICO_W_OPERATOR_COMMAND_MIN_INTERVAL_MS = 500U,
-    PICO_W_OPERATOR_COMMAND_AUTH_LOCKOUT_MS = 30000U,
-    PICO_W_OPERATOR_COMMAND_AUTH_MAX_FAILURES = 5U,
+    PICO_W_OPERATOR_AUTH_LOCKOUT_MS = 30000U,
+    PICO_W_OPERATOR_AUTH_MAX_FAILURES = 5U,
 };
 
 static app_operator_command_t g_operator_command_queue[PICO_W_OPERATOR_COMMAND_QUEUE_SIZE] = {
@@ -32,12 +37,59 @@ static uint8_t g_operator_command_queue_count = 0U;
 static char g_operator_command_line[PICO_W_OPERATOR_COMMAND_LINE_MAX + 1U] = {0};
 static uint8_t g_operator_command_line_len = 0U;
 static operator_command_policy_t g_operator_command_policy = {0};
+static operator_auth_state_t g_operator_auth_state = {0};
+static bool g_operator_auth_ready = false;
+static uint64_t g_operator_auth_entropy_counter = 0U;
+
+static uint64_t pico_w_tinyusb_runtime_operator_entropy(uint32_t now_ms) {
+    uint64_t mixed = 0U;
+
+    g_operator_auth_entropy_counter = g_operator_auth_entropy_counter + 1U;
+    mixed = ((uint64_t)now_ms << 32U) ^ g_operator_auth_entropy_counter;
+    mixed ^= mixed >> 33U;
+    mixed *= 0xff51afd7ed558ccdULL;
+    mixed ^= mixed >> 33U;
+    mixed *= 0xc4ceb9fe1a85ec53ULL;
+    mixed ^= mixed >> 33U;
+    return mixed;
+}
+
+static void pico_w_tinyusb_runtime_operator_write_line(const char * line) {
+    uint32_t available = 0U;
+    size_t line_len = 0U;
+    uint32_t written = 0U;
+
+    if ((line == NULL) || (line[0] == '\0')) {
+        return;
+    }
+
+    if (!tud_ready() || !tud_cdc_n_connected(0U)) {
+        return;
+    }
+
+    available = tud_cdc_n_write_available(0U);
+    line_len = strlen(line);
+    if (available < (line_len + 1U)) {
+        return;
+    }
+
+    written = tud_cdc_n_write(0U, line, line_len);
+    if (written == line_len) {
+        (void)tud_cdc_n_write(0U, "\n", 1U);
+    }
+    (void)tud_cdc_n_write_flush(0U);
+}
 
 static void pico_w_tinyusb_runtime_operator_reset(void) {
     const operator_command_policy_config_t policy_config = {
         .min_interval_ms = PICO_W_OPERATOR_COMMAND_MIN_INTERVAL_MS,
-        .auth_lockout_ms = PICO_W_OPERATOR_COMMAND_AUTH_LOCKOUT_MS,
-        .auth_max_failures = PICO_W_OPERATOR_COMMAND_AUTH_MAX_FAILURES,
+        .auth_lockout_ms = 0U,
+        .auth_max_failures = 0U,
+    };
+    const operator_auth_config_t auth_config = {
+        .session_ttl_ms = APP_PICO_OPERATOR_AUTH_SESSION_TTL_MS,
+        .lockout_ms = PICO_W_OPERATOR_AUTH_LOCKOUT_MS,
+        .max_auth_failures = PICO_W_OPERATOR_AUTH_MAX_FAILURES,
     };
 
     (void)memset(g_operator_command_queue, 0, sizeof(g_operator_command_queue));
@@ -47,6 +99,12 @@ static void pico_w_tinyusb_runtime_operator_reset(void) {
     (void)memset(g_operator_command_line, 0, sizeof(g_operator_command_line));
     g_operator_command_line_len = 0U;
     operator_command_policy_init(&g_operator_command_policy, &policy_config);
+    g_operator_auth_entropy_counter = 0U;
+    g_operator_auth_ready = operator_auth_state_init(
+        &g_operator_auth_state,
+        &auth_config,
+        APP_PICO_OPERATOR_AUTH_KEY_HEX
+    );
 }
 
 static bool pico_w_tinyusb_runtime_operator_push(app_operator_command_t command) {
@@ -68,20 +126,38 @@ static bool pico_w_tinyusb_runtime_operator_push(app_operator_command_t command)
 }
 
 static void pico_w_tinyusb_runtime_operator_commit_line(void) {
-    app_operator_command_t command = APP_OPERATOR_COMMAND_NONE;
-    operator_command_parse_result_t parse_result = OPERATOR_COMMAND_PARSE_RESULT_INVALID;
+    operator_auth_output_t auth_output = {0};
     uint32_t now_ms = 0U;
+    uint64_t entropy = 0U;
 
     g_operator_command_line[g_operator_command_line_len] = '\0';
-    parse_result = operator_command_parse_line_result(
-        g_operator_command_line,
-        APP_PICO_OPERATOR_COMMAND_TOKEN,
-        &command
-    );
 
     now_ms = to_ms_since_boot(get_absolute_time());
-    if (operator_command_policy_accept(&g_operator_command_policy, parse_result, command, now_ms)) {
-        (void)pico_w_tinyusb_runtime_operator_push(command);
+    entropy = pico_w_tinyusb_runtime_operator_entropy(now_ms);
+    if (!g_operator_auth_ready) {
+        pico_w_tinyusb_runtime_operator_write_line("ERR AUTH_CONFIG");
+    } else if (operator_auth_process_line(
+                   &g_operator_auth_state,
+                   g_operator_command_line,
+                   now_ms,
+                   entropy,
+                   &auth_output
+               )) {
+        if (auth_output.has_response) {
+            pico_w_tinyusb_runtime_operator_write_line(auth_output.response);
+        }
+
+        if (auth_output.has_command
+            && operator_command_policy_accept(
+                &g_operator_command_policy,
+                OPERATOR_COMMAND_PARSE_RESULT_OK,
+                auth_output.command,
+                now_ms
+            )) {
+            (void)pico_w_tinyusb_runtime_operator_push(auth_output.command);
+        } else if (auth_output.has_command) {
+            pico_w_tinyusb_runtime_operator_write_line("CMD FAIL RATE_LIMIT");
+        }
     }
 
     (void)memset(g_operator_command_line, 0, sizeof(g_operator_command_line));

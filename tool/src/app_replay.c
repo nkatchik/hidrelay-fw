@@ -1,10 +1,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "app.h"
 #include "hid_report_remap.h"
+#include "operator_auth.h"
 #include "operator_command.h"
 
 typedef bool (*app_replay_test_fn_t)(void);
@@ -103,6 +105,118 @@ static bool app_replay_expect_u32_eq(
         (unsigned long)expected
     );
     return false;
+}
+
+static bool app_replay_parse_u32_hex(
+    const char * text,
+    uint32_t * out_value
+) {
+    char * end_ptr = NULL;
+    unsigned long value = 0UL;
+
+    if ((text == NULL) || (out_value == NULL)) {
+        return false;
+    }
+
+    value = strtoul(text, &end_ptr, 16);
+    if ((end_ptr == NULL) || (*end_ptr != '\0')) {
+        return false;
+    }
+
+    *out_value = (uint32_t)value;
+    return true;
+}
+
+static bool app_replay_parse_u64_hex(
+    const char * text,
+    uint64_t * out_value
+) {
+    char * end_ptr = NULL;
+    unsigned long long value = 0ULL;
+
+    if ((text == NULL) || (out_value == NULL)) {
+        return false;
+    }
+
+    value = strtoull(text, &end_ptr, 16);
+    if ((end_ptr == NULL) || (*end_ptr != '\0')) {
+        return false;
+    }
+
+    *out_value = (uint64_t)value;
+    return true;
+}
+
+static bool app_replay_operator_auth_handshake(
+    operator_auth_state_t * state,
+    const uint8_t key[OPERATOR_AUTH_KEY_LEN],
+    uint32_t * out_session_id,
+    uint64_t * out_device_nonce
+) {
+    operator_auth_output_t output = {0};
+    char session_hex[OPERATOR_AUTH_HEX_SESSION_LEN + 1U] = {0};
+    char device_hex[OPERATOR_AUTH_HEX_NONCE_LEN + 1U] = {0};
+    char prove_line[128] = {0};
+    char proof_hex[OPERATOR_AUTH_HEX_MAC_LEN + 1U] = {0};
+    uint32_t ttl_ms = 0U;
+
+    if ((state == NULL)
+        || (key == NULL)
+        || (out_session_id == NULL)
+        || (out_device_nonce == NULL)) {
+        return false;
+    }
+
+    if (!operator_auth_process_line(
+            state,
+            "AUTH HELLO 0123456789abcdef",
+            1000U,
+            0x1122334455667788ULL,
+            &output
+        )) {
+        return false;
+    }
+
+    if (!output.has_response) {
+        return false;
+    }
+
+    if (sscanf(output.response, "AUTH CHALLENGE %8s %16s %u", session_hex, device_hex, &ttl_ms)
+        != 3) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(ttl_ms, 2000U, "auth challenge ttl should match config")) {
+        return false;
+    }
+
+    if (!app_replay_parse_u32_hex(session_hex, out_session_id)
+        || !app_replay_parse_u64_hex(device_hex, out_device_nonce)) {
+        return false;
+    }
+
+    if (!operator_auth_compute_proof_mac_hex(
+            key,
+            *out_session_id,
+            0x0123456789ABCDEFULL,
+            *out_device_nonce,
+            proof_hex
+        )) {
+        return false;
+    }
+
+    (void)
+        snprintf(prove_line, sizeof(prove_line), "AUTH PROVE %08x %s", *out_session_id, proof_hex);
+
+    if (!operator_auth_process_line(state, prove_line, 1100U, 0x2233445566778899ULL, &output)) {
+        return false;
+    }
+
+    if (!output.has_response) {
+        return false;
+    }
+
+    return strstr(output.response, "AUTH OK ") == output.response;
 }
 
 static bool app_replay_test_pair_any_from_long_press(void) {
@@ -775,6 +889,259 @@ static bool app_replay_test_operator_command_policy_auth_lockout(void) {
     );
 }
 
+static bool app_replay_test_operator_auth_session_flow(void) {
+    operator_auth_state_t state = {0};
+    operator_auth_config_t config = {
+        .session_ttl_ms = 2000U,
+        .lockout_ms = 1000U,
+        .max_auth_failures = 3U,
+    };
+    operator_auth_output_t output = {0};
+    uint8_t key[OPERATOR_AUTH_KEY_LEN] = {0U};
+    uint32_t session_id = 0U;
+    uint64_t device_nonce = 0U;
+    char command_mac[OPERATOR_AUTH_HEX_MAC_LEN + 1U] = {0};
+    char command_line[160] = {0};
+
+    if (!operator_auth_state_init(
+            &state,
+            &config,
+            "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+        )) {
+        return false;
+    }
+
+    if (!operator_auth_key_from_hex(
+            "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+            key
+        )) {
+        return false;
+    }
+
+    if (!app_replay_operator_auth_handshake(&state, key, &session_id, &device_nonce)) {
+        (void)device_nonce;
+        return false;
+    }
+
+    if (!operator_auth_compute_command_mac_hex(
+            key,
+            session_id,
+            1U,
+            "LOCKOUT_CLEAR_LAST",
+            command_mac
+        )) {
+        return false;
+    }
+
+    (void)snprintf(
+        command_line,
+        sizeof(command_line),
+        "CMD %08x 1 LOCKOUT_CLEAR_LAST %s",
+        session_id,
+        command_mac
+    );
+
+    if (!operator_auth_process_line(&state, command_line, 1200U, 0x33445566778899AAULL, &output)) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(output.has_command, "operator auth command should authorize")) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            (uint32_t)output.command,
+            (uint32_t)APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_LAST,
+            "operator auth command should map to app command"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        (output.has_response && (strstr(output.response, "CMD OK 1") == output.response)),
+        "operator auth command should return success response"
+    );
+}
+
+static bool app_replay_test_operator_auth_replay_rejected(void) {
+    operator_auth_state_t state = {0};
+    operator_auth_config_t config = {
+        .session_ttl_ms = 2000U,
+        .lockout_ms = 1000U,
+        .max_auth_failures = 3U,
+    };
+    operator_auth_output_t output = {0};
+    uint8_t key[OPERATOR_AUTH_KEY_LEN] = {0U};
+    uint32_t session_id = 0U;
+    uint64_t device_nonce = 0U;
+    char command_mac[OPERATOR_AUTH_HEX_MAC_LEN + 1U] = {0};
+    char command_line[160] = {0};
+
+    if (!operator_auth_state_init(
+            &state,
+            &config,
+            "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+        )) {
+        return false;
+    }
+
+    if (!operator_auth_key_from_hex(
+            "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+            key
+        )) {
+        return false;
+    }
+
+    if (!app_replay_operator_auth_handshake(&state, key, &session_id, &device_nonce)) {
+        return false;
+    }
+
+    if (!operator_auth_compute_command_mac_hex(
+            key,
+            session_id,
+            1U,
+            "LOCKOUT_CLEAR_ALL",
+            command_mac
+        )) {
+        return false;
+    }
+
+    (void)snprintf(
+        command_line,
+        sizeof(command_line),
+        "CMD %08x 1 LOCKOUT_CLEAR_ALL %s",
+        session_id,
+        command_mac
+    );
+    if (!operator_auth_process_line(&state, command_line, 1200U, 0x445566778899AABBULL, &output)) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(output.has_command, "initial operator command should succeed")) {
+        return false;
+    }
+
+    if (!operator_auth_process_line(&state, command_line, 1300U, 0x5566778899AABBCCULL, &output)) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(!output.has_command, "replayed sequence should be rejected")) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        output.has_response && (strstr(output.response, "CMD FAIL SEQ") == output.response),
+        "replay rejection should report sequence failure"
+    );
+}
+
+static bool app_replay_test_operator_auth_lockout_window(void) {
+    operator_auth_state_t state = {0};
+    operator_auth_config_t config = {
+        .session_ttl_ms = 2000U,
+        .lockout_ms = 1000U,
+        .max_auth_failures = 2U,
+    };
+    operator_auth_output_t output = {0};
+    uint32_t session_id = 0U;
+    uint64_t device_nonce = 0U;
+    char session_hex[OPERATOR_AUTH_HEX_SESSION_LEN + 1U] = {0};
+    char device_hex[OPERATOR_AUTH_HEX_NONCE_LEN + 1U] = {0};
+    uint32_t ttl_ms = 0U;
+
+    if (!operator_auth_state_init(
+            &state,
+            &config,
+            "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+        )) {
+        return false;
+    }
+
+    if (!operator_auth_process_line(
+            &state,
+            "AUTH HELLO 0123456789abcdef",
+            1000U,
+            0x778899AABBCCDD00ULL,
+            &output
+        )) {
+        return false;
+    }
+
+    if (!output.has_response) {
+        return false;
+    }
+
+    if (sscanf(output.response, "AUTH CHALLENGE %8s %16s %u", session_hex, device_hex, &ttl_ms)
+        != 3) {
+        return false;
+    }
+
+    if (!app_replay_parse_u32_hex(session_hex, &session_id)
+        || !app_replay_parse_u64_hex(device_hex, &device_nonce)
+        || !app_replay_expect_u32_eq(ttl_ms, 2000U, "auth challenge ttl should match config")) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            device_nonce != 0U,
+            "auth challenge device nonce must be non-zero"
+        )) {
+        return false;
+    }
+
+    if (!operator_auth_process_line(
+            &state,
+            "AUTH PROVE deadbeef 0000000000000000000000000000000000000000000000000000000000000000",
+            1100U,
+            0x8899AABBCCDDEEFFULL,
+            &output
+        )) {
+        return false;
+    }
+
+    if (!operator_auth_process_line(
+            &state,
+            "AUTH PROVE deadbeef 0000000000000000000000000000000000000000000000000000000000000000",
+            1200U,
+            0x99AABBCCDDEEFF00ULL,
+            &output
+        )) {
+        return false;
+    }
+
+    if (!operator_auth_process_line(
+            &state,
+            "AUTH HELLO 0123456789abcdef",
+            1250U,
+            0xAABBCCDDEEFF0011ULL,
+            &output
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            output.has_response && (strstr(output.response, "ERR AUTH_LOCKED") == output.response),
+            "auth attempts should be locked after configured failures"
+        )) {
+        return false;
+    }
+
+    if (!operator_auth_process_line(
+            &state,
+            "AUTH HELLO 0123456789abcdef",
+            2301U,
+            0xBBCCDDEEFF001122ULL,
+            &output
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        output.has_response && (strstr(output.response, "AUTH CHALLENGE") == output.response),
+        "auth lockout should clear after timeout"
+    );
+}
+
 int main(void) {
     const app_replay_test_case_t cases[] = {
         {.name = "pair_any_from_long_press", .fn = app_replay_test_pair_any_from_long_press},
@@ -806,6 +1173,11 @@ int main(void) {
             .fn = app_replay_test_operator_command_policy_rate_limit},
         {.name = "operator_command_policy_auth_lockout",
             .fn = app_replay_test_operator_command_policy_auth_lockout},
+        {.name = "operator_auth_session_flow", .fn = app_replay_test_operator_auth_session_flow},
+        {.name = "operator_auth_replay_rejected",
+            .fn = app_replay_test_operator_auth_replay_rejected},
+        {.name = "operator_auth_lockout_window",
+            .fn = app_replay_test_operator_auth_lockout_window},
     };
     const size_t case_count = sizeof(cases) / sizeof(cases[0]);
     size_t index = 0U;

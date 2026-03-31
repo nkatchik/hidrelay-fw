@@ -87,7 +87,8 @@ Pico W stack toggles:
 - `APP_PLATFORM_ENABLE_TELEMETRY` (default `ON` for `Debug`, otherwise `OFF`)
 - `APP_PLATFORM_ENABLE_DIAG_CDC` (default follows `APP_PLATFORM_ENABLE_TELEMETRY`; requires TinyUSB + telemetry)
 - `APP_PLATFORM_ALLOW_RELEASE_TELEMETRY` (default `OFF`; required to permit telemetry/diag options with `CMAKE_BUILD_TYPE=Release`)
-- `APP_PLATFORM_OPERATOR_COMMAND_TOKEN` (default `HIDRELAY`; required token prefix for CDC operator commands; no whitespace)
+- `APP_PLATFORM_OPERATOR_AUTH_KEY_HEX` (required when `APP_PLATFORM_ENABLE_DIAG_CDC=ON`; 64 hex chars)
+- `APP_PLATFORM_OPERATOR_AUTH_SESSION_TTL_MS` (default `60000`; operator auth session TTL in milliseconds)
 
 They are disabled by default for fast baseline builds. Project-local starter TinyUSB/BTstack headers are provided for stack-enabled development builds.
 
@@ -110,7 +111,8 @@ cmake -S . -B build/pico_w_debug \
   -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
   -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
-  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON
+  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
+  -DAPP_PLATFORM_OPERATOR_AUTH_KEY_HEX=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
 cmake --build build/pico_w_debug --parallel
 ```
 
@@ -133,6 +135,7 @@ cmake -S . -B build/pico_w_release_devdiag \
   -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
   -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
+  -DAPP_PLATFORM_OPERATOR_AUTH_KEY_HEX=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
   -DAPP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON
 cmake --build build/pico_w_release_devdiag --parallel
 ```
@@ -185,9 +188,10 @@ Implemented now:
 - reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery after repeated connect/timeout failures
 - auth reconnect failures now emit explicit per-device security-rotation requests from app to platform
-- operator command path now supports manual lockout-clear and rotate-security triggers, with tokenized CDC line-command ingress when diagnostics CDC is enabled (`HIDRELAY LOCKOUT_CLEAR_ALL`, `HIDRELAY LOCKOUT_CLEAR_LAST`, `HIDRELAY ROTATE_LAST`)
+- operator command path now supports manual lockout-clear and rotate-security triggers through challenge-response CDC sessions (`AUTH HELLO`, `AUTH PROVE`, signed `CMD` for `LOCKOUT_CLEAR_ALL` / `LOCKOUT_CLEAR_LAST` / `ROTATE_LAST`)
 - operator command acceptance is rate-limited to one accepted command every 500ms
-- token mismatch attempts now trigger auth lockout (5 failures -> 30s cooldown) before further operator command acceptance
+- repeated auth failures now trigger lockout (5 failures -> 30s cooldown) before further operator command acceptance
+- signed command frames now enforce monotonic per-session sequence values for replay protection
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - descriptor remap now includes boot fallback profile normalization in stack TX/RX paths (keyboard/mouse report-id/payload shaping plus keyboard LED output translation)
@@ -209,7 +213,7 @@ Implemented now:
 Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
-- replace static-token operator recovery authorization with stronger challenge/response controls and auditable operator sessions
+- host-side operator tooling for challenge-response signing and key/session rotation workflows
 - descriptor translation/remapping for host edge cases beyond current boot-profile + keyboard-LED handling
 - CI/inbox notification wiring that consumes `tool-diag-alert` reports from soak diagnostics gate failures
 - command UX refinement and full failure-recovery handling

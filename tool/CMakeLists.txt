@@ -65,9 +65,11 @@ add_library(app_replay_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_report_policy.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_report_remap.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/led_ui.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/operator_auth.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/operator_command.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/pair_db.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/usb_bridge.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/util/sha256.c
 )
 
 target_compile_features(app_replay_core PRIVATE c_std_17)
