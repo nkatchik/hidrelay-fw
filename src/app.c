@@ -262,6 +262,7 @@ void app_init(
     led_ui_init(&app->led_ui);
     pair_db_init(&app->pair_db);
     app_seed_pair_db(&app->pair_db, initial_pair_db);
+    (void)pair_db_prepare_runtime(&app->pair_db, 0U);
     bt_manager_init(&app->bt_manager, &app->pair_db);
     usb_bridge_init(&app->usb_bridge);
     app->reconnect_inflight = false;

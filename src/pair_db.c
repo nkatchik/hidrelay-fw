@@ -300,6 +300,22 @@ bool pair_db_clear_reconnect_lockout_all(
     return changed;
 }
 
+bool pair_db_prepare_runtime(
+    pair_db_t * db,
+    uint32_t now_ms
+) {
+    if (db == NULL) {
+        return false;
+    }
+
+    /*
+     * Reconnect state uses uptime-relative timestamps. When a persisted Pair DB
+     * is loaded after reboot, those timestamps come from a previous boot epoch.
+     * Reset reconnect lockouts/backoff so reconnect can start immediately.
+     */
+    return pair_db_clear_reconnect_lockout_all(db, now_ms);
+}
+
 bool pair_db_reconnect_recover_expired(
     pair_db_t * db,
     uint32_t now_ms

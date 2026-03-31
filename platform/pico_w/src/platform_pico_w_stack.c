@@ -139,6 +139,12 @@ typedef struct {
     bd_addr_type_t addr_type;
 } pico_w_stack_reconnect_attempt_t;
 
+typedef struct {
+    bool used;
+    hci_con_handle_t con_handle;
+    uint16_t hid_cid;
+} pico_w_stack_classic_session_t;
+
 static uint8_t g_btstack_hid_descriptor_storage[1024] = {0};
 static btstack_tlv_flash_bank_t g_btstack_tlv_flash_bank_context = {0};
 static btstack_packet_callback_registration_t g_btstack_hci_event_callback_registration = {0};
@@ -165,6 +171,9 @@ static pico_w_stack_le_session_t g_btstack_le_session = {
     .hids_cid = 0U,
     .addr = {0},
     .addr_type = BD_ADDR_TYPE_UNKNOWN,
+};
+static pico_w_stack_classic_session_t g_btstack_classic_session[PICO_W_STACK_MAX_USB_INTERFACE] = {
+    0
 };
 
 static void pico_w_btstack_packet_handler(
@@ -213,6 +222,97 @@ static void pico_w_stack_reset_le_session(void) {
     g_btstack_le_hids_connect_pending = false;
     (void)memset(g_btstack_le_session.addr, 0, sizeof(g_btstack_le_session.addr));
     g_btstack_le_session.addr_type = BD_ADDR_TYPE_UNKNOWN;
+}
+
+static void pico_w_stack_reset_classic_session(void) {
+    (void)memset(g_btstack_classic_session, 0, sizeof(g_btstack_classic_session));
+}
+
+static void pico_w_stack_remember_classic_session(
+    uint16_t hid_cid,
+    hci_con_handle_t con_handle
+) {
+    uint8_t index = 0U;
+
+    if ((hid_cid == 0U) || (con_handle == HCI_CON_HANDLE_INVALID)) {
+        return;
+    }
+
+    for (index = 0U; index < PICO_W_STACK_MAX_USB_INTERFACE; index++) {
+        if (!g_btstack_classic_session[index].used) {
+            continue;
+        }
+
+        if ((g_btstack_classic_session[index].hid_cid == hid_cid)
+            || (g_btstack_classic_session[index].con_handle == con_handle)) {
+            g_btstack_classic_session[index].hid_cid = hid_cid;
+            g_btstack_classic_session[index].con_handle = con_handle;
+            return;
+        }
+    }
+
+    for (index = 0U; index < PICO_W_STACK_MAX_USB_INTERFACE; index++) {
+        if (g_btstack_classic_session[index].used) {
+            continue;
+        }
+
+        g_btstack_classic_session[index].used = true;
+        g_btstack_classic_session[index].hid_cid = hid_cid;
+        g_btstack_classic_session[index].con_handle = con_handle;
+        return;
+    }
+
+    g_btstack_classic_session[0].used = true;
+    g_btstack_classic_session[0].hid_cid = hid_cid;
+    g_btstack_classic_session[0].con_handle = con_handle;
+}
+
+static void pico_w_stack_forget_classic_session_by_hid_cid(uint16_t hid_cid) {
+    uint8_t index = 0U;
+
+    if (hid_cid == 0U) {
+        return;
+    }
+
+    for (index = 0U; index < PICO_W_STACK_MAX_USB_INTERFACE; index++) {
+        if (!g_btstack_classic_session[index].used
+            || (g_btstack_classic_session[index].hid_cid != hid_cid)) {
+            continue;
+        }
+
+        (void)
+            memset(&g_btstack_classic_session[index], 0, sizeof(g_btstack_classic_session[index]));
+        return;
+    }
+}
+
+static bool pico_w_stack_find_classic_hid_cid_by_con_handle(
+    hci_con_handle_t con_handle,
+    uint16_t * out_hid_cid
+) {
+    uint8_t index = 0U;
+
+    if ((con_handle == HCI_CON_HANDLE_INVALID) || (out_hid_cid == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < PICO_W_STACK_MAX_USB_INTERFACE; index++) {
+        if (!g_btstack_classic_session[index].used
+            || (g_btstack_classic_session[index].con_handle != con_handle)) {
+            continue;
+        }
+
+        *out_hid_cid = g_btstack_classic_session[index].hid_cid;
+        return true;
+    }
+
+    return false;
+}
+
+static bool pico_w_stack_security_accept(void) {
+    return g_btstack_pairing_active
+        || g_btstack_reconnect_pending
+        || (g_btstack_connect_mode != PICO_W_STACK_CONNECT_MODE_NONE);
 }
 
 static uint8_t pico_w_stack_classify_reconnect_failure(uint8_t status_code) {
@@ -555,6 +655,10 @@ static void pico_w_stack_emit_classic_open_event(uint8_t * packet) {
     event.protocol_mode = HID_TRANSPORT_PROTOCOL_UNKNOWN;
     hid_subevent_connection_opened_get_bd_addr(packet, device_addr);
     (void)memcpy(event.device_id.bytes, device_addr, sizeof(event.device_id.bytes));
+    pico_w_stack_remember_classic_session(
+        event.hid_cid,
+        hid_subevent_connection_opened_get_con_handle(packet)
+    );
     (void)pico_w_stack_push_event(&event);
 }
 
@@ -594,17 +698,26 @@ static void pico_w_stack_emit_bt_protocol_event(
     (void)pico_w_stack_push_event(&event);
 }
 
-static void pico_w_stack_emit_classic_close_event(uint8_t * packet) {
+static void pico_w_stack_emit_classic_close_by_hid_cid(uint16_t hid_cid) {
     hid_transport_event_t event = {0};
 
-    if (packet == NULL) {
+    if (hid_cid == 0U) {
         return;
     }
 
     event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
     event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
-    event.hid_cid = hid_subevent_connection_closed_get_hid_cid(packet);
+    event.hid_cid = hid_cid;
+    pico_w_stack_forget_classic_session_by_hid_cid(hid_cid);
     (void)pico_w_stack_push_event(&event);
+}
+
+static void pico_w_stack_emit_classic_close_event(uint8_t * packet) {
+    if (packet == NULL) {
+        return;
+    }
+
+    pico_w_stack_emit_classic_close_by_hid_cid(hid_subevent_connection_closed_get_hid_cid(packet));
 }
 
 static void pico_w_stack_emit_classic_report_event(uint8_t * packet) {
@@ -855,9 +968,7 @@ static void pico_w_stack_handle_gap_advertising_report(uint8_t * packet) {
 }
 
 static void pico_w_stack_handle_sm_event(uint8_t * packet) {
-    bool security_accept = g_btstack_pairing_active
-        || g_btstack_reconnect_pending
-        || (g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_LE);
+    const bool security_accept = pico_w_stack_security_accept();
 
     if (packet == NULL) {
         return;
@@ -1008,24 +1119,30 @@ static void pico_w_stack_handle_le_connection_complete(uint8_t * packet) {
 static void pico_w_stack_handle_disconnect(uint8_t * packet) {
     const hci_con_handle_t con_handle =
         hci_event_disconnection_complete_get_connection_handle(packet);
+    uint16_t classic_hid_cid = 0U;
 
     if ((packet == NULL) || (con_handle == HCI_CON_HANDLE_INVALID)) {
         return;
     }
 
-    if (con_handle != g_btstack_le_session.con_handle) {
+    if (con_handle == g_btstack_le_session.con_handle) {
+        if (g_btstack_reconnect_pending) {
+            pico_w_stack_handle_connect_failure(
+                hci_event_disconnection_complete_get_reason(packet)
+            );
+        } else if (g_btstack_le_session.hids_cid != 0U) {
+            pico_w_stack_emit_le_close_event(g_btstack_le_session.hids_cid);
+        }
+
+        g_btstack_le_security_pending = false;
+        pico_w_stack_reset_le_session();
+        pico_w_stack_try_start_discovery();
         return;
     }
 
-    if (g_btstack_reconnect_pending) {
-        pico_w_stack_handle_connect_failure(hci_event_disconnection_complete_get_reason(packet));
-    } else if (g_btstack_le_session.hids_cid != 0U) {
-        pico_w_stack_emit_le_close_event(g_btstack_le_session.hids_cid);
+    if (pico_w_stack_find_classic_hid_cid_by_con_handle(con_handle, &classic_hid_cid)) {
+        pico_w_stack_emit_classic_close_by_hid_cid(classic_hid_cid);
     }
-
-    g_btstack_le_security_pending = false;
-    pico_w_stack_reset_le_session();
-    pico_w_stack_try_start_discovery();
 }
 
 static void pico_w_btstack_packet_handler(
@@ -1056,9 +1173,10 @@ static void pico_w_btstack_packet_handler(
     switch (hci_event_packet_get_type(packet)) {
         case HCI_EVENT_PIN_CODE_REQUEST: {
             bd_addr_t address = {0};
+            const bool security_accept = pico_w_stack_security_accept();
 
             hci_event_pin_code_request_get_bd_addr(packet, address);
-            if (g_btstack_pairing_active) {
+            if (security_accept) {
                 (void)gap_pin_code_response(address, "0000");
             } else {
                 (void)gap_pin_code_negative(address);
@@ -1066,9 +1184,10 @@ static void pico_w_btstack_packet_handler(
         } break;
         case HCI_EVENT_USER_CONFIRMATION_REQUEST: {
             bd_addr_t address = {0};
+            const bool security_accept = pico_w_stack_security_accept();
 
             hci_event_user_confirmation_request_get_bd_addr(packet, address);
-            if (g_btstack_pairing_active) {
+            if (security_accept) {
                 (void)gap_ssp_confirmation_response(address);
             } else {
                 (void)gap_ssp_confirmation_negative(address);
@@ -1107,7 +1226,7 @@ static void pico_w_btstack_packet_handler(
         case HCI_EVENT_HID_META:
             switch (hci_event_hid_meta_get_subevent_code(packet)) {
                 case HID_SUBEVENT_INCOMING_CONNECTION:
-                    if (g_btstack_pairing_active) {
+                    if (pico_w_stack_security_accept()) {
                         (void)hid_host_accept_connection(
                             hid_subevent_incoming_connection_get_hid_cid(packet),
                             HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT
@@ -1204,6 +1323,7 @@ bool pico_w_stack_init(bool radio_ready) {
     (void)memset(g_btstack_candidate_addr, 0, sizeof(g_btstack_candidate_addr));
     g_btstack_candidate_addr_type = BD_ADDR_TYPE_UNKNOWN;
     pico_w_stack_reset_le_session();
+    pico_w_stack_reset_classic_session();
 
     if (!radio_ready) {
         return true;

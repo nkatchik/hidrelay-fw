@@ -90,6 +90,10 @@ bool pair_db_clear_reconnect_lockout_all(
     pair_db_t * db,
     uint32_t now_ms
 );
+bool pair_db_prepare_runtime(
+    pair_db_t * db,
+    uint32_t now_ms
+);
 bool pair_db_reconnect_recover_expired(
     pair_db_t * db,
     uint32_t now_ms
