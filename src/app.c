@@ -187,6 +187,7 @@ static void app_handle_transport_event(
                 &app->bt_manager,
                 &event->device_id,
                 event->hid_cid,
+                event->bt_link_type,
                 event->vendor_id,
                 event->product_id,
                 event->report_descriptor_len,
@@ -194,12 +195,18 @@ static void app_handle_transport_event(
             );
             break;
         case HID_TRANSPORT_EVENT_BT_HID_CLOSE:
-            (void)bt_manager_ingest_hid_close(&app->bt_manager, event->hid_cid, input->now_ms);
+            (void)bt_manager_ingest_hid_close(
+                &app->bt_manager,
+                event->hid_cid,
+                event->bt_link_type,
+                input->now_ms
+            );
             break;
         case HID_TRANSPORT_EVENT_BT_HID_DESCRIPTOR:
             (void)bt_manager_ingest_hid_descriptor(
                 &app->bt_manager,
                 event->hid_cid,
+                event->bt_link_type,
                 event->report_descriptor_len,
                 input->now_ms
             );
@@ -208,6 +215,7 @@ static void app_handle_transport_event(
             (void)bt_manager_ingest_hid_protocol(
                 &app->bt_manager,
                 event->hid_cid,
+                event->bt_link_type,
                 event->protocol_mode,
                 input->now_ms
             );
@@ -216,6 +224,7 @@ static void app_handle_transport_event(
             (void)usb_bridge_ingest_bt_report(
                 &app->usb_bridge,
                 event->hid_cid,
+                event->bt_link_type,
                 event->report,
                 event->report_len
             );
@@ -364,6 +373,7 @@ void app_tick(
             interface_info.report_descriptor_len;
         output->usb_interface_plan[interface_index].protocol_mode = interface_info.protocol_mode;
         output->usb_interface_plan[interface_index].hid_cid = interface_info.hid_cid;
+        output->usb_interface_plan[interface_index].bt_link_type = interface_info.bt_link_type;
         output->usb_interface_plan[interface_index].device_id = interface_info.device_id;
     }
 

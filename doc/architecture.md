@@ -34,6 +34,7 @@ Common logic never imports Pico-specific SDK headers.
   - exposes event-ingest hooks for HID open/close/descriptor/protocol updates
 - `usb_bridge`:
   - USB-facing interface plan derived from active BT HID sessions
+  - carries BT link type metadata (Classic vs LE) per active session/interface slot
   - tracks descriptor generation for dynamic USB descriptor rebuild triggers
   - holds bounded routing queues for BT->USB and USB->BT HID reports
   - tracks queue depth/high-water/drop telemetry for backpressure visibility
@@ -102,9 +103,12 @@ Pico-specific linkage is isolated under this directory.
 - TinyUSB output report callbacks are now translated into app transport events.
 - App and bridge now route queued reports in both directions (one dequeued report per direction per tick) with protocol-aware BT transmission.
 - Pair-any mode now drives real BT inquiry/connect attempts under a class-of-device filter and pairing-mode gating.
+- Pair-any mode now also scans BLE advertisements for HID service UUID (`0x1812`) and connects BLE-only accessories.
 - App now derives per-interface USB descriptor/protocol hints from active sessions and emits them with each platform output.
+- Active-session transport contract now includes BT link type so `hid_cid` routing remains deterministic across Classic and LE stacks.
 - App now emits reconnect requests from persisted Pair DB metadata when idle, with per-device backoff windows.
 - Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
+- Reconnect path now attempts fallback stages for unknown transport history (`Classic -> LE public -> LE random`).
 - Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
 - App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
 - Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
@@ -112,9 +116,11 @@ Pico-specific linkage is isolated under this directory.
 - App reconnect policy now escalates to timed reconnect lockout after repeated connect/timeout failures, with automatic recovery when cooldown expires.
 - TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
 - Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
+- Descriptor export/source lookup now branches by active link type (Classic HID descriptor storage vs BLE HIDS descriptor storage).
 - Boot fallback profiles now feed report remap helpers so keyboard/mouse payload shape matches fallback descriptor expectations in both directions, including boot-keyboard LED output translation.
 - USB bridge now carries per-device mapping profile state; Apple Magic Keyboard profile detection and `Fn+Esc` mode-toggle tracking are wired as a policy scaffold.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
+- LE pairing/re-encryption completion now gates BLE HID service client bring-up (`hids_client_connect`) before report routing begins.
 - Platform glue records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio when telemetry is enabled.
 - When both `APP_PLATFORM_ENABLE_TELEMETRY` and `APP_PLATFORM_ENABLE_DIAG_CDC` are enabled, diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
 - BTstack now persists classic link keys and LE device records through TLV flash-bank storage.

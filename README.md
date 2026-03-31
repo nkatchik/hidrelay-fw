@@ -18,8 +18,10 @@ Current implementation is a buildable skeleton with:
 - USB bridge interface-plan model with descriptor generation tracking and bounded report queues
 - TinyUSB configuration descriptor composition for 0..8 HID interfaces
 - bidirectional report path skeleton (`BT HID report` -> USB IN, `USB OUT report` -> BT HID protocol-aware send)
+- transport metadata now carries BT link type (Classic vs LE) so routing remains unambiguous when CIDs overlap
 - USB descriptor/topology generation now triggers TinyUSB disconnect/reconnect sequencing so host re-enumerates interfaces on live topology changes
-- pair-any discovery/connect flow using BT inquiry and HID connect (pairing mode gated)
+- dual-mode pair-any discovery/connect flow (Classic inquiry + BLE HID-service advertising scan, pairing mode gated)
+- BLE HID-over-GATT host path (`hids_client`) with LE pairing flow, descriptor/report ingestion, and USB bridge routing
 - per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
 - device-specific mapping state scaffold for Apple Magic Keyboard profile detection, including `Fn+Esc` mode-toggle tracking hook (used as a bridge-side policy state, remap expansion pending)
 - reconnect policy with multi-device candidate selection, per-device backoff, and timeout-based failure classification
@@ -129,6 +131,7 @@ With default Pico W stack settings:
 - BTstack HID descriptor/protocol events are bridged into common app transport events
 - TinyUSB `set_report` callbacks are bridged into common app transport events
 - pair-any state drives BT inquiry/connection attempts with class-of-device filtering
+- pair-any state now also drives BLE HID-service scan/connect flow for BLE-only accessories
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 - TinyUSB runtime now performs controlled re-enumeration on descriptor-generation changes so hosts pick up interface topology updates without manual unplug/replug
 - app reconnect requests now run through per-device backoff windows and timeout tracking
@@ -140,6 +143,7 @@ With default Pico W stack settings:
 - BTstack key material and LE device records persist via TLV flash storage
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
+- BT report TX path now selects Classic HID host or BLE HIDS client send APIs by per-interface link type
 - queue saturation drops oldest pending reports and updates telemetry counters
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, diagnostics snapshots are mirrored to stdio and exposed via `platform_diag_take(...)`
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are additionally published over TinyUSB CDC interface `0`

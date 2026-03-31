@@ -99,17 +99,22 @@ static void usb_bridge_mark_descriptor_dirty_if_changed(
 static bool usb_bridge_find_interface_for_hid_cid(
     const usb_bridge_t * bridge,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint8_t * out_interface
 ) {
     uint8_t index = 0U;
 
-    if ((bridge == NULL) || (out_interface == NULL) || (hid_cid == 0U)) {
+    if ((bridge == NULL)
+        || (out_interface == NULL)
+        || (hid_cid == 0U)
+        || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)) {
         return false;
     }
 
     for (index = 0U; index < bridge->exported_interface_count; index++) {
         if (bridge->interface_slot[index].used
-            && (bridge->interface_slot[index].hid_cid == hid_cid)) {
+            && (bridge->interface_slot[index].hid_cid == hid_cid)
+            && (bridge->interface_slot[index].bt_link_type == bt_link_type)) {
             *out_interface = bridge->interface_slot[index].interface_number;
             return true;
         }
@@ -151,9 +156,13 @@ static bool usb_bridge_find_hid_cid_for_interface(
     const usb_bridge_t * bridge,
     uint8_t interface_number,
     uint16_t * out_hid_cid,
+    uint8_t * out_bt_link_type,
     uint8_t * out_protocol_mode
 ) {
-    if ((bridge == NULL) || (out_hid_cid == NULL) || (out_protocol_mode == NULL)) {
+    if ((bridge == NULL)
+        || (out_hid_cid == NULL)
+        || (out_bt_link_type == NULL)
+        || (out_protocol_mode == NULL)) {
         return false;
     }
 
@@ -167,6 +176,7 @@ static bool usb_bridge_find_hid_cid_for_interface(
     }
 
     *out_hid_cid = bridge->interface_slot[interface_number].hid_cid;
+    *out_bt_link_type = bridge->interface_slot[interface_number].bt_link_type;
     *out_protocol_mode = bridge->interface_slot[interface_number].protocol_mode;
     return true;
 }
@@ -323,6 +333,7 @@ void usb_bridge_sync_from_pair_db(
         slot->endpoint_out = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_OUT + interface_count);
         slot->endpoint_in = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_IN + interface_count);
         slot->hid_cid = 0U;
+        slot->bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         slot->report_descriptor_len = 0U;
         slot->vendor_id = 0U;
         slot->product_id = 0U;
@@ -369,6 +380,7 @@ void usb_bridge_sync_from_bt_manager(
         slot->endpoint_out = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_OUT + index);
         slot->endpoint_in = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_IN + index);
         slot->hid_cid = active_device.hid_cid;
+        slot->bt_link_type = active_device.bt_link_type;
         slot->report_descriptor_len = active_device.report_descriptor_len;
         slot->vendor_id = active_device.vendor_id;
         slot->product_id = active_device.product_id;
@@ -396,16 +408,25 @@ void usb_bridge_sync_from_bt_manager(
 bool usb_bridge_ingest_bt_report(
     usb_bridge_t * bridge,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     const uint8_t * report,
     uint16_t report_len
 ) {
     hid_transport_usb_tx_t tx = {0};
 
-    if ((bridge == NULL) || (hid_cid == 0U) || !usb_bridge_report_valid(report, report_len)) {
+    if ((bridge == NULL)
+        || (hid_cid == 0U)
+        || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)
+        || !usb_bridge_report_valid(report, report_len)) {
         return false;
     }
 
-    if (!usb_bridge_find_interface_for_hid_cid(bridge, hid_cid, &tx.interface_number)) {
+    if (!usb_bridge_find_interface_for_hid_cid(
+            bridge,
+            hid_cid,
+            bt_link_type,
+            &tx.interface_number
+        )) {
         return false;
     }
 
@@ -441,6 +462,7 @@ bool usb_bridge_ingest_usb_report(
             bridge,
             interface_number,
             &tx.hid_cid,
+            &tx.bt_link_type,
             &tx.protocol_mode
         )) {
         return false;

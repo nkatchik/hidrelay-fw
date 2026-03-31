@@ -340,6 +340,7 @@ static bool app_replay_test_bt_report_routed_to_usb(void) {
     event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
     event.device_id = device_id;
     event.hid_cid = 0x44U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
     event.vendor_id = 0x1234U;
     event.product_id = 0x5678U;
     event.report_descriptor_len = 63U;
@@ -347,6 +348,7 @@ static bool app_replay_test_bt_report_routed_to_usb(void) {
 
     event.type = HID_TRANSPORT_EVENT_BT_HID_REPORT;
     event.hid_cid = 0x44U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
     event.report_len = (uint16_t)sizeof(sample_report);
     (void)memcpy(event.report, sample_report, sizeof(sample_report));
     app_replay_tick(&app, 1010U, false, &event, &out);
@@ -395,6 +397,7 @@ static bool app_replay_test_usb_report_routed_to_bt(void) {
     event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
     event.device_id = device_id;
     event.hid_cid = 0x66U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
     event.report_descriptor_len = 77U;
     app_replay_tick(&app, 1000U, false, &event, &out);
 
@@ -409,6 +412,14 @@ static bool app_replay_test_usb_report_routed_to_bt(void) {
     }
 
     if (!app_replay_expect_u32_eq(out.bt_tx.hid_cid, 0x66U, "BT tx should target mapped hid_cid")) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            out.bt_tx.bt_link_type,
+            HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
+            "BT tx should keep mapped link type"
+        )) {
         return false;
     }
 

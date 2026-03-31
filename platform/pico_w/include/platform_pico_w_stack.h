@@ -42,6 +42,7 @@ bool pico_w_stack_send_usb_report(
 );
 bool pico_w_stack_send_bt_report(
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint8_t protocol_mode,
     const uint8_t * report,
     uint16_t report_len

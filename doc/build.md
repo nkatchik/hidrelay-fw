@@ -176,12 +176,17 @@ Implemented now:
 - main loop coalesces Pair DB persistence writes (2s debounce, 15s max stale, 5s retry backoff) to reduce flash wear
 - BTstack TLV-backed persistence for classic link keys and LE device database
 - pair-any inquiry/connect flow gated by pairing state and class-of-device policy
+- pair-any BLE scan/connect flow gated by pairing state and HID-service advertising filter
+- BLE HID-over-GATT client integration (`hids_client`) with LE security handshake and report ingestion
+- reconnect transport fallback stages for unknown persisted transport history (`Classic -> LE public -> LE random`)
 - reconnect retry policy with per-device backoff windows and timeout-based failure classification
 - reconnect outcome signaling from platform stack (stack reject/connect/auth result classes)
 - reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery after repeated connect/timeout failures
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
+- per-interface BT TX routing now selects Classic HID host vs BLE HIDS client send APIs using transport link metadata
+- per-interface descriptor export now resolves descriptor data from the matching transport store (Classic or BLE)
 - descriptor remap now includes boot fallback profile normalization in stack TX/RX paths (keyboard/mouse report-id/payload shaping plus keyboard LED output translation)
 - device mapping scaffold for Apple Magic Keyboard profile detection with `Fn+Esc` bridge-side mode toggle tracking
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state

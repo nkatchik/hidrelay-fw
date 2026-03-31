@@ -17,6 +17,7 @@ typedef struct {
     uint8_t endpoint_in;
     uint8_t endpoint_out;
     uint16_t hid_cid;
+    uint8_t bt_link_type;
     uint16_t report_descriptor_len;
     uint16_t vendor_id;
     uint16_t product_id;
@@ -65,6 +66,7 @@ void usb_bridge_sync_from_bt_manager(
 bool usb_bridge_ingest_bt_report(
     usb_bridge_t * bridge,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     const uint8_t * report,
     uint16_t report_len
 );

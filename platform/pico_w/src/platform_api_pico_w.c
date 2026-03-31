@@ -260,6 +260,7 @@ void platform_apply(const platform_output_t * output) {
     if (output->bt_tx.valid) {
         (void)pico_w_stack_send_bt_report(
             output->bt_tx.hid_cid,
+            output->bt_tx.bt_link_type,
             output->bt_tx.protocol_mode,
             output->bt_tx.report,
             output->bt_tx.report_len

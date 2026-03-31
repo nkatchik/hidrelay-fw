@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "hid_transport.h"
 #include "pair_db.h"
 
 typedef enum {
@@ -18,6 +19,7 @@ typedef enum {
 typedef struct {
     pair_device_id_t device_id;
     uint16_t hid_cid;
+    uint8_t bt_link_type;
     uint16_t vendor_id;
     uint16_t product_id;
     uint16_t report_descriptor_len;
@@ -51,6 +53,7 @@ bool bt_manager_ingest_hid_open(
     bt_manager_t * manager,
     const pair_device_id_t * device_id,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint16_t vendor_id,
     uint16_t product_id,
     uint16_t report_descriptor_len,
@@ -59,17 +62,20 @@ bool bt_manager_ingest_hid_open(
 bool bt_manager_ingest_hid_close(
     bt_manager_t * manager,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint32_t now_ms
 );
 bool bt_manager_ingest_hid_descriptor(
     bt_manager_t * manager,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint16_t report_descriptor_len,
     uint32_t now_ms
 );
 bool bt_manager_ingest_hid_protocol(
     bt_manager_t * manager,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint8_t protocol_mode,
     uint32_t now_ms
 );

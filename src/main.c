@@ -45,7 +45,12 @@ int main(void) {
         .diag = {0},
         .usb_tx = {.valid = false, .interface_number = 0U, .report_len = 0U, .report = {0}},
         .bt_tx =
-            {.valid = false, .hid_cid = 0U, .protocol_mode = 0U, .report_len = 0U, .report = {0}},
+            {.valid = false,
+                .hid_cid = 0U,
+                .bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN,
+                .protocol_mode = 0U,
+                .report_len = 0U,
+                .report = {0}},
         .pair_db_dirty = false,
         .factory_reset_requested = false,
     };

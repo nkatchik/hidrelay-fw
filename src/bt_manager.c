@@ -35,6 +35,7 @@ static void bt_manager_refresh_state(bt_manager_t * manager) {
 static bool bt_manager_find_active_index_by_hid_cid(
     const bt_manager_t * manager,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint8_t * out_index
 ) {
     uint8_t index = 0U;
@@ -44,7 +45,8 @@ static bool bt_manager_find_active_index_by_hid_cid(
     }
 
     for (index = 0U; index < manager->active_count; index++) {
-        if (manager->active_device[index].hid_cid == hid_cid) {
+        if ((manager->active_device[index].hid_cid == hid_cid)
+            && (manager->active_device[index].bt_link_type == bt_link_type)) {
             *out_index = index;
             return true;
         }
@@ -208,6 +210,7 @@ bool bt_manager_ingest_hid_open(
     bt_manager_t * manager,
     const pair_device_id_t * device_id,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint16_t vendor_id,
     uint16_t product_id,
     uint16_t report_descriptor_len,
@@ -221,7 +224,7 @@ bool bt_manager_ingest_hid_open(
         return false;
     }
 
-    if (hid_cid == 0U) {
+    if ((hid_cid == 0U) || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)) {
         return false;
     }
 
@@ -231,9 +234,10 @@ bool bt_manager_ingest_hid_open(
         return false;
     }
 
-    if (bt_manager_find_active_index_by_hid_cid(manager, hid_cid, &existing_index)) {
+    if (bt_manager_find_active_index_by_hid_cid(manager, hid_cid, bt_link_type, &existing_index)) {
         slot = &manager->active_device[existing_index];
         slot->device_id = *device_id;
+        slot->bt_link_type = bt_link_type;
         slot->vendor_id = vendor_id;
         slot->product_id = product_id;
         slot->report_descriptor_len = report_descriptor_len;
@@ -255,6 +259,7 @@ bool bt_manager_ingest_hid_open(
     if (bt_manager_find_active_index_by_device_id(manager, device_id, &existing_index)) {
         slot = &manager->active_device[existing_index];
         slot->hid_cid = hid_cid;
+        slot->bt_link_type = bt_link_type;
         slot->vendor_id = vendor_id;
         slot->product_id = product_id;
         slot->report_descriptor_len = report_descriptor_len;
@@ -286,6 +291,7 @@ bool bt_manager_ingest_hid_open(
     slot = &manager->active_device[manager->active_count];
     slot->device_id = *device_id;
     slot->hid_cid = hid_cid;
+    slot->bt_link_type = bt_link_type;
     slot->vendor_id = vendor_id;
     slot->product_id = product_id;
     slot->report_descriptor_len = report_descriptor_len;
@@ -309,16 +315,20 @@ bool bt_manager_ingest_hid_open(
 bool bt_manager_ingest_hid_close(
     bt_manager_t * manager,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint32_t now_ms
 ) {
     uint8_t index = 0U;
     bt_hid_device_t closed_device = {0};
 
-    if ((manager == NULL) || (manager->pair_db == NULL) || (hid_cid == 0U)) {
+    if ((manager == NULL)
+        || (manager->pair_db == NULL)
+        || (hid_cid == 0U)
+        || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)) {
         return false;
     }
 
-    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, &index)) {
+    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, bt_link_type, &index)) {
         return false;
     }
 
@@ -340,17 +350,21 @@ bool bt_manager_ingest_hid_close(
 bool bt_manager_ingest_hid_descriptor(
     bt_manager_t * manager,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint16_t report_descriptor_len,
     uint32_t now_ms
 ) {
     uint8_t index = 0U;
     bt_hid_device_t * device = NULL;
 
-    if ((manager == NULL) || (manager->pair_db == NULL) || (hid_cid == 0U)) {
+    if ((manager == NULL)
+        || (manager->pair_db == NULL)
+        || (hid_cid == 0U)
+        || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)) {
         return false;
     }
 
-    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, &index)) {
+    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, bt_link_type, &index)) {
         return false;
     }
 
@@ -370,17 +384,21 @@ bool bt_manager_ingest_hid_descriptor(
 bool bt_manager_ingest_hid_protocol(
     bt_manager_t * manager,
     uint16_t hid_cid,
+    uint8_t bt_link_type,
     uint8_t protocol_mode,
     uint32_t now_ms
 ) {
     uint8_t index = 0U;
     bt_hid_device_t * device = NULL;
 
-    if ((manager == NULL) || (manager->pair_db == NULL) || (hid_cid == 0U)) {
+    if ((manager == NULL)
+        || (manager->pair_db == NULL)
+        || (hid_cid == 0U)
+        || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)) {
         return false;
     }
 
-    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, &index)) {
+    if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, bt_link_type, &index)) {
         return false;
     }
 

@@ -11,6 +11,9 @@
 #define HID_TRANSPORT_PROTOCOL_UNKNOWN 0U
 #define HID_TRANSPORT_PROTOCOL_BOOT 1U
 #define HID_TRANSPORT_PROTOCOL_REPORT 2U
+#define HID_TRANSPORT_BT_LINK_UNKNOWN 0U
+#define HID_TRANSPORT_BT_LINK_CLASSIC 1U
+#define HID_TRANSPORT_BT_LINK_LE 2U
 #define HID_TRANSPORT_RECONNECT_RESULT_NONE 0U
 #define HID_TRANSPORT_RECONNECT_RESULT_REQUESTED 1U
 #define HID_TRANSPORT_RECONNECT_RESULT_SUCCESS 2U
@@ -31,10 +34,17 @@ typedef enum {
     HID_TRANSPORT_EVENT_RECONNECT_RESULT
 } hid_transport_event_type_t;
 
+typedef enum {
+    HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN = HID_TRANSPORT_BT_LINK_UNKNOWN,
+    HID_TRANSPORT_BT_LINK_TYPE_CLASSIC = HID_TRANSPORT_BT_LINK_CLASSIC,
+    HID_TRANSPORT_BT_LINK_TYPE_LE = HID_TRANSPORT_BT_LINK_LE
+} hid_transport_bt_link_type_t;
+
 typedef struct {
     hid_transport_event_type_t type;
     pair_device_id_t device_id;
     uint16_t hid_cid;
+    uint8_t bt_link_type;
     uint16_t vendor_id;
     uint16_t product_id;
     uint16_t report_descriptor_len;
@@ -49,6 +59,7 @@ typedef struct {
 typedef struct {
     bool valid;
     uint16_t hid_cid;
+    uint8_t bt_link_type;
     uint8_t protocol_mode;
     uint16_t report_len;
     uint8_t report[HID_TRANSPORT_REPORT_MAX_LEN];
@@ -63,6 +74,7 @@ typedef struct {
 
 typedef struct {
     uint16_t hid_cid;
+    uint8_t bt_link_type;
     uint16_t report_descriptor_len;
     uint8_t protocol_mode;
     pair_device_id_t device_id;
