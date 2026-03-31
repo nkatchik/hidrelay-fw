@@ -609,6 +609,7 @@ void pico_w_stack_set_usb_plan(
 
     g_usb_interface_count = interface_count;
     g_usb_descriptor_generation = descriptor_generation;
+    pico_w_tinyusb_runtime_request_reenumeration();
 }
 
 void pico_w_stack_set_pairing_active(bool pairing_active) {

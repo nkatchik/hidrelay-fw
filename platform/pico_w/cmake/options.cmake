@@ -24,8 +24,8 @@ endif()
 
 set(PICO_NO_PICOTOOL OFF CACHE BOOL "Enable picotool post-processing so UF2 is produced." FORCE)
 
-option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK." OFF)
-option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." OFF)
+option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK." ON)
+option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." ON)
 option(APP_PLATFORM_ALLOW_RELEASE_TELEMETRY
     "Allow telemetry/diagnostics options in Release builds (development use only)." OFF)
 

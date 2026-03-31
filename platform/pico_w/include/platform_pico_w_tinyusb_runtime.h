@@ -11,6 +11,7 @@ bool pico_w_tinyusb_runtime_send_in_report(
     const uint8_t * report,
     uint16_t report_len
 );
+void pico_w_tinyusb_runtime_request_reenumeration(void);
 bool pico_w_tinyusb_runtime_diag_write(
     const uint8_t * data,
     uint16_t data_len
