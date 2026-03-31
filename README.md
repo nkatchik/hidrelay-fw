@@ -13,13 +13,15 @@ Current implementation is a buildable skeleton with:
 - local toolchain and SDK bootstrap
 - platform-selectable CMake layout (`APP_PLATFORM` required)
 - app event loop and module boundaries for future HID bridging
-- optional Pico W stack bring-up for BTstack + TinyUSB with local config headers
+- Pico W stack bring-up for BTstack + TinyUSB with local config headers (enabled by default)
 - BT manager active-HID session model with BTstack event ingestion (`bt_manager_ingest_hid_*`)
 - USB bridge interface-plan model with descriptor generation tracking and bounded report queues
 - TinyUSB configuration descriptor composition for 0..8 HID interfaces
 - bidirectional report path skeleton (`BT HID report` -> USB IN, `USB OUT report` -> BT HID protocol-aware send)
+- USB descriptor/topology generation now triggers TinyUSB disconnect/reconnect sequencing so host re-enumerates interfaces on live topology changes
 - pair-any discovery/connect flow using BT inquiry and HID connect (pairing mode gated)
 - per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
+- device-specific mapping state scaffold for Apple Magic Keyboard profile detection, including `Fn+Esc` mode-toggle tracking hook (used as a bridge-side policy state, remap expansion pending)
 - reconnect policy with multi-device candidate selection, per-device backoff, and timeout-based failure classification
 - explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
@@ -73,13 +75,13 @@ make platform-list
 make APP_PLATFORM=pico_w build
 ```
 
-Enable Pico SDK stack linkage (not required for skeleton build):
+TinyUSB + BTstack are enabled by default for Pico W builds. To explicitly disable one or both:
 
 ```sh
 cmake -S . -B build/pico_w \
   -DAPP_PLATFORM=pico_w \
-  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
-  -DAPP_PLATFORM_ENABLE_BTSTACK=ON
+  -DAPP_PLATFORM_ENABLE_TINYUSB=OFF \
+  -DAPP_PLATFORM_ENABLE_BTSTACK=OFF
 cmake --build build/pico_w --parallel
 ```
 
@@ -89,8 +91,6 @@ Enable CDC diagnostics transport in debug/development builds:
 cmake -S . -B build/pico_w_debug \
   -DAPP_PLATFORM=pico_w \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
-  -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
   -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON
 cmake --build build/pico_w_debug --parallel
@@ -101,9 +101,7 @@ Release builds keep telemetry disabled by default:
 ```sh
 cmake -S . -B build/pico_w_release \
   -DAPP_PLATFORM=pico_w \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
-  -DAPP_PLATFORM_ENABLE_BTSTACK=ON
+  -DCMAKE_BUILD_TYPE=Release
 cmake --build build/pico_w_release --parallel
 ```
 
@@ -113,20 +111,18 @@ Release guardrails will fail configure if telemetry/diagnostics are enabled in `
 cmake -S . -B build/pico_w_release_devdiag \
   -DAPP_PLATFORM=pico_w \
   -DCMAKE_BUILD_TYPE=Release \
-  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
-  -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
   -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
   -DAPP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON
 cmake --build build/pico_w_release_devdiag --parallel
 ```
 
-These options remain off by default for fast baseline iteration, but the repository now includes working starter configs in:
+The repository includes working starter configs in:
 
 - `platform/pico_w/include/tusb_config.h`
 - `platform/pico_w/include/btstack_config.h`
 
-When stack options are enabled:
+With default Pico W stack settings:
 
 - `platform_pico_w_stack` initializes BTstack and TinyUSB
 - BTstack HID open/close/report events are bridged into common app transport events
@@ -134,6 +130,7 @@ When stack options are enabled:
 - TinyUSB `set_report` callbacks are bridged into common app transport events
 - pair-any state drives BT inquiry/connection attempts with class-of-device filtering
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
+- TinyUSB runtime now performs controlled re-enumeration on descriptor-generation changes so hosts pick up interface topology updates without manual unplug/replug
 - app reconnect requests now run through per-device backoff windows and timeout tracking
 - reconnect result events are emitted from stack paths (immediate reject/connect/auth outcomes)
 - app reconnect failure handling now applies per-result retry policy updates with cooldown-based auto-recovery windows
@@ -248,5 +245,5 @@ See:
 Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
-- extend descriptor remap coverage beyond current boot-profile + keyboard-LED handling into broader host edge-case translation paths
+- extend descriptor remap coverage beyond current boot-profile + keyboard-LED handling into broader host edge-case translation paths, including profile-specific behavior for Apple keyboards
 - wire `tool-diag-alert` output into your CI/inbox notification path for soak-gate failures (without runtime telemetry in release builds)

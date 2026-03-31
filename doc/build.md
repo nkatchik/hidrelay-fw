@@ -82,21 +82,21 @@ To add a new platform:
 
 Pico W stack toggles:
 
-- `APP_PLATFORM_ENABLE_TINYUSB` (default `OFF`)
-- `APP_PLATFORM_ENABLE_BTSTACK` (default `OFF`)
+- `APP_PLATFORM_ENABLE_TINYUSB` (default `ON`)
+- `APP_PLATFORM_ENABLE_BTSTACK` (default `ON`)
 - `APP_PLATFORM_ENABLE_TELEMETRY` (default `ON` for `Debug`, otherwise `OFF`)
 - `APP_PLATFORM_ENABLE_DIAG_CDC` (default follows `APP_PLATFORM_ENABLE_TELEMETRY`; requires TinyUSB + telemetry)
 - `APP_PLATFORM_ALLOW_RELEASE_TELEMETRY` (default `OFF`; required to permit telemetry/diag options with `CMAKE_BUILD_TYPE=Release`)
 
-They are disabled by default for fast baseline builds. Project-local starter TinyUSB/BTstack headers are provided for stack-enabled development builds.
+Project-local starter TinyUSB/BTstack headers are provided for stack-enabled development builds.
 
 Stack-enabled build example:
 
 ```sh
 cmake -S . -B build/pico_w_stack \
   -DAPP_PLATFORM=pico_w \
-  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
-  -DAPP_PLATFORM_ENABLE_BTSTACK=ON
+  -DAPP_PLATFORM_ENABLE_TINYUSB=OFF \
+  -DAPP_PLATFORM_ENABLE_BTSTACK=OFF
 cmake --build build/pico_w_stack --parallel
 ```
 
@@ -106,8 +106,6 @@ Debug/development stack build with diagnostics CDC:
 cmake -S . -B build/pico_w_debug \
   -DAPP_PLATFORM=pico_w \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
-  -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
   -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON
 cmake --build build/pico_w_debug --parallel
@@ -128,8 +126,6 @@ Explicit development-only override for release-like builds:
 cmake -S . -B build/pico_w_release_devdiag \
   -DAPP_PLATFORM=pico_w \
   -DCMAKE_BUILD_TYPE=Release \
-  -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
-  -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
   -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
   -DAPP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON
@@ -164,10 +160,11 @@ Implemented now:
 - build/bootstrap workflow
 - compileable stubs
 - BOOTSEL command FSM semantics and LED command indications
-- optional BTstack/TinyUSB stack-enabled Pico W build path
+- default BTstack/TinyUSB stack-enabled Pico W build path
 - BT manager active HID session model and event-ingest API (`bt_manager_ingest_hid_open/close`)
 - USB bridge interface-plan model with descriptor-generation tracking
 - dynamic TinyUSB HID configuration descriptor composition from interface count
+- TinyUSB runtime re-enumeration trigger on descriptor-generation changes (controlled disconnect/reconnect window)
 - platform stack USB-plan handoff and TinyUSB runtime isolation (`platform_pico_w_tinyusb_runtime.*`)
 - BTstack HID open/close/report event ingestion into app transport events
 - BTstack HID descriptor/protocol event ingestion into app transport events
@@ -186,6 +183,7 @@ Implemented now:
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - descriptor remap now includes boot fallback profile normalization in stack TX/RX paths (keyboard/mouse report-id/payload shaping plus keyboard LED output translation)
+- device mapping scaffold for Apple Magic Keyboard profile detection with `Fn+Esc` bridge-side mode toggle tracking
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state
 - runtime bridge/pairing diagnostics emitted on state change via stdio log lines when `APP_PLATFORM_ENABLE_TELEMETRY=ON` (including reconnect counters/result + status code)
 - structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`) when telemetry is enabled
@@ -204,6 +202,6 @@ Implemented now:
 Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
-- descriptor translation/remapping for host edge cases beyond current boot-profile + keyboard-LED handling
+- descriptor translation/remapping for host edge cases beyond current boot-profile + keyboard-LED handling (including device-specific profiles such as Apple keyboards)
 - CI/inbox notification wiring that consumes `tool-diag-alert` reports from soak diagnostics gate failures
 - command UX refinement and broader field validation

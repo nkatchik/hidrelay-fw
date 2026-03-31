@@ -47,6 +47,9 @@ Common logic never imports Pico-specific SDK headers.
 - `hid_report_remap`:
   - shared report remap helpers used when fallback descriptors are active
   - currently normalizes boot keyboard/mouse payload and report-id shaping for BT->USB and USB->BT paths
+- `hid_device_map`:
+  - device-profile detection hooks for mapping behavior by VID/PID
+  - currently tracks Apple Magic Keyboard `Fn+Esc` mode toggles as bridge-side state for future remap policy extensions
 - `platform_api`:
   - platform boundary: init, poll inputs, apply outputs
   - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
@@ -70,13 +73,13 @@ Common logic never imports Pico-specific SDK headers.
   - `platform_pico_w_state.*`
   - `platform_pico_w_hw.*`
   - `platform_pico_w_pair_store.*` (flash-backed Pair DB load/save)
-  - `platform_pico_w_stack.*` (optional TinyUSB/BTstack bring-up hooks + USB plan handoff)
+  - `platform_pico_w_stack.*` (TinyUSB/BTstack bring-up hooks + USB plan handoff)
   - `platform_pico_w_tinyusb_runtime.*` (TinyUSB runtime calls isolated from BTstack includes)
   - `platform_pico_w_tinyusb_desc.c` (dynamic HID configuration descriptor callbacks)
 - platform-local stack config headers:
   - `include/tusb_config.h`
   - `include/btstack_config.h`
-- optional Pico SDK stack linkage flags:
+- Pico SDK stack linkage flags:
   - `APP_PLATFORM_ENABLE_TINYUSB`
   - `APP_PLATFORM_ENABLE_BTSTACK`
   - `APP_PLATFORM_ENABLE_TELEMETRY` (debug/development diagnostics surfaces)
@@ -87,12 +90,13 @@ Pico-specific linkage is isolated under this directory.
 
 ## Current Integration Milestone
 
-- TinyUSB stack can be enabled and built with a baseline HID device configuration.
-- BTstack libraries can be enabled and built with project-local `btstack_config.h`.
-- Platform runtime initializes optional stacks from `platform_pico_w_stack`.
+- TinyUSB stack is enabled by default for Pico W and built with a baseline HID device configuration.
+- BTstack libraries are enabled by default for Pico W using project-local `btstack_config.h`.
+- Platform runtime initializes Pico W stacks from `platform_pico_w_stack`.
 - Common `bt_manager` now models active HID sessions, not only pair count.
 - `usb_bridge` composes a per-interface plan from active sessions and increments descriptor generation on topology changes.
 - TinyUSB descriptor callbacks now build a configuration descriptor dynamically (0..8 HID interfaces).
+- TinyUSB runtime now performs controlled disconnect/reconnect re-enumeration when USB descriptor generation changes.
 - BTstack HID open/close/report events are now translated into app transport events.
 - BTstack HID descriptor/protocol events are now translated into app transport events.
 - TinyUSB output report callbacks are now translated into app transport events.
@@ -109,6 +113,7 @@ Pico-specific linkage is isolated under this directory.
 - TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
 - Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
 - Boot fallback profiles now feed report remap helpers so keyboard/mouse payload shape matches fallback descriptor expectations in both directions, including boot-keyboard LED output translation.
+- USB bridge now carries per-device mapping profile state; Apple Magic Keyboard profile detection and `Fn+Esc` mode-toggle tracking are wired as a policy scaffold.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - Platform glue records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio when telemetry is enabled.
 - When both `APP_PLATFORM_ENABLE_TELEMETRY` and `APP_PLATFORM_ENABLE_DIAG_CDC` are enabled, diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
@@ -180,6 +185,6 @@ Additional style constraints in this repository:
 ## Planned Bridging Flow (Next Iteration)
 
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
-2. Extend descriptor remap beyond current boot-profile + keyboard-LED handling into broader host edge-case translation/remapping.
+2. Extend descriptor remap beyond current boot-profile + keyboard-LED handling into broader host edge-case translation/remapping, including Apple keyboard Fn/media behavior.
 3. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
 4. Keep platform glue thin so additional targets can supply equivalent stack hooks.
