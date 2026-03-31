@@ -117,7 +117,7 @@ Pico-specific linkage is isolated under this directory.
 - App reconnect policy now escalates to timed reconnect lockout after repeated connect/timeout failures, with automatic recovery when cooldown expires.
 - TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
 - Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
-- Boot fallback profiles now feed report remap helpers so keyboard/mouse payload shape matches fallback descriptor expectations in both directions.
+- Boot fallback profiles now feed report remap helpers so keyboard/mouse payload shape matches fallback descriptor expectations in both directions, including boot-keyboard LED output translation.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - Platform glue records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio when telemetry is enabled.
 - When both `APP_PLATFORM_ENABLE_TELEMETRY` and `APP_PLATFORM_ENABLE_DIAG_CDC` are enabled, diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
@@ -192,6 +192,6 @@ Additional style constraints in this repository:
 
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
 2. Replace static-token operator authorization with stronger challenge/response controls and auditable operator session policy.
-3. Extend descriptor remap beyond current boot-profile groundwork into broader host edge-case translation/remapping.
+3. Extend descriptor remap beyond current boot-profile + keyboard-LED handling into broader host edge-case translation/remapping.
 4. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

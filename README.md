@@ -28,7 +28,7 @@ Current implementation is a buildable skeleton with:
 - operator command surface now accepts tokenized CDC line commands (when diagnostics CDC is enabled), enforces 500ms acceptance rate limiting, and applies auth-failure lockout (5 token mismatches -> 30s cooldown)
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
-- initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization)
+- descriptor remap now covers boot fallback profiles with BT<->USB report-id/payload normalization, including boot-keyboard LED output translation
 - explicit SSP/PIN confirmation handling gated by pairing mode
 - optional runtime telemetry surfaces (structured snapshots + stdio mirror) enabled in debug/dev builds (`APP_PLATFORM_ENABLE_TELEMETRY`)
 - optional host-visible diagnostics transport over TinyUSB CDC with framed binary snapshot streaming (`APP_PLATFORM_ENABLE_DIAG_CDC`, requires telemetry)
@@ -142,7 +142,7 @@ When stack options are enabled:
 - auth reconnect failures now raise a security-rotation request hook that platform consumes for key/bond refresh
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
 - descriptor acceptance/fallback now runs through shared policy checks, with boot-profile fallback descriptors for incompatible boot-mode reports
-- boot-profile fallback paths now apply report remap normalization in Pico stack TX/RX (keyboard/mouse payload + report-id shaping)
+- boot-profile fallback paths now apply report remap normalization in Pico stack TX/RX (keyboard/mouse payload + report-id shaping, including keyboard LED output handling)
 - BTstack key material and LE device records persist via TLV flash storage
 - BT security events (PIN/SSP confirmation) are explicitly handled according to pairing state
 - one queued report per tick is forwarded in each direction via `usb_bridge`
@@ -256,5 +256,5 @@ Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - replace static token operator authorization with stronger challenge/response controls and auditable operator session policy
-- extend descriptor remap from current boot-profile groundwork into broader host edge-case translation coverage
+- extend descriptor remap coverage beyond current boot-profile + keyboard-LED handling into broader host edge-case translation paths
 - add alerting/inbox workflow integration around soak gate failures (without runtime telemetry in release builds)

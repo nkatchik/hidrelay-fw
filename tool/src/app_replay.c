@@ -458,6 +458,76 @@ static bool app_replay_test_remap_boot_keyboard_usb_to_bt_report_mode(void) {
     return app_replay_expect_u32_eq(output[3], 0x04U, "boot keyboard payload should be preserved");
 }
 
+static bool app_replay_test_remap_boot_keyboard_usb_to_bt_report_mode_led_output(void) {
+    uint8_t output[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint16_t output_len = 0U;
+    const uint8_t usb_led_report[] = {0x02U};
+
+    if (!hid_report_remap_usb_to_bt(
+            HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD,
+            HID_TRANSPORT_PROTOCOL_REPORT,
+            usb_led_report,
+            (uint16_t)sizeof(usb_led_report),
+            output,
+            &output_len
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            output_len,
+            2U,
+            "boot keyboard LED USB->BT report mode should add report-id byte"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            output[0],
+            0x01U,
+            "boot keyboard LED report-id hint should be 1"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        output[1],
+        0x02U,
+        "boot keyboard LED payload should be preserved in report mode"
+    );
+}
+
+static bool app_replay_test_remap_boot_keyboard_usb_to_bt_boot_mode_led_output(void) {
+    uint8_t output[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint16_t output_len = 0U;
+    const uint8_t usb_led_report_with_id[] = {0x09U, 0x02U};
+
+    if (!hid_report_remap_usb_to_bt(
+            HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD,
+            HID_TRANSPORT_PROTOCOL_BOOT,
+            usb_led_report_with_id,
+            (uint16_t)sizeof(usb_led_report_with_id),
+            output,
+            &output_len
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            output_len,
+            1U,
+            "boot keyboard LED USB->BT boot mode should drop optional report-id byte"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        output[0],
+        0x02U,
+        "boot keyboard LED payload should be preserved in boot mode"
+    );
+}
+
 static bool app_replay_test_remap_boot_mouse_usb_to_bt_boot_mode(void) {
     uint8_t output[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
     uint16_t output_len = 0U;
@@ -719,6 +789,10 @@ int main(void) {
             .fn = app_replay_test_remap_boot_keyboard_bt_to_usb},
         {.name = "remap_boot_keyboard_usb_to_bt_report_mode",
             .fn = app_replay_test_remap_boot_keyboard_usb_to_bt_report_mode},
+        {.name = "remap_boot_keyboard_usb_to_bt_report_mode_led_output",
+            .fn = app_replay_test_remap_boot_keyboard_usb_to_bt_report_mode_led_output},
+        {.name = "remap_boot_keyboard_usb_to_bt_boot_mode_led_output",
+            .fn = app_replay_test_remap_boot_keyboard_usb_to_bt_boot_mode_led_output},
         {.name = "remap_boot_mouse_usb_to_bt_boot_mode",
             .fn = app_replay_test_remap_boot_mouse_usb_to_bt_boot_mode},
         {.name = "operator_clear_lockout_last", .fn = app_replay_test_operator_clear_lockout_last},

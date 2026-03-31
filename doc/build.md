@@ -189,7 +189,7 @@ Implemented now:
 - token mismatch attempts now trigger auth lockout (5 failures -> 30s cooldown) before further operator command acceptance
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
-- initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization in stack TX/RX paths)
+- descriptor remap now includes boot fallback profile normalization in stack TX/RX paths (keyboard/mouse report-id/payload shaping plus keyboard LED output translation)
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state
 - runtime bridge/pairing diagnostics emitted on state change via stdio log lines when `APP_PLATFORM_ENABLE_TELEMETRY=ON` (including reconnect counters/result + status code)
 - structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`) when telemetry is enabled
@@ -208,6 +208,6 @@ Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
 - replace static-token operator recovery authorization with stronger challenge/response controls and auditable operator sessions
-- descriptor translation/remapping for host edge cases beyond current boot-profile groundwork
+- descriptor translation/remapping for host edge cases beyond current boot-profile + keyboard-LED handling
 - alerting/inbox workflow integration layered on top of soak diagnostics gate failures
 - command UX refinement and full failure-recovery handling

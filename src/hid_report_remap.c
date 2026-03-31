@@ -51,7 +51,7 @@ static bool hid_report_remap_bt_to_usb_boot(
         return true;
     }
 
-    if ((report_len == (uint16_t)(payload_len + 1U)) && (report[0] != 0U)) {
+    if (report_len == (uint16_t)(payload_len + 1U)) {
         (void)memcpy(out_report, &report[1], payload_len);
         *out_report_len = payload_len;
         return true;
@@ -74,8 +74,9 @@ static bool hid_report_remap_usb_to_bt_boot(
     }
 
     if (protocol_mode == HID_TRANSPORT_PROTOCOL_REPORT) {
-        if ((report_len == (uint16_t)(payload_len + 1U)) && (report[0] != 0U)) {
-            (void)memcpy(out_report, report, (size_t)(payload_len + 1U));
+        if (report_len == (uint16_t)(payload_len + 1U)) {
+            out_report[0] = (report[0] == 0U) ? report_id : report[0];
+            (void)memcpy(&out_report[1], &report[1], payload_len);
             *out_report_len = (uint16_t)(payload_len + 1U);
             return true;
         }
@@ -90,13 +91,49 @@ static bool hid_report_remap_usb_to_bt_boot(
         return false;
     }
 
-    if (report_len != payload_len) {
-        return false;
+    if (report_len == payload_len) {
+        (void)memcpy(out_report, report, payload_len);
+        *out_report_len = payload_len;
+        return true;
     }
 
-    (void)memcpy(out_report, report, payload_len);
-    *out_report_len = payload_len;
-    return true;
+    if (report_len == (uint16_t)(payload_len + 1U)) {
+        (void)memcpy(out_report, &report[1], payload_len);
+        *out_report_len = payload_len;
+        return true;
+    }
+
+    return false;
+}
+
+static bool hid_report_remap_usb_to_bt_boot_keyboard(
+    uint8_t protocol_mode,
+    const uint8_t * report,
+    uint16_t report_len,
+    uint8_t * out_report,
+    uint16_t * out_report_len
+) {
+    if (hid_report_remap_usb_to_bt_boot(
+            HID_REPORT_REMAP_BOOT_KEYBOARD_PAYLOAD_LEN,
+            HID_REPORT_REMAP_BOOT_KEYBOARD_REPORT_ID,
+            protocol_mode,
+            report,
+            report_len,
+            out_report,
+            out_report_len
+        )) {
+        return true;
+    }
+
+    return hid_report_remap_usb_to_bt_boot(
+        1U,
+        HID_REPORT_REMAP_BOOT_KEYBOARD_REPORT_ID,
+        protocol_mode,
+        report,
+        report_len,
+        out_report,
+        out_report_len
+    );
 }
 
 uint8_t hid_report_remap_profile_from_policy(const hid_report_policy_decision_t * decision) {
@@ -154,9 +191,7 @@ bool hid_report_remap_usb_to_bt(
     uint16_t * out_report_len
 ) {
     if (profile == HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD) {
-        return hid_report_remap_usb_to_bt_boot(
-            HID_REPORT_REMAP_BOOT_KEYBOARD_PAYLOAD_LEN,
-            HID_REPORT_REMAP_BOOT_KEYBOARD_REPORT_ID,
+        return hid_report_remap_usb_to_bt_boot_keyboard(
             protocol_mode,
             report,
             report_len,
