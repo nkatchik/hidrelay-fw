@@ -108,7 +108,8 @@ Pico-specific linkage is isolated under this directory.
 - Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
 - Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
 - App auth-failure handling now emits per-device security-rotate requests; Pico W currently maps this to key/bond revocation as a rotation hook.
-- Operator command ingress is active on TinyUSB CDC when diagnostics CDC is enabled, with tokenized command parsing and a 500ms acceptance rate limit.
+- Operator command ingress is active on TinyUSB CDC when diagnostics CDC is enabled, with tokenized command parsing, 500ms acceptance rate limiting, and auth-failure lockout (5 token mismatches -> 30s cooldown).
+- Pico W token requirement is configurable at build time via `APP_PLATFORM_OPERATOR_COMMAND_TOKEN`.
 - Operator-command handling now clears reconnect lockouts or triggers security-rotation requests in app state.
 - App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
 - Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
@@ -133,6 +134,7 @@ Pico-specific linkage is isolated under this directory.
 - Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
 - Operator command path: the same CDC interface accepts newline-delimited tokenized control commands (`HIDRELAY LOCKOUT_CLEAR_ALL`, `HIDRELAY LOCKOUT_CLEAR_LAST`, `HIDRELAY ROTATE_LAST`) and maps them into app operator commands.
 - Operator command acceptance is rate-limited to one accepted command every 500ms.
+- Repeated token mismatch attempts trigger a 30s lockout after 5 failures.
 - Host capture helper: `tool/src/diag_capture.c` decodes CDC frames into CSV for offline analysis.
 - Host summary helper: `tool/bin/diag_summary` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
 - Framing:
@@ -189,7 +191,7 @@ Additional style constraints in this repository:
 ## Planned Bridging Flow (Next Iteration)
 
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
-2. Harden operator recovery command channel semantics beyond the current static token (token provisioning/rotation and authorization policy).
+2. Replace static-token operator authorization with stronger challenge/response controls and auditable operator session policy.
 3. Extend descriptor remap beyond current boot-profile groundwork into broader host edge-case translation/remapping.
 4. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
 5. Keep platform glue thin so additional targets can supply equivalent stack hooks.

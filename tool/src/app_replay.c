@@ -572,8 +572,15 @@ static bool app_replay_test_operator_rotate_security_last(void) {
 
 static bool app_replay_test_operator_command_parse_with_token(void) {
     app_operator_command_t command = APP_OPERATOR_COMMAND_NONE;
+    operator_command_parse_result_t parse_result = OPERATOR_COMMAND_PARSE_RESULT_INVALID;
 
-    if (!operator_command_parse_line("HIDRELAY LOCKOUT_CLEAR_ALL", "HIDRELAY", &command)) {
+    parse_result =
+        operator_command_parse_line_result("HIDRELAY LOCKOUT_CLEAR_ALL", "HIDRELAY", &command);
+    if (!app_replay_expect_u32_eq(
+            (uint32_t)parse_result,
+            (uint32_t)OPERATOR_COMMAND_PARSE_RESULT_OK,
+            "tokenized operator command parse result"
+        )) {
         return false;
     }
 
@@ -586,9 +593,14 @@ static bool app_replay_test_operator_command_parse_with_token(void) {
 
 static bool app_replay_test_operator_command_parse_reject_without_token(void) {
     app_operator_command_t command = APP_OPERATOR_COMMAND_NONE;
+    operator_command_parse_result_t parse_result = OPERATOR_COMMAND_PARSE_RESULT_INVALID;
 
-    if (operator_command_parse_line("LOCKOUT_CLEAR_ALL", "HIDRELAY", &command)) {
-        (void)fprintf(stderr, "FAIL: command without token should be rejected\n");
+    parse_result = operator_command_parse_line_result("LOCKOUT_CLEAR_ALL", "HIDRELAY", &command);
+    if (!app_replay_expect_u32_eq(
+            (uint32_t)parse_result,
+            (uint32_t)OPERATOR_COMMAND_PARSE_RESULT_TOKEN_MISMATCH,
+            "missing token should return token mismatch"
+        )) {
         return false;
     }
 
@@ -596,6 +608,100 @@ static bool app_replay_test_operator_command_parse_reject_without_token(void) {
         (uint32_t)command,
         (uint32_t)APP_OPERATOR_COMMAND_NONE,
         "rejected command should not produce operator action"
+    );
+}
+
+static bool app_replay_test_operator_command_policy_rate_limit(void) {
+    operator_command_policy_t policy = {0};
+    operator_command_policy_config_t config = {
+        .min_interval_ms = 500U,
+        .auth_lockout_ms = 1000U,
+        .auth_max_failures = 3U,
+    };
+
+    operator_command_policy_init(&policy, &config);
+
+    if (!app_replay_expect_true(
+            operator_command_policy_accept(
+                &policy,
+                OPERATOR_COMMAND_PARSE_RESULT_OK,
+                APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_ALL,
+                0U
+            ),
+            "first operator command should pass rate limit"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            !operator_command_policy_accept(
+                &policy,
+                OPERATOR_COMMAND_PARSE_RESULT_OK,
+                APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_ALL,
+                100U
+            ),
+            "operator command should be rate-limited inside interval window"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        operator_command_policy_accept(
+            &policy,
+            OPERATOR_COMMAND_PARSE_RESULT_OK,
+            APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_ALL,
+            500U
+        ),
+        "operator command should pass once interval window expires"
+    );
+}
+
+static bool app_replay_test_operator_command_policy_auth_lockout(void) {
+    operator_command_policy_t policy = {0};
+    operator_command_policy_config_t config = {
+        .min_interval_ms = 0U,
+        .auth_lockout_ms = 1000U,
+        .auth_max_failures = 3U,
+    };
+    app_operator_command_t command = APP_OPERATOR_COMMAND_NONE;
+    operator_command_parse_result_t parse_result = OPERATOR_COMMAND_PARSE_RESULT_INVALID;
+
+    operator_command_policy_init(&policy, &config);
+
+    parse_result =
+        operator_command_parse_line_result("BADTOKEN LOCKOUT_CLEAR_ALL", "HIDRELAY", &command);
+    if (!app_replay_expect_true(
+            parse_result == OPERATOR_COMMAND_PARSE_RESULT_TOKEN_MISMATCH,
+            "bad token should be detected for auth lockout test"
+        )) {
+        return false;
+    }
+
+    (void)operator_command_policy_accept(&policy, parse_result, command, 0U);
+    (void)operator_command_policy_accept(&policy, parse_result, command, 10U);
+    (void)operator_command_policy_accept(&policy, parse_result, command, 20U);
+
+    command = APP_OPERATOR_COMMAND_NONE;
+    parse_result =
+        operator_command_parse_line_result("HIDRELAY LOCKOUT_CLEAR_ALL", "HIDRELAY", &command);
+    if (!app_replay_expect_u32_eq(
+            (uint32_t)parse_result,
+            (uint32_t)OPERATOR_COMMAND_PARSE_RESULT_OK,
+            "valid token command should parse for auth lockout test"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            !operator_command_policy_accept(&policy, parse_result, command, 50U),
+            "valid token command should be blocked during auth lockout window"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        operator_command_policy_accept(&policy, parse_result, command, 1500U),
+        "valid token command should pass after auth lockout window"
     );
 }
 
@@ -622,6 +728,10 @@ int main(void) {
             .fn = app_replay_test_operator_command_parse_with_token},
         {.name = "operator_command_parse_reject_without_token",
             .fn = app_replay_test_operator_command_parse_reject_without_token},
+        {.name = "operator_command_policy_rate_limit",
+            .fn = app_replay_test_operator_command_policy_rate_limit},
+        {.name = "operator_command_policy_auth_lockout",
+            .fn = app_replay_test_operator_command_policy_auth_lockout},
     };
     const size_t case_count = sizeof(cases) / sizeof(cases[0]);
     size_t index = 0U;

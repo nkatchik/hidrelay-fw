@@ -28,6 +28,15 @@ option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK
 option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." OFF)
 option(APP_PLATFORM_ALLOW_RELEASE_TELEMETRY
     "Allow telemetry/diagnostics options in Release builds (development use only)." OFF)
+set(APP_PLATFORM_OPERATOR_COMMAND_TOKEN
+    "HIDRELAY"
+    CACHE STRING
+    "Token prefix required for operator CDC commands when diagnostics CDC is enabled.")
+
+if(APP_PLATFORM_OPERATOR_COMMAND_TOKEN MATCHES "[ \t\r\n]")
+    message(FATAL_ERROR
+        "APP_PLATFORM_OPERATOR_COMMAND_TOKEN must not include whitespace characters.")
+endif()
 
 if(NOT DEFINED APP_PLATFORM_ENABLE_TELEMETRY)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")

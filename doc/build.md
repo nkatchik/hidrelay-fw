@@ -86,6 +86,7 @@ Pico W stack toggles:
 - `APP_PLATFORM_ENABLE_TELEMETRY` (default `ON` for `Debug`, otherwise `OFF`)
 - `APP_PLATFORM_ENABLE_DIAG_CDC` (default follows `APP_PLATFORM_ENABLE_TELEMETRY`; requires TinyUSB + telemetry)
 - `APP_PLATFORM_ALLOW_RELEASE_TELEMETRY` (default `OFF`; required to permit telemetry/diag options with `CMAKE_BUILD_TYPE=Release`)
+- `APP_PLATFORM_OPERATOR_COMMAND_TOKEN` (default `HIDRELAY`; required token prefix for CDC operator commands; no whitespace)
 
 They are disabled by default for fast baseline builds. Project-local starter TinyUSB/BTstack headers are provided for stack-enabled development builds.
 
@@ -185,6 +186,7 @@ Implemented now:
 - auth reconnect failures now emit explicit per-device security-rotation requests from app to platform
 - operator command path now supports manual lockout-clear and rotate-security triggers, with tokenized CDC line-command ingress when diagnostics CDC is enabled (`HIDRELAY LOCKOUT_CLEAR_ALL`, `HIDRELAY LOCKOUT_CLEAR_LAST`, `HIDRELAY ROTATE_LAST`)
 - operator command acceptance is rate-limited to one accepted command every 500ms
+- token mismatch attempts now trigger auth lockout (5 failures -> 30s cooldown) before further operator command acceptance
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization in stack TX/RX paths)
@@ -205,7 +207,7 @@ Implemented now:
 Still pending for production behavior:
 
 - reconnect retry policy tuning using long-run telemetry and deployment data
-- harden operator recovery command channel (token provisioning/rotation and authorization policy) beyond the current static-token + rate-limited ingress
+- replace static-token operator recovery authorization with stronger challenge/response controls and auditable operator sessions
 - descriptor translation/remapping for host edge cases beyond current boot-profile groundwork
 - alerting/inbox workflow integration layered on top of soak diagnostics gate failures
 - command UX refinement and full failure-recovery handling

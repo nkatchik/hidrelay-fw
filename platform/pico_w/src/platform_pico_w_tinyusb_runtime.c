@@ -19,6 +19,8 @@ enum {
     PICO_W_OPERATOR_COMMAND_QUEUE_SIZE = 8U,
     PICO_W_OPERATOR_COMMAND_LINE_MAX = 63U,
     PICO_W_OPERATOR_COMMAND_MIN_INTERVAL_MS = 500U,
+    PICO_W_OPERATOR_COMMAND_AUTH_LOCKOUT_MS = 30000U,
+    PICO_W_OPERATOR_COMMAND_AUTH_MAX_FAILURES = 5U,
 };
 
 static app_operator_command_t g_operator_command_queue[PICO_W_OPERATOR_COMMAND_QUEUE_SIZE] = {
@@ -29,18 +31,22 @@ static uint8_t g_operator_command_queue_tail = 0U;
 static uint8_t g_operator_command_queue_count = 0U;
 static char g_operator_command_line[PICO_W_OPERATOR_COMMAND_LINE_MAX + 1U] = {0};
 static uint8_t g_operator_command_line_len = 0U;
-static uint32_t g_operator_command_last_accept_ms = 0U;
-static bool g_operator_command_has_accept = false;
+static operator_command_policy_t g_operator_command_policy = {0};
 
 static void pico_w_tinyusb_runtime_operator_reset(void) {
+    const operator_command_policy_config_t policy_config = {
+        .min_interval_ms = PICO_W_OPERATOR_COMMAND_MIN_INTERVAL_MS,
+        .auth_lockout_ms = PICO_W_OPERATOR_COMMAND_AUTH_LOCKOUT_MS,
+        .auth_max_failures = PICO_W_OPERATOR_COMMAND_AUTH_MAX_FAILURES,
+    };
+
     (void)memset(g_operator_command_queue, 0, sizeof(g_operator_command_queue));
     g_operator_command_queue_head = 0U;
     g_operator_command_queue_tail = 0U;
     g_operator_command_queue_count = 0U;
     (void)memset(g_operator_command_line, 0, sizeof(g_operator_command_line));
     g_operator_command_line_len = 0U;
-    g_operator_command_last_accept_ms = 0U;
-    g_operator_command_has_accept = false;
+    operator_command_policy_init(&g_operator_command_policy, &policy_config);
 }
 
 static bool pico_w_tinyusb_runtime_operator_push(app_operator_command_t command) {
@@ -63,28 +69,19 @@ static bool pico_w_tinyusb_runtime_operator_push(app_operator_command_t command)
 
 static void pico_w_tinyusb_runtime_operator_commit_line(void) {
     app_operator_command_t command = APP_OPERATOR_COMMAND_NONE;
+    operator_command_parse_result_t parse_result = OPERATOR_COMMAND_PARSE_RESULT_INVALID;
     uint32_t now_ms = 0U;
 
     g_operator_command_line[g_operator_command_line_len] = '\0';
-    if (!operator_command_parse_line(
-            g_operator_command_line,
-            APP_PICO_OPERATOR_COMMAND_TOKEN,
-            &command
-        )) {
-        command = APP_OPERATOR_COMMAND_NONE;
-    }
+    parse_result = operator_command_parse_line_result(
+        g_operator_command_line,
+        APP_PICO_OPERATOR_COMMAND_TOKEN,
+        &command
+    );
 
-    if (command != APP_OPERATOR_COMMAND_NONE) {
-        now_ms = to_ms_since_boot(get_absolute_time());
-
-        if (!g_operator_command_has_accept
-            || ((uint32_t)(now_ms - g_operator_command_last_accept_ms)
-                >= PICO_W_OPERATOR_COMMAND_MIN_INTERVAL_MS)) {
-            if (pico_w_tinyusb_runtime_operator_push(command)) {
-                g_operator_command_last_accept_ms = now_ms;
-                g_operator_command_has_accept = true;
-            }
-        }
+    now_ms = to_ms_since_boot(get_absolute_time());
+    if (operator_command_policy_accept(&g_operator_command_policy, parse_result, command, now_ms)) {
+        (void)pico_w_tinyusb_runtime_operator_push(command);
     }
 
     (void)memset(g_operator_command_line, 0, sizeof(g_operator_command_line));

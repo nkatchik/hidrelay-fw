@@ -25,7 +25,7 @@ Current implementation is a buildable skeleton with:
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
 - auth failure path now emits explicit security-rotation requests to platform stack (current Pico W implementation revokes stored key/bonding state for target device)
-- operator command surface now accepts tokenized CDC line commands (when diagnostics CDC is enabled): `HIDRELAY LOCKOUT_CLEAR_ALL`, `HIDRELAY LOCKOUT_CLEAR_LAST`, `HIDRELAY ROTATE_LAST`
+- operator command surface now accepts tokenized CDC line commands (when diagnostics CDC is enabled), enforces 500ms acceptance rate limiting, and applies auth-failure lockout (5 token mismatches -> 30s cooldown)
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - initial descriptor remap groundwork for boot fallback profiles (BT<->USB report-id/payload normalization)
@@ -93,7 +93,8 @@ cmake -S . -B build/pico_w_debug \
   -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
   -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
-  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON
+  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
+  -DAPP_PLATFORM_OPERATOR_COMMAND_TOKEN=LABTOKEN
 cmake --build build/pico_w_debug --parallel
 ```
 
@@ -149,6 +150,7 @@ When stack options are enabled:
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, diagnostics snapshots are mirrored to stdio and exposed via `platform_diag_take(...)`
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
 - diagnostics now include Pico stack event-queue telemetry (depth/high-water/drop counters) for dropped-event visibility
+- operator command ingress token can be overridden at configure time (`APP_PLATFORM_OPERATOR_COMMAND_TOKEN`) for lab/dev token rotation
 - Pair DB save path now suppresses no-op writes and alternates flash slots using sequence-based latest selection
 - remove-last now also requests platform-side BT security cleanup for that specific device (link key/bonding records)
 - factory reset now clears Pair DB + BTstack persisted security data and triggers reboot
@@ -232,6 +234,8 @@ When diagnostics CDC is enabled, the same CDC interface accepts operator recover
 - `HIDRELAY ROTATE_LAST`
 
 Operator commands are rate-limited to one accepted command every `500ms`.
+After `5` token mismatches, operator command acceptance is locked for `30s`.
+Configure the token with `-DAPP_PLATFORM_OPERATOR_COMMAND_TOKEN=<value>` (no whitespace).
 
 ## Coding Rules
 
@@ -251,6 +255,6 @@ See:
 Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
-- harden operator command channel semantics (token provisioning/rotation and authorization policy) beyond the current static token
+- replace static token operator authorization with stronger challenge/response controls and auditable operator session policy
 - extend descriptor remap from current boot-profile groundwork into broader host edge-case translation coverage
 - add alerting/inbox workflow integration around soak gate failures (without runtime telemetry in release builds)

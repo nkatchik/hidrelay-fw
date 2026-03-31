@@ -27,7 +27,16 @@ function(pico_w_configure_target target_name)
         target_compile_definitions(${target_name} PRIVATE APP_PICO_HAS_TINYUSB=1)
 
         if(APP_PLATFORM_ENABLE_DIAG_CDC)
+            set(operator_command_token "${APP_PLATFORM_OPERATOR_COMMAND_TOKEN}")
+            string(REPLACE "\\" "\\\\" operator_command_token "${operator_command_token}")
+            string(REPLACE "\"" "\\\"" operator_command_token "${operator_command_token}")
+
             target_compile_definitions(${target_name} PRIVATE APP_PICO_HAS_DIAG_CDC=1)
+            target_compile_definitions(
+                ${target_name}
+                PRIVATE
+                    APP_PICO_OPERATOR_COMMAND_TOKEN=\"${operator_command_token}\"
+            )
         endif()
     elseif(APP_PLATFORM_ENABLE_DIAG_CDC)
         message(WARNING "APP_PLATFORM_ENABLE_DIAG_CDC is ON but APP_PLATFORM_ENABLE_TINYUSB is OFF; diagnostics CDC is disabled.")
