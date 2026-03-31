@@ -171,7 +171,8 @@ Implemented now:
 - TinyUSB output-report callback ingestion into app transport events
 - bidirectional queued report forwarding with protocol-aware BT send path
 - queue backpressure telemetry (depth/high-water/drop counters) in `usb_bridge`
-- flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`) with session metadata schema v4 and dual-slot A/B journal (two sectors reserved ahead of BTstack TLV banks)
+- flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`) with session metadata schema v5 and dual-slot A/B journal (two sectors reserved ahead of BTstack TLV banks)
+- Pair DB load path now migrates schema v4/v3 data into v5 in-memory layout (including reconnect transport hints defaulting when absent)
 - Pair DB save path now suppresses no-op writes and uses sequence-based latest-slot selection
 - main loop coalesces Pair DB persistence writes (2s debounce, 15s max stale, 5s retry backoff) to reduce flash wear
 - BTstack TLV-backed persistence for classic link keys and LE device database
@@ -183,6 +184,7 @@ Implemented now:
 - reconnect outcome signaling from platform stack (stack reject/connect/auth result classes)
 - reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery after repeated connect/timeout failures
+- reconnect requests now include Pair DB transport/address hints so stack reconnect can prioritize last-known BLE/Public/Random path
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
 - per-interface BT TX routing now selects Classic HID host vs BLE HIDS client send APIs using transport link metadata

@@ -246,7 +246,11 @@ void platform_apply(const platform_output_t * output) {
     pico_w_stack_set_pairing_active(output->pairing_active);
 
     if (output->reconnect_request.valid) {
-        (void)pico_w_stack_request_reconnect(&output->reconnect_request.device_id);
+        (void)pico_w_stack_request_reconnect(
+            &output->reconnect_request.device_id,
+            output->reconnect_request.bt_link_type,
+            output->reconnect_request.bt_addr_type
+        );
     }
 
     if (output->usb_tx.valid) {

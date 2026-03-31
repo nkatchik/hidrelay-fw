@@ -322,6 +322,61 @@ static bool app_replay_test_reconnect_auth_failure_lockout_and_recovery(void) {
     );
 }
 
+static bool app_replay_test_reconnect_request_uses_last_link_hint(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x0AU);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x77U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_LE_RANDOM;
+    app_replay_tick(&app, 1000U, false, &event, &out);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
+    event.hid_cid = 0x77U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    app_replay_tick(&app, 1010U, false, &event, &out);
+
+    if (!app_replay_expect_true(
+            out.reconnect_request.valid,
+            "reconnect request should be emitted after close"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            app_replay_device_id_equal(&out.reconnect_request.device_id, &device_id),
+            "reconnect request should target the closed device"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            out.reconnect_request.bt_link_type,
+            HID_TRANSPORT_BT_LINK_TYPE_LE,
+            "reconnect should keep LE link hint"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        out.reconnect_request.bt_addr_type,
+        HID_TRANSPORT_BT_ADDR_TYPE_LE_RANDOM,
+        "reconnect should keep LE address-type hint"
+    );
+}
+
 static bool app_replay_test_bt_report_routed_to_usb(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -533,6 +588,8 @@ int main(void) {
         {.name = "reconnect_backoff_schedule", .fn = app_replay_test_reconnect_backoff_schedule},
         {.name = "reconnect_auth_failure_lockout_and_recovery",
             .fn = app_replay_test_reconnect_auth_failure_lockout_and_recovery},
+        {.name = "reconnect_request_uses_last_link_hint",
+            .fn = app_replay_test_reconnect_request_uses_last_link_hint},
         {.name = "bt_report_routed_to_usb", .fn = app_replay_test_bt_report_routed_to_usb},
         {.name = "usb_report_routed_to_bt", .fn = app_replay_test_usb_report_routed_to_bt},
         {.name = "hid_device_map_profile_detection",

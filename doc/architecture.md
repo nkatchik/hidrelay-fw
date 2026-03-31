@@ -27,6 +27,7 @@ Common logic never imports Pico-specific SDK headers.
   - provides user-facing LED state behavior independent from GPIO details
 - `pair_db`:
   - paired-device store abstraction with paired timestamp and last-session metadata (descriptor length, protocol mode, vendor/product IDs, reconnect flag)
+  - stores last-session transport hints (`Classic`/`LE` and LE address type) for reconnect path prioritization
   - tracks reconnect failure/backoff metadata per device for retry scheduling and timed lockout recovery
   - persisted on Pico W in a flash-backed blob through platform pair-store hooks
 - `bt_manager`:
@@ -107,6 +108,7 @@ Pico-specific linkage is isolated under this directory.
 - App now derives per-interface USB descriptor/protocol hints from active sessions and emits them with each platform output.
 - Active-session transport contract now includes BT link type so `hid_cid` routing remains deterministic across Classic and LE stacks.
 - App now emits reconnect requests from persisted Pair DB metadata when idle, with per-device backoff windows.
+- Reconnect requests now include last-session transport/address hints from Pair DB metadata.
 - Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
 - Reconnect path now attempts fallback stages for unknown transport history (`Classic -> LE public -> LE random`).
 - Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
@@ -163,8 +165,8 @@ No global Pico SDK or global Arm cross toolchain is required.
 - BTstack TLV persistence uses two sectors at the end of flash for link-key and LE device data.
 - On boot, `platform_pair_db_load` seeds app state if the stored blob validates.
 - On Pair DB mutation, the main loop coalesces writes before `platform_pair_db_save` (2s debounce, 15s max stale, 5s retry backoff).
-- Current on-flash schema version is `4`; schema mismatches fall back to an empty DB.
-- A legacy schema `3` blob at the former single-slot offset is still accepted on boot for migration.
+- Current on-flash schema version is `5`; schema mismatches fall back to an empty DB.
+- Legacy schema `4` (dual-slot) and schema `3` (single-slot legacy offset) blobs are accepted on boot and migrated in-memory.
 - Factory reset erases both Pair DB sectors and BTstack TLV sectors together, then reboots to clear runtime stack state.
 
 ## Resource Cleanup Policy

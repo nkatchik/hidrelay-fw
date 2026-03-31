@@ -14,6 +14,10 @@
 #define HID_TRANSPORT_BT_LINK_UNKNOWN 0U
 #define HID_TRANSPORT_BT_LINK_CLASSIC 1U
 #define HID_TRANSPORT_BT_LINK_LE 2U
+#define HID_TRANSPORT_BT_ADDR_UNKNOWN 0U
+#define HID_TRANSPORT_BT_ADDR_ACL 1U
+#define HID_TRANSPORT_BT_ADDR_LE_PUBLIC 2U
+#define HID_TRANSPORT_BT_ADDR_LE_RANDOM 3U
 #define HID_TRANSPORT_RECONNECT_RESULT_NONE 0U
 #define HID_TRANSPORT_RECONNECT_RESULT_REQUESTED 1U
 #define HID_TRANSPORT_RECONNECT_RESULT_SUCCESS 2U
@@ -40,11 +44,19 @@ typedef enum {
     HID_TRANSPORT_BT_LINK_TYPE_LE = HID_TRANSPORT_BT_LINK_LE
 } hid_transport_bt_link_type_t;
 
+typedef enum {
+    HID_TRANSPORT_BT_ADDR_TYPE_UNKNOWN = HID_TRANSPORT_BT_ADDR_UNKNOWN,
+    HID_TRANSPORT_BT_ADDR_TYPE_ACL = HID_TRANSPORT_BT_ADDR_ACL,
+    HID_TRANSPORT_BT_ADDR_TYPE_LE_PUBLIC = HID_TRANSPORT_BT_ADDR_LE_PUBLIC,
+    HID_TRANSPORT_BT_ADDR_TYPE_LE_RANDOM = HID_TRANSPORT_BT_ADDR_LE_RANDOM
+} hid_transport_bt_addr_type_t;
+
 typedef struct {
     hid_transport_event_type_t type;
     pair_device_id_t device_id;
     uint16_t hid_cid;
     uint8_t bt_link_type;
+    uint8_t bt_addr_type;
     uint16_t vendor_id;
     uint16_t product_id;
     uint16_t report_descriptor_len;
@@ -83,6 +95,8 @@ typedef struct {
 typedef struct {
     bool valid;
     pair_device_id_t device_id;
+    uint8_t bt_link_type;
+    uint8_t bt_addr_type;
 } hid_transport_reconnect_request_t;
 
 typedef struct {

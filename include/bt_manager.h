@@ -20,6 +20,7 @@ typedef struct {
     pair_device_id_t device_id;
     uint16_t hid_cid;
     uint8_t bt_link_type;
+    uint8_t bt_addr_type;
     uint16_t vendor_id;
     uint16_t product_id;
     uint16_t report_descriptor_len;
@@ -54,6 +55,7 @@ bool bt_manager_ingest_hid_open(
     const pair_device_id_t * device_id,
     uint16_t hid_cid,
     uint8_t bt_link_type,
+    uint8_t bt_addr_type,
     uint16_t vendor_id,
     uint16_t product_id,
     uint16_t report_descriptor_len,

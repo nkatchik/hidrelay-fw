@@ -56,6 +56,8 @@ bool pair_db_add(
     db->entries[db->count].last_product_id = 0U;
     db->entries[db->count].last_report_descriptor_len = 0U;
     db->entries[db->count].last_protocol_mode = 0U;
+    db->entries[db->count].last_bt_link_type = 0U;
+    db->entries[db->count].last_bt_addr_type = 0U;
     db->entries[db->count].reconnect_allowed = 1U;
     db->entries[db->count].reconnect_fail_count = 0U;
     db->entries[db->count].reconnect_retry_after_ms = paired_at_ms;
@@ -155,7 +157,9 @@ bool pair_db_touch_session(
     uint16_t vendor_id,
     uint16_t product_id,
     uint16_t report_descriptor_len,
-    uint8_t protocol_mode
+    uint8_t protocol_mode,
+    uint8_t bt_link_type,
+    uint8_t bt_addr_type
 ) {
     uint8_t index = 0U;
 
@@ -176,6 +180,8 @@ bool pair_db_touch_session(
     db->entries[index].last_product_id = product_id;
     db->entries[index].last_report_descriptor_len = report_descriptor_len;
     db->entries[index].last_protocol_mode = protocol_mode;
+    db->entries[index].last_bt_link_type = bt_link_type;
+    db->entries[index].last_bt_addr_type = bt_addr_type;
     db->entries[index].reconnect_allowed = 1U;
     db->entries[index].reconnect_fail_count = 0U;
     db->entries[index].reconnect_retry_after_ms = seen_at_ms;

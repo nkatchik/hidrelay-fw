@@ -211,6 +211,7 @@ bool bt_manager_ingest_hid_open(
     const pair_device_id_t * device_id,
     uint16_t hid_cid,
     uint8_t bt_link_type,
+    uint8_t bt_addr_type,
     uint16_t vendor_id,
     uint16_t product_id,
     uint16_t report_descriptor_len,
@@ -228,6 +229,11 @@ bool bt_manager_ingest_hid_open(
         return false;
     }
 
+    if ((bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC)
+        && (bt_addr_type != HID_TRANSPORT_BT_ADDR_TYPE_ACL)) {
+        bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    }
+
     known_device = bt_manager_pair_db_contains(manager->pair_db, device_id);
 
     if (!known_device && (manager->state != BT_MANAGER_STATE_PAIRING)) {
@@ -238,6 +244,7 @@ bool bt_manager_ingest_hid_open(
         slot = &manager->active_device[existing_index];
         slot->device_id = *device_id;
         slot->bt_link_type = bt_link_type;
+        slot->bt_addr_type = bt_addr_type;
         slot->vendor_id = vendor_id;
         slot->product_id = product_id;
         slot->report_descriptor_len = report_descriptor_len;
@@ -249,7 +256,9 @@ bool bt_manager_ingest_hid_open(
             vendor_id,
             product_id,
             report_descriptor_len,
-            slot->protocol_mode
+            slot->protocol_mode,
+            slot->bt_link_type,
+            slot->bt_addr_type
         );
         manager->pairing_started_ms = 0U;
         manager->state = BT_MANAGER_STATE_ACTIVE;
@@ -260,6 +269,7 @@ bool bt_manager_ingest_hid_open(
         slot = &manager->active_device[existing_index];
         slot->hid_cid = hid_cid;
         slot->bt_link_type = bt_link_type;
+        slot->bt_addr_type = bt_addr_type;
         slot->vendor_id = vendor_id;
         slot->product_id = product_id;
         slot->report_descriptor_len = report_descriptor_len;
@@ -271,7 +281,9 @@ bool bt_manager_ingest_hid_open(
             vendor_id,
             product_id,
             report_descriptor_len,
-            slot->protocol_mode
+            slot->protocol_mode,
+            slot->bt_link_type,
+            slot->bt_addr_type
         );
         manager->pairing_started_ms = 0U;
         manager->state = BT_MANAGER_STATE_ACTIVE;
@@ -292,6 +304,7 @@ bool bt_manager_ingest_hid_open(
     slot->device_id = *device_id;
     slot->hid_cid = hid_cid;
     slot->bt_link_type = bt_link_type;
+    slot->bt_addr_type = bt_addr_type;
     slot->vendor_id = vendor_id;
     slot->product_id = product_id;
     slot->report_descriptor_len = report_descriptor_len;
@@ -305,7 +318,9 @@ bool bt_manager_ingest_hid_open(
         vendor_id,
         product_id,
         report_descriptor_len,
-        slot->protocol_mode
+        slot->protocol_mode,
+        slot->bt_link_type,
+        slot->bt_addr_type
     );
     manager->pairing_started_ms = 0U;
     manager->state = BT_MANAGER_STATE_ACTIVE;
@@ -340,7 +355,9 @@ bool bt_manager_ingest_hid_close(
         closed_device.vendor_id,
         closed_device.product_id,
         closed_device.report_descriptor_len,
-        closed_device.protocol_mode
+        closed_device.protocol_mode,
+        closed_device.bt_link_type,
+        closed_device.bt_addr_type
     );
     bt_manager_remove_active_index(manager, index);
     bt_manager_refresh_state(manager);
@@ -377,7 +394,9 @@ bool bt_manager_ingest_hid_descriptor(
         device->vendor_id,
         device->product_id,
         device->report_descriptor_len,
-        device->protocol_mode
+        device->protocol_mode,
+        device->bt_link_type,
+        device->bt_addr_type
     );
 }
 
@@ -411,7 +430,9 @@ bool bt_manager_ingest_hid_protocol(
         device->vendor_id,
         device->product_id,
         device->report_descriptor_len,
-        device->protocol_mode
+        device->protocol_mode,
+        device->bt_link_type,
+        device->bt_addr_type
     );
 }
 

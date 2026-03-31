@@ -25,6 +25,7 @@ Current implementation is a buildable skeleton with:
 - per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
 - device-specific mapping state scaffold for Apple Magic Keyboard profile detection, including `Fn+Esc` mode-toggle tracking hook (used as a bridge-side policy state, remap expansion pending)
 - reconnect policy with multi-device candidate selection, per-device backoff, and timeout-based failure classification
+- reconnect requests now carry last-session transport/address hints (Classic/LE + LE public/random) to reduce BLE reconnect probe latency
 - explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
@@ -39,7 +40,7 @@ Current implementation is a buildable skeleton with:
 - host-side deterministic app replay validator (`make test-host`) for reconnect/button/queue regression checks without hardware soak
 - host-side diagnostics gate report generator for inbox/alert workflows (`make tool-diag-alert`)
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
-- flash-backed pair database persistence with session metadata (schema v4, dual-slot A/B journal ahead of BTstack flash banks)
+- flash-backed pair database persistence with session metadata (schema v5, dual-slot A/B journal ahead of BTstack flash banks)
 - coalesced Pair DB save policy in main loop (2s debounce, 15s max stale window, 5s retry backoff) to reduce flash wear under bursty updates
 - factory reset path that erases Pair DB and BTstack key material from flash after the 3-blink cue, then reboots
 - remove-last flow now issues per-device forget requests into platform stack so link keys/bonding state are revoked for that device
@@ -135,6 +136,7 @@ With default Pico W stack settings:
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 - TinyUSB runtime now performs controlled re-enumeration on descriptor-generation changes so hosts pick up interface topology updates without manual unplug/replug
 - app reconnect requests now run through per-device backoff windows and timeout tracking
+- app reconnect requests now include persisted transport/address hints from Pair DB session metadata
 - reconnect result events are emitted from stack paths (immediate reject/connect/auth outcomes)
 - app reconnect failure handling now applies per-result retry policy updates with cooldown-based auto-recovery windows
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
@@ -148,7 +150,7 @@ With default Pico W stack settings:
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, diagnostics snapshots are mirrored to stdio and exposed via `platform_diag_take(...)`
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
 - diagnostics now include Pico stack event-queue telemetry (depth/high-water/drop counters) for dropped-event visibility
-- Pair DB save path now suppresses no-op writes and alternates flash slots using sequence-based latest selection
+- Pair DB save path now suppresses no-op writes and alternates flash slots using sequence-based latest selection (schema v5 with v4/v3 migration support)
 - remove-last now also requests platform-side BT security cleanup for that specific device (link key/bonding records)
 - factory reset now clears Pair DB + BTstack persisted security data and triggers reboot
 

@@ -188,6 +188,7 @@ static void app_handle_transport_event(
                 &event->device_id,
                 event->hid_cid,
                 event->bt_link_type,
+                event->bt_addr_type,
                 event->vendor_id,
                 event->product_id,
                 event->report_descriptor_len,
@@ -380,6 +381,8 @@ void app_tick(
     output->reconnect_request.valid = false;
     output->forget_request.valid = false;
     output->factory_reset_requested = false;
+    output->reconnect_request.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
+    output->reconnect_request.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_UNKNOWN;
     (void)memset(
         &output->reconnect_request.device_id,
         0,
@@ -411,6 +414,8 @@ void app_tick(
             )) {
             output->reconnect_request.valid = true;
             output->reconnect_request.device_id = reconnect_candidate.device_id;
+            output->reconnect_request.bt_link_type = reconnect_candidate.last_bt_link_type;
+            output->reconnect_request.bt_addr_type = reconnect_candidate.last_bt_addr_type;
             app->reconnect_inflight = true;
             app->reconnect_device_id = reconnect_candidate.device_id;
             app->reconnect_started_ms = input->now_ms;

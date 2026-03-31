@@ -40,7 +40,11 @@ int main(void) {
         .bt_tx_dropped = 0U,
         .active_device_count = 0U,
         .usb_interface_plan = {0},
-        .reconnect_request = {.valid = false, .device_id = {.bytes = {0}}},
+        .reconnect_request =
+            {.valid = false,
+                .device_id = {.bytes = {0}},
+                .bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN,
+                .bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_UNKNOWN},
         .forget_request = {.valid = false, .device_id = {.bytes = {0}}},
         .diag = {0},
         .usb_tx = {.valid = false, .interface_number = 0U, .report_len = 0U, .report = {0}},

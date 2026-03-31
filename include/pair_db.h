@@ -18,6 +18,8 @@ typedef struct {
     uint16_t last_product_id;
     uint16_t last_report_descriptor_len;
     uint8_t last_protocol_mode;
+    uint8_t last_bt_link_type;
+    uint8_t last_bt_addr_type;
     uint8_t reconnect_allowed;
     uint8_t reconnect_fail_count;
     uint32_t reconnect_retry_after_ms;
@@ -59,7 +61,9 @@ bool pair_db_touch_session(
     uint16_t vendor_id,
     uint16_t product_id,
     uint16_t report_descriptor_len,
-    uint8_t protocol_mode
+    uint8_t protocol_mode,
+    uint8_t bt_link_type,
+    uint8_t bt_addr_type
 );
 bool pair_db_set_reconnect_allowed(
     pair_db_t * db,
