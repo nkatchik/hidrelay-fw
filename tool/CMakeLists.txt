@@ -62,6 +62,7 @@ add_library(app_replay_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/bt_manager.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/button_fsm.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_device_map.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_report_policy.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_report_remap.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/led_ui.c

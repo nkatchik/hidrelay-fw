@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "bt_manager.h"
+#include "hid_device_map.h"
 #include "hid_transport.h"
 #include "pair_db.h"
 
@@ -17,6 +18,8 @@ typedef struct {
     uint8_t endpoint_out;
     uint16_t hid_cid;
     uint16_t report_descriptor_len;
+    uint16_t vendor_id;
+    uint16_t product_id;
     uint8_t protocol_mode;
     pair_device_id_t device_id;
 } usb_bridge_interface_t;
@@ -43,6 +46,7 @@ typedef struct {
     uint8_t usb_tx_queue_head;
     uint8_t usb_tx_queue_tail;
     uint8_t usb_tx_queue_count;
+    hid_device_map_state_t map_state[USB_BRIDGE_MAX_INTERFACE];
     uint8_t bt_tx_queue_head;
     uint8_t bt_tx_queue_tail;
     uint8_t bt_tx_queue_count;

@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "app.h"
-#include "hid_report_remap.h"
+#include "hid_device_map.h"
 
 typedef bool (*app_replay_test_fn_t)(void);
 
@@ -426,6 +426,91 @@ static bool app_replay_test_usb_report_routed_to_bt(void) {
     );
 }
 
+static bool app_replay_test_hid_device_map_profile_detection(void) {
+    if (!app_replay_expect_u32_eq(
+            hid_device_map_profile_detect(0x05ACU, 0x0267U),
+            HID_DEVICE_MAP_PROFILE_APPLE_MAGIC_KEYBOARD,
+            "Apple Magic Keyboard VID/PID should map to apple profile"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        hid_device_map_profile_detect(0x1234U, 0x5678U),
+        HID_DEVICE_MAP_PROFILE_NONE,
+        "unknown VID/PID should map to none profile"
+    );
+}
+
+static bool app_replay_test_hid_device_map_fn_esc_toggle(void) {
+    hid_device_map_state_t state = {0};
+    const uint8_t combo_report[] = {0x00U, 0x00U, 0x29U, 0x3FU, 0x00U, 0x00U, 0x00U, 0x00U};
+    const uint8_t release_report[] = {0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+
+    hid_device_map_state_reset(&state, 0x05ACU, 0x0267U);
+
+    if (!app_replay_expect_u32_eq(
+            state.fn_mode,
+            HID_DEVICE_MAP_FN_MODE_MEDIA_DEFAULT,
+            "Apple profile should default to media mode"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            hid_device_map_track_fn_esc_toggle(
+                &state,
+                combo_report,
+                (uint16_t)sizeof(combo_report)
+            ),
+            "first Fn+Esc combo should toggle mode"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            state.fn_mode,
+            HID_DEVICE_MAP_FN_MODE_FUNCTION_DEFAULT,
+            "Fn+Esc should switch to function mode"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            !hid_device_map_track_fn_esc_toggle(
+                &state,
+                combo_report,
+                (uint16_t)sizeof(combo_report)
+            ),
+            "held combo should not retrigger while latched"
+        )) {
+        return false;
+    }
+
+    (void)hid_device_map_track_fn_esc_toggle(
+        &state,
+        release_report,
+        (uint16_t)sizeof(release_report)
+    );
+
+    if (!app_replay_expect_true(
+            hid_device_map_track_fn_esc_toggle(
+                &state,
+                combo_report,
+                (uint16_t)sizeof(combo_report)
+            ),
+            "second Fn+Esc combo should toggle mode back"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        state.fn_mode,
+        HID_DEVICE_MAP_FN_MODE_MEDIA_DEFAULT,
+        "Fn+Esc should switch back to media mode"
+    );
+}
+
 int main(void) {
     static const app_replay_test_case_t test_cases[] = {
         {.name = "pair_any_from_long_press", .fn = app_replay_test_pair_any_from_long_press},
@@ -439,6 +524,10 @@ int main(void) {
             .fn = app_replay_test_reconnect_auth_failure_lockout_and_recovery},
         {.name = "bt_report_routed_to_usb", .fn = app_replay_test_bt_report_routed_to_usb},
         {.name = "usb_report_routed_to_bt", .fn = app_replay_test_usb_report_routed_to_bt},
+        {.name = "hid_device_map_profile_detection",
+            .fn = app_replay_test_hid_device_map_profile_detection},
+        {.name = "hid_device_map_fn_esc_toggle",
+            .fn = app_replay_test_hid_device_map_fn_esc_toggle},
     };
     const size_t test_count = sizeof(test_cases) / sizeof(test_cases[0]);
     size_t index = 0U;

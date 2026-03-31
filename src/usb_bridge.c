@@ -8,6 +8,17 @@ enum {
     USB_BRIDGE_ENDPOINT_BASE_IN = 0x81U
 };
 
+static bool usb_bridge_device_id_equal(
+    const pair_device_id_t * lhs,
+    const pair_device_id_t * rhs
+) {
+    if ((lhs == NULL) || (rhs == NULL)) {
+        return false;
+    }
+
+    return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
+}
+
 static void usb_bridge_clear(usb_bridge_t * bridge) {
     if (bridge == NULL) {
         return;
@@ -20,6 +31,7 @@ static void usb_bridge_clear(usb_bridge_t * bridge) {
     bridge->usb_tx_queue_head = 0U;
     bridge->usb_tx_queue_tail = 0U;
     bridge->usb_tx_queue_count = 0U;
+    (void)memset(bridge->map_state, 0, sizeof(bridge->map_state));
     bridge->bt_tx_queue_head = 0U;
     bridge->bt_tx_queue_tail = 0U;
     bridge->bt_tx_queue_count = 0U;
@@ -32,6 +44,7 @@ static void usb_bridge_clear_topology(usb_bridge_t * bridge) {
     }
 
     (void)memset(bridge->interface_slot, 0, sizeof(bridge->interface_slot));
+    (void)memset(bridge->map_state, 0, sizeof(bridge->map_state));
     bridge->exported_interface_count = 0U;
 }
 
@@ -100,6 +113,35 @@ static bool usb_bridge_find_interface_for_hid_cid(
             *out_interface = bridge->interface_slot[index].interface_number;
             return true;
         }
+    }
+
+    return false;
+}
+
+static bool usb_bridge_copy_previous_map_state(
+    const usb_bridge_interface_t * previous_slot,
+    const hid_device_map_state_t * previous_state,
+    uint8_t previous_count,
+    const pair_device_id_t * device_id,
+    hid_device_map_state_t * out_state
+) {
+    uint8_t index = 0U;
+
+    if ((previous_slot == NULL)
+        || (previous_state == NULL)
+        || (device_id == NULL)
+        || (out_state == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < previous_count; index++) {
+        if (!previous_slot[index].used
+            || !usb_bridge_device_id_equal(&previous_slot[index].device_id, device_id)) {
+            continue;
+        }
+
+        *out_state = previous_state[index];
+        return true;
     }
 
     return false;
@@ -282,8 +324,11 @@ void usb_bridge_sync_from_pair_db(
         slot->endpoint_in = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_IN + interface_count);
         slot->hid_cid = 0U;
         slot->report_descriptor_len = 0U;
+        slot->vendor_id = 0U;
+        slot->product_id = 0U;
         slot->protocol_mode = HID_TRANSPORT_PROTOCOL_UNKNOWN;
         slot->device_id = device_id;
+        hid_device_map_state_reset(&bridge->map_state[interface_count], 0U, 0U);
         bridge->exported_interface_count = (uint8_t)(bridge->exported_interface_count + 1U);
     }
 
@@ -295,6 +340,7 @@ void usb_bridge_sync_from_bt_manager(
     const bt_manager_t * manager
 ) {
     usb_bridge_interface_t previous_slot[USB_BRIDGE_MAX_INTERFACE] = {0};
+    hid_device_map_state_t previous_map_state[USB_BRIDGE_MAX_INTERFACE] = {0};
     uint8_t previous_count = 0U;
     uint8_t manager_count = 0U;
     uint8_t index = 0U;
@@ -304,6 +350,7 @@ void usb_bridge_sync_from_bt_manager(
     }
 
     (void)memcpy(previous_slot, bridge->interface_slot, sizeof(previous_slot));
+    (void)memcpy(previous_map_state, bridge->map_state, sizeof(previous_map_state));
     previous_count = bridge->exported_interface_count;
     manager_count = bt_manager_active_count(manager);
 
@@ -323,8 +370,23 @@ void usb_bridge_sync_from_bt_manager(
         slot->endpoint_in = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_IN + index);
         slot->hid_cid = active_device.hid_cid;
         slot->report_descriptor_len = active_device.report_descriptor_len;
+        slot->vendor_id = active_device.vendor_id;
+        slot->product_id = active_device.product_id;
         slot->protocol_mode = active_device.protocol_mode;
         slot->device_id = active_device.device_id;
+        if (!usb_bridge_copy_previous_map_state(
+                previous_slot,
+                previous_map_state,
+                previous_count,
+                &slot->device_id,
+                &bridge->map_state[index]
+            )) {
+            hid_device_map_state_reset(
+                &bridge->map_state[index],
+                slot->vendor_id,
+                slot->product_id
+            );
+        }
         bridge->exported_interface_count = (uint8_t)(bridge->exported_interface_count + 1U);
     }
 
@@ -346,6 +408,12 @@ bool usb_bridge_ingest_bt_report(
     if (!usb_bridge_find_interface_for_hid_cid(bridge, hid_cid, &tx.interface_number)) {
         return false;
     }
+
+    (void)hid_device_map_track_fn_esc_toggle(
+        &bridge->map_state[tx.interface_number],
+        report,
+        report_len
+    );
 
     tx.valid = true;
     tx.report_len = report_len;
