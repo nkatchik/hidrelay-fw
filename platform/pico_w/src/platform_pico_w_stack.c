@@ -224,6 +224,21 @@ static void pico_w_stack_reset_le_session(void) {
     g_btstack_le_session.addr_type = BD_ADDR_TYPE_UNKNOWN;
 }
 
+static void pico_w_stack_update_le_identity(
+    hci_con_handle_t con_handle,
+    bd_addr_type_t identity_addr_type,
+    const bd_addr_t identity_addr
+) {
+    if ((con_handle == HCI_CON_HANDLE_INVALID)
+        || (con_handle != g_btstack_le_session.con_handle)
+        || (identity_addr == NULL)) {
+        return;
+    }
+
+    (void)memcpy(g_btstack_le_session.addr, identity_addr, sizeof(g_btstack_le_session.addr));
+    g_btstack_le_session.addr_type = identity_addr_type;
+}
+
 static void pico_w_stack_reset_classic_session(void) {
     (void)memset(g_btstack_classic_session, 0, sizeof(g_btstack_classic_session));
 }
@@ -969,6 +984,7 @@ static void pico_w_stack_handle_gap_advertising_report(uint8_t * packet) {
 
 static void pico_w_stack_handle_sm_event(uint8_t * packet) {
     const bool security_accept = pico_w_stack_security_accept();
+    bd_addr_t identity_addr = {0};
 
     if (packet == NULL) {
         return;
@@ -1019,6 +1035,24 @@ static void pico_w_stack_handle_sm_event(uint8_t * packet) {
                     sm_event_reencryption_complete_get_status(packet)
                 );
             }
+            break;
+        case SM_EVENT_IDENTITY_CREATED:
+            sm_event_identity_created_get_identity_address(packet, identity_addr);
+            pico_w_stack_update_le_identity(
+                sm_event_identity_created_get_handle(packet),
+                (bd_addr_type_t)sm_event_identity_created_get_identity_addr_type(packet),
+                identity_addr
+            );
+            break;
+        case SM_EVENT_IDENTITY_RESOLVING_SUCCEEDED:
+            sm_event_identity_resolving_succeeded_get_identity_address(packet, identity_addr);
+            pico_w_stack_update_le_identity(
+                sm_event_identity_resolving_succeeded_get_handle(packet),
+                (bd_addr_type_t)sm_event_identity_resolving_succeeded_get_identity_addr_type(
+                    packet
+                ),
+                identity_addr
+            );
             break;
         default:
             break;
