@@ -5,7 +5,8 @@
 
 enum {
     USB_BRIDGE_ENDPOINT_BASE_OUT = 0x01U,
-    USB_BRIDGE_ENDPOINT_BASE_IN = 0x81U
+    USB_BRIDGE_ENDPOINT_BASE_IN = 0x81U,
+    USB_BRIDGE_ENUM_PLACEHOLDER_INTERFACE = 0U
 };
 
 static bool usb_bridge_device_id_equal(
@@ -70,6 +71,8 @@ static bool usb_bridge_topology_changed(
     const usb_bridge_interface_t * previous_slot,
     uint8_t previous_count
 ) {
+    uint8_t index = 0U;
+
     if ((bridge == NULL) || (previous_slot == NULL)) {
         return false;
     }
@@ -78,7 +81,32 @@ static bool usb_bridge_topology_changed(
         return true;
     }
 
-    return memcmp(previous_slot, bridge->interface_slot, sizeof(bridge->interface_slot)) != 0;
+    /*
+     * Re-enumerate only when externally visible interface shape changes.
+     * Runtime/session identifiers (for example HID CID) are intentionally
+     * ignored to avoid USB detach/attach churn.
+     */
+    for (index = 0U; index < USB_BRIDGE_MAX_INTERFACE; index++) {
+        const usb_bridge_interface_t * prev = &previous_slot[index];
+        const usb_bridge_interface_t * next = &bridge->interface_slot[index];
+
+        if (prev->used != next->used) {
+            return true;
+        }
+
+        if (!prev->used) {
+            continue;
+        }
+
+        if ((prev->bt_link_type != next->bt_link_type)
+            || (prev->report_descriptor_len != next->report_descriptor_len)
+            || (prev->protocol_mode != next->protocol_mode)
+            || !usb_bridge_device_id_equal(&prev->device_id, &next->device_id)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static void usb_bridge_mark_descriptor_dirty_if_changed(
@@ -150,6 +178,35 @@ static bool usb_bridge_copy_previous_map_state(
     }
 
     return false;
+}
+
+/*
+ * Keep one inert HID interface published so hosts enumerate the device even
+ * before the first Bluetooth HID device is connected.
+ */
+static void usb_bridge_publish_placeholder_interface(usb_bridge_t * bridge) {
+    usb_bridge_interface_t * slot = NULL;
+
+    if (bridge == NULL) {
+        return;
+    }
+
+    slot = &bridge->interface_slot[USB_BRIDGE_ENUM_PLACEHOLDER_INTERFACE];
+    slot->used = true;
+    slot->interface_number = USB_BRIDGE_ENUM_PLACEHOLDER_INTERFACE;
+    slot->endpoint_out =
+        (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_OUT + USB_BRIDGE_ENUM_PLACEHOLDER_INTERFACE);
+    slot->endpoint_in =
+        (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_IN + USB_BRIDGE_ENUM_PLACEHOLDER_INTERFACE);
+    slot->hid_cid = 0U;
+    slot->bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
+    slot->report_descriptor_len = 0U;
+    slot->vendor_id = 0U;
+    slot->product_id = 0U;
+    slot->protocol_mode = HID_TRANSPORT_PROTOCOL_UNKNOWN;
+    (void)memset(&slot->device_id, 0, sizeof(slot->device_id));
+    hid_device_map_state_reset(&bridge->map_state[USB_BRIDGE_ENUM_PLACEHOLDER_INTERFACE], 0U, 0U);
+    bridge->exported_interface_count = 1U;
 }
 
 static bool usb_bridge_find_hid_cid_for_interface(
@@ -343,6 +400,10 @@ void usb_bridge_sync_from_pair_db(
         bridge->exported_interface_count = (uint8_t)(bridge->exported_interface_count + 1U);
     }
 
+    if (bridge->exported_interface_count == 0U) {
+        usb_bridge_publish_placeholder_interface(bridge);
+    }
+
     usb_bridge_mark_descriptor_dirty_if_changed(bridge, previous_slot, previous_count);
 }
 
@@ -400,6 +461,10 @@ void usb_bridge_sync_from_bt_manager(
             );
         }
         bridge->exported_interface_count = (uint8_t)(bridge->exported_interface_count + 1U);
+    }
+
+    if (bridge->exported_interface_count == 0U) {
+        usb_bridge_publish_placeholder_interface(bridge);
     }
 
     usb_bridge_mark_descriptor_dirty_if_changed(bridge, previous_slot, previous_count);

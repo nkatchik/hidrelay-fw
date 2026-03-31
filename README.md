@@ -20,7 +20,7 @@ Current implementation is a buildable skeleton with:
 - bidirectional report path skeleton (`BT HID report` -> USB IN, `USB OUT report` -> BT HID protocol-aware send)
 - transport metadata now carries BT link type (Classic vs LE) so routing remains unambiguous when CIDs overlap
 - USB descriptor/topology generation now triggers TinyUSB disconnect/reconnect sequencing so host re-enumerates interfaces on live topology changes
-- dual-mode pair-any discovery/connect flow (Classic inquiry + BLE HID-service advertising scan, pairing mode gated)
+- dual-mode pair-any discovery/connect flow (Classic inquiry + BLE active scan with HID UUID preference and connectable+HID-appearance fallback, pairing mode gated)
 - BLE HID-over-GATT host path (`hids_client`) with LE pairing flow, descriptor/report ingestion, and USB bridge routing
 - per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
 - device-specific mapping state scaffold for Apple Magic Keyboard profile detection, including `Fn+Esc` mode-toggle tracking hook (used as a bridge-side policy state, remap expansion pending)
@@ -132,7 +132,7 @@ With default Pico W stack settings:
 - BTstack HID descriptor/protocol events are bridged into common app transport events
 - TinyUSB `set_report` callbacks are bridged into common app transport events
 - pair-any state drives BT inquiry/connection attempts with class-of-device filtering
-- pair-any state now also drives BLE HID-service scan/connect flow for BLE-only accessories
+- pair-any state now also drives BLE scan/connect flow for BLE-only accessories, prioritizing HID UUID hits while allowing connectable+HID-appearance fallback
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 - TinyUSB runtime now performs controlled re-enumeration on descriptor-generation changes so hosts pick up interface topology updates without manual unplug/replug
 - app reconnect requests now run through per-device backoff windows and timeout tracking
@@ -178,7 +178,8 @@ Current mapping:
 
 LED behavior:
 
-- pairing mode blinks at 1Hz while active (up to 60s timeout)
+- pairing mode blinks quickly while active (250ms toggle, up to 60s timeout)
+- connected and bridged state shows LED on for 4 seconds, then turns off
 - remove-last success: one long blink
 - factory reset: three long blinks
 - after the three blinks complete, firmware erases all persisted pairing/security state and reboots

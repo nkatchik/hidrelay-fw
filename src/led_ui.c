@@ -3,12 +3,12 @@
 #include <stddef.h>
 
 enum {
-    LED_UI_PAIRING_TOGGLE_MS = 500U,
+    LED_UI_PAIRING_TOGGLE_MS = 100U,
+    LED_UI_CONNECTED_CUE_MS = 3000U,
     LED_UI_ERROR_TOGGLE_MS = 120U,
-    LED_UI_CONNECTED_PULSE_MS = 80U,
-    LED_UI_CONNECTED_PERIOD_MS = 1000U,
-    LED_UI_LONG_BLINK_ON_MS = 600U,
-    LED_UI_LONG_BLINK_OFF_MS = 350U
+    /* Long-blink cues confirm commands (remove-last / remove-all). */
+    LED_UI_LONG_BLINK_ON_MS = 900U,
+    LED_UI_LONG_BLINK_OFF_MS = 600U
 };
 
 void led_ui_init(led_ui_t * ui) {
@@ -41,8 +41,13 @@ void led_ui_set_state(
     ui->state = state;
     ui->last_transition_ms = now_ms;
 
-    if ((state == LED_UI_STATE_IDLE) || (state == LED_UI_STATE_CONNECTED)) {
+    if (state == LED_UI_STATE_IDLE) {
         ui->led_on = false;
+        return;
+    }
+
+    if (state == LED_UI_STATE_CONNECTED) {
+        ui->led_on = true;
         return;
     }
 
@@ -110,8 +115,7 @@ bool led_ui_tick(
     }
 
     if (ui->state == LED_UI_STATE_CONNECTED) {
-        const uint32_t phase_ms = now_ms % LED_UI_CONNECTED_PERIOD_MS;
-        ui->led_on = (phase_ms < LED_UI_CONNECTED_PULSE_MS);
+        ui->led_on = (now_ms - ui->last_transition_ms) < LED_UI_CONNECTED_CUE_MS;
         return ui->led_on;
     }
 

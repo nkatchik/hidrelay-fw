@@ -450,7 +450,8 @@ void bt_manager_tick(
 
     if ((now_ms - manager->pairing_started_ms) >= BT_MANAGER_PAIRING_TIMEOUT_MS) {
         manager->pairing_started_ms = 0U;
-        bt_manager_refresh_state(manager);
+        manager->state =
+            (manager->active_count == 0U) ? BT_MANAGER_STATE_IDLE : BT_MANAGER_STATE_ACTIVE;
     }
 }
 

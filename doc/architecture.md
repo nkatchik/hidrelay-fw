@@ -104,7 +104,7 @@ Pico-specific linkage is isolated under this directory.
 - TinyUSB output report callbacks are now translated into app transport events.
 - App and bridge now route queued reports in both directions (one dequeued report per direction per tick) with protocol-aware BT transmission.
 - Pair-any mode now drives real BT inquiry/connect attempts under a class-of-device filter and pairing-mode gating.
-- Pair-any mode now also scans BLE advertisements for HID service UUID (`0x1812`) and connects BLE-only accessories.
+- Pair-any mode now also scans BLE advertisements in active-scan mode, preferring HID service UUID (`0x1812`) candidates but allowing connectable+HID-appearance fallback so BLE-only accessories that omit UUID in some packets can still be discovered without opening to arbitrary connectable devices.
 - App now derives per-interface USB descriptor/protocol hints from active sessions and emits them with each platform output.
 - Active-session transport contract now includes BT link type so `hid_cid` routing remains deterministic across Classic and LE stacks.
 - App now emits reconnect requests from persisted Pair DB metadata when idle, with per-device backoff windows.

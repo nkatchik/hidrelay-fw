@@ -9,7 +9,6 @@
 #include "platform_pico_w_pair_store.h"
 #include "platform_pico_w_stack.h"
 #include "platform_pico_w_state.h"
-#include "platform_pico_w_tinyusb_runtime.h"
 
 static pico_w_state_t g_state = {
     .initialized = false,
@@ -201,7 +200,7 @@ bool platform_init(void) {
         return false;
     }
 
-    if (!pico_w_stack_init()) {
+    if (!pico_w_stack_init(true)) {
         return false;
     }
 

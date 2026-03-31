@@ -5,6 +5,14 @@
 #ifdef APP_PICO_HAS_TINYUSB
 #include "pico/time.h"
 #include "tusb.h"
+
+#if !defined(CFG_TUD_ENABLED) || (CFG_TUD_ENABLED != 1)
+#error "TinyUSB device support requires CFG_TUD_ENABLED=1"
+#endif
+
+#if !defined(CFG_TUSB_RHPORT0_MODE) || ((CFG_TUSB_RHPORT0_MODE & OPT_MODE_DEVICE) == 0)
+#error "TinyUSB rhport0 must be configured for device mode"
+#endif
 #endif
 
 #ifdef APP_PICO_HAS_TINYUSB
@@ -12,9 +20,11 @@ enum {
     PICO_W_TINYUSB_REENUM_DISCONNECT_MS = 120U,
 };
 
+static bool g_pico_w_tinyusb_initialized = false;
 static bool g_pico_w_tinyusb_reenum_pending = false;
 static bool g_pico_w_tinyusb_reenum_disconnected = false;
 static uint32_t g_pico_w_tinyusb_reenum_resume_ms = 0U;
+static uint32_t g_pico_w_tinyusb_descriptor_activity_count = 0U;
 
 static bool pico_w_tinyusb_runtime_time_reached(
     uint32_t now_ms,
@@ -55,17 +65,49 @@ static void pico_w_tinyusb_runtime_reenumeration_tick(void) {
 
 bool pico_w_tinyusb_runtime_init(void) {
 #ifdef APP_PICO_HAS_TINYUSB
+    g_pico_w_tinyusb_initialized = false;
     g_pico_w_tinyusb_reenum_pending = false;
     g_pico_w_tinyusb_reenum_disconnected = false;
     g_pico_w_tinyusb_reenum_resume_ms = 0U;
-    return tusb_init();
+    g_pico_w_tinyusb_descriptor_activity_count = 0U;
+    g_pico_w_tinyusb_initialized = tusb_init();
+    return g_pico_w_tinyusb_initialized;
 #else
     return true;
 #endif
 }
 
+bool pico_w_tinyusb_runtime_is_initialized(void) {
+#ifdef APP_PICO_HAS_TINYUSB
+    return g_pico_w_tinyusb_initialized;
+#else
+    return false;
+#endif
+}
+
+void pico_w_tinyusb_runtime_mark_descriptor_activity(void) {
+#ifdef APP_PICO_HAS_TINYUSB
+    g_pico_w_tinyusb_descriptor_activity_count = g_pico_w_tinyusb_descriptor_activity_count + 1U;
+#endif
+}
+
+uint32_t pico_w_tinyusb_runtime_descriptor_activity_count(void) {
+#ifdef APP_PICO_HAS_TINYUSB
+    return g_pico_w_tinyusb_descriptor_activity_count;
+#else
+    return 0U;
+#endif
+}
+
 void pico_w_tinyusb_runtime_poll(void) {
 #ifdef APP_PICO_HAS_TINYUSB
+    if (!g_pico_w_tinyusb_initialized) {
+        g_pico_w_tinyusb_initialized = tusb_init();
+        if (!g_pico_w_tinyusb_initialized) {
+            return;
+        }
+    }
+
     tud_task();
     pico_w_tinyusb_runtime_reenumeration_tick();
 #endif
@@ -100,6 +142,10 @@ bool pico_w_tinyusb_runtime_send_in_report(
 
 void pico_w_tinyusb_runtime_request_reenumeration(void) {
 #ifdef APP_PICO_HAS_TINYUSB
+    if (g_pico_w_tinyusb_reenum_pending) {
+        return;
+    }
+
     g_pico_w_tinyusb_reenum_pending = true;
     g_pico_w_tinyusb_reenum_disconnected = false;
     g_pico_w_tinyusb_reenum_resume_ms = 0U;

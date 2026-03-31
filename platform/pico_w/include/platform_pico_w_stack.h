@@ -12,7 +12,7 @@ typedef struct {
     uint32_t event_queue_dropped;
 } pico_w_stack_event_telemetry_t;
 
-bool pico_w_stack_init(void);
+bool pico_w_stack_init(bool radio_ready);
 void pico_w_stack_poll(uint32_t now_ms);
 void pico_w_stack_set_usb_plan(
     uint8_t interface_count,

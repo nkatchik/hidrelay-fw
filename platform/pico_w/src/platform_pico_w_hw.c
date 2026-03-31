@@ -11,8 +11,17 @@ enum {
     PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX = 1U
 };
 
+static bool g_pico_w_radio_initialized = false;
+
 bool pico_w_hw_init_radio(void) {
-    return cyw43_arch_init() == 0;
+    g_pico_w_radio_initialized = false;
+
+    if (cyw43_arch_init() != 0) {
+        return false;
+    }
+
+    g_pico_w_radio_initialized = true;
+    return true;
 }
 
 static bool __no_inline_not_in_flash_func(pico_w_hw_bootsel_pressed_impl)(void) {
@@ -51,6 +60,10 @@ uint32_t pico_w_hw_uptime_ms(void) {
 }
 
 void pico_w_hw_set_led(bool led_on) {
+    if (!g_pico_w_radio_initialized) {
+        return;
+    }
+
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on ? 1 : 0);
 }
 

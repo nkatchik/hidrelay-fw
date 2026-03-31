@@ -177,7 +177,7 @@ Implemented now:
 - main loop coalesces Pair DB persistence writes (2s debounce, 15s max stale, 5s retry backoff) to reduce flash wear
 - BTstack TLV-backed persistence for classic link keys and LE device database
 - pair-any inquiry/connect flow gated by pairing state and class-of-device policy
-- pair-any BLE scan/connect flow gated by pairing state and HID-service advertising filter
+- pair-any BLE scan/connect flow gated by pairing state, with active scan + HID-service advertising preference and connectable+HID-appearance fallback
 - BLE HID-over-GATT client integration (`hids_client`) with LE security handshake and report ingestion
 - reconnect transport fallback stages for unknown persisted transport history (`Classic -> LE public -> LE random`)
 - reconnect retry policy with per-device backoff windows and timeout-based failure classification

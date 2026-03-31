@@ -111,6 +111,35 @@ static bool app_replay_test_pair_any_from_long_press(void) {
     );
 }
 
+static bool app_replay_test_pair_any_timeout_after_60s(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 3100U, false, NULL, &out);
+    app_replay_tick(&app, 5601U, false, NULL, &out);
+
+    if (!app_replay_expect_true(
+            out.pairing_active,
+            "pair-any should be active before timeout countdown"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 65600U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            out.pairing_active,
+            "pair-any should stay active until full 60s elapsed"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 65601U, false, NULL, &out);
+    return app_replay_expect_true(!out.pairing_active, "pair-any should stop after 60s timeout");
+}
+
 static bool app_replay_test_remove_last_double_long_press_recent_only(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -307,15 +336,33 @@ static bool app_replay_test_reconnect_auth_failure_lockout_and_recovery(void) {
         return false;
     }
 
-    app_replay_tick(&app, 10U * 60U * 1000U, false, NULL, &out);
+    app_replay_tick(&app, 5100U, false, NULL, &out);
     if (!app_replay_expect_true(
-            !out.reconnect_request.valid,
-            "auth lockout should still be active"
+            out.reconnect_request.valid,
+            "first auth failure should back off, not lock out"
         )) {
         return false;
     }
 
-    app_replay_tick(&app, (60U * 60U * 1000U) + 200U, false, NULL, &out);
+    app_replay_tick(&app, 5200U, false, &event, &out);
+    app_replay_tick(&app, 15200U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            out.reconnect_request.valid,
+            "second auth failure should still retry after backoff"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 15300U, false, &event, &out);
+    app_replay_tick(&app, 10U * 60U * 1000U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.reconnect_request.valid,
+            "third auth failure should enter lockout window"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, (60U * 60U * 1000U) + 16000U, false, NULL, &out);
     return app_replay_expect_true(
         out.reconnect_request.valid,
         "auth lockout should recover automatically after cooldown"
@@ -580,6 +627,7 @@ static bool app_replay_test_hid_device_map_fn_esc_toggle(void) {
 int main(void) {
     static const app_replay_test_case_t test_cases[] = {
         {.name = "pair_any_from_long_press", .fn = app_replay_test_pair_any_from_long_press},
+        {.name = "pair_any_timeout_after_60s", .fn = app_replay_test_pair_any_timeout_after_60s},
         {.name = "remove_last_double_long_press_recent_only",
             .fn = app_replay_test_remove_last_double_long_press_recent_only},
         {.name = "remove_last_ignored_when_not_recent",
