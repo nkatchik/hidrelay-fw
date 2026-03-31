@@ -35,6 +35,7 @@ Current implementation is a buildable skeleton with:
 - release guardrails reject telemetry/diagnostics in `Release` builds unless explicitly overridden (`APP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON`)
 - queue backpressure telemetry with drop counters/high-water marks
 - host-side deterministic app replay validator (`make test-host`) for reconnect/button/queue regression checks without hardware soak
+- host-side diagnostics gate report generator for inbox/alert workflows (`make tool-diag-alert`)
 - BTstack TLV-backed key persistence for classic link keys and LE device DB
 - flash-backed pair database persistence with session metadata (schema v4, dual-slot A/B journal ahead of BTstack flash banks)
 - coalesced Pair DB save policy in main loop (2s debounce, 15s max stale window, 5s retry backoff) to reduce flash wear under bursty updates
@@ -219,12 +220,19 @@ make tool-diag-capture
 build/tool/diag_capture --device /dev/tty.usbmodemXXXX --baud 115200 --output diag.csv
 make tool-diag-summary INPUT=diag.csv
 make tool-diag-gate INPUT=diag.csv
+make tool-diag-alert INPUT=diag.csv OUTPUT=diag_report.md
 ```
 
 `make tool-diag-gate` exits non-zero when drop deltas are non-zero. Optionally add reconnect-failure gating:
 
 ```sh
 make tool-diag-gate INPUT=diag.csv MAX_RECONNECT_FAILURE_DELTA=0
+```
+
+Generate a markdown-ready gate report for inbox/alert pipelines:
+
+```sh
+make tool-diag-alert INPUT=diag.csv OUTPUT=diag_report.md MAX_RECONNECT_FAILURE_DELTA=0
 ```
 
 When diagnostics CDC is enabled, the same CDC interface accepts operator recovery commands as newline-delimited ASCII:
@@ -257,4 +265,4 @@ Next implementation steps:
 - tune reconnect policy thresholds/escalation with long-run device telemetry
 - replace static token operator authorization with stronger challenge/response controls and auditable operator session policy
 - extend descriptor remap coverage beyond current boot-profile + keyboard-LED handling into broader host edge-case translation paths
-- add alerting/inbox workflow integration around soak gate failures (without runtime telemetry in release builds)
+- wire `tool-diag-alert` output into your CI/inbox notification path for soak-gate failures (without runtime telemetry in release builds)

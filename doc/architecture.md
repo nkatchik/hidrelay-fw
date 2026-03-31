@@ -137,6 +137,7 @@ Pico-specific linkage is isolated under this directory.
 - Repeated token mismatch attempts trigger a 30s lockout after 5 failures.
 - Host capture helper: `tool/src/diag_capture.c` decodes CDC frames into CSV for offline analysis.
 - Host summary helper: `tool/bin/diag_summary` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
+- Host alert helper: `tool/bin/diag_alert` renders markdown gate reports for CI/inbox notifications and mirrors gate exit status.
 - Framing:
   - `magic`: `0x48 0x52` (`'H' 'R'`)
   - `version`: `1`

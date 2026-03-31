@@ -31,6 +31,7 @@ Useful targets:
 - `make tool-diag-capture`
 - `make tool-diag-summary INPUT=diag.csv`
 - `make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n]`
+- `make tool-diag-alert INPUT=diag.csv [OUTPUT=diag_report.md] [MAX_RECONNECT_FAILURE_DELTA=n]`
 - `make tool-app-replay`
 - `make test-host`
 
@@ -200,6 +201,7 @@ Implemented now:
 - host-side CDC diagnostics capture utility (`build/tool/diag_capture`) outputs decoded CSV frames
 - host-side diagnostics summary helper (`tool/bin/diag_summary`) reports soak max/delta counters from CSV captures
 - host-side diagnostics gate mode now enforces thresholds and exits non-zero for automation (`make tool-diag-gate`)
+- host-side diagnostics alert helper (`tool/bin/diag_alert`) emits markdown gate reports for inbox/notification workflows
 - host-side deterministic app replay validator (`build/tool/app_replay`) covers button command mapping, reconnect scheduling/lockout recovery, and queue overflow behavior (`make test-host`)
 - release build guardrails reject telemetry/diagnostics in `Release` unless explicitly overridden (`APP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON`)
 - soak capture/trend runbook documented in `doc/soak.md`
@@ -209,5 +211,5 @@ Still pending for production behavior:
 - reconnect retry policy tuning using long-run telemetry and deployment data
 - replace static-token operator recovery authorization with stronger challenge/response controls and auditable operator sessions
 - descriptor translation/remapping for host edge cases beyond current boot-profile + keyboard-LED handling
-- alerting/inbox workflow integration layered on top of soak diagnostics gate failures
+- CI/inbox notification wiring that consumes `tool-diag-alert` reports from soak diagnostics gate failures
 - command UX refinement and full failure-recovery handling

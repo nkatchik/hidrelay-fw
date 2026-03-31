@@ -1,0 +1,183 @@
+#!/usr/bin/env sh
+set -eu
+
+usage() {
+    printf '%s\n' \
+        "Usage: $0 --input <diag.csv> [options]" \
+        "" \
+        "Options:" \
+        "  --output <path>                    Write markdown report to file (default: stdout)" \
+        "  --max-reconnect-failure-delta <n>  Gate reconnect failure delta in addition to no-drop gates" \
+        "  -h, --help                         Show this help text"
+}
+
+parse_non_negative_int() {
+    value="$1"
+
+    case "$value" in
+        ''|*[!0-9]*)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+read_summary_value() {
+    key="$1"
+    file_path="$2"
+
+    awk -F, -v key="$key" '$1 == key { print $2; exit }' "$file_path"
+}
+
+input_path=""
+output_path=""
+max_reconnect_failure_delta=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --input)
+            shift
+            if [ "$#" -eq 0 ]; then
+                printf '%s\n' "Missing value for --input" >&2
+                usage >&2
+                exit 2
+            fi
+            input_path="$1"
+            ;;
+        --output)
+            shift
+            if [ "$#" -eq 0 ]; then
+                printf '%s\n' "Missing value for --output" >&2
+                usage >&2
+                exit 2
+            fi
+            output_path="$1"
+            ;;
+        --max-reconnect-failure-delta)
+            shift
+            if [ "$#" -eq 0 ] || ! parse_non_negative_int "$1"; then
+                printf '%s\n' "Invalid value for --max-reconnect-failure-delta" >&2
+                usage >&2
+                exit 2
+            fi
+            max_reconnect_failure_delta="$1"
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'Unknown argument: %s\n' "$1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+if [ -z "$input_path" ]; then
+    usage >&2
+    exit 2
+fi
+
+if [ ! -f "$input_path" ]; then
+    printf 'Input file not found: %s\n' "$input_path" >&2
+    exit 2
+fi
+
+tmp_summary="$(mktemp "${TMPDIR:-/tmp}/hidrelay_diag_summary.XXXXXX")"
+tmp_report="$(mktemp "${TMPDIR:-/tmp}/hidrelay_diag_alert.XXXXXX")"
+trap 'rm -f "$tmp_summary" "$tmp_report"' EXIT
+
+set +e
+if [ -n "$max_reconnect_failure_delta" ]; then
+    ./tool/bin/diag_summary \
+        --input "$input_path" \
+        --require-no-drops \
+        --max-reconnect-failure-delta "$max_reconnect_failure_delta" \
+        > "$tmp_summary"
+    summary_status=$?
+else
+    ./tool/bin/diag_summary \
+        --input "$input_path" \
+        --require-no-drops \
+        > "$tmp_summary"
+    summary_status=$?
+fi
+set -e
+
+result="$(read_summary_value result "$tmp_summary")"
+gate_result="$(read_summary_value gate_result "$tmp_summary")"
+samples="$(read_summary_value samples "$tmp_summary")"
+duration_ms="$(read_summary_value duration_ms "$tmp_summary")"
+usb_drop_delta="$(read_summary_value usb_tx_dropped_delta "$tmp_summary")"
+bt_drop_delta="$(read_summary_value bt_tx_dropped_delta "$tmp_summary")"
+stack_drop_delta="$(read_summary_value stack_event_dropped_delta "$tmp_summary")"
+reconnect_failure_delta="$(read_summary_value reconnect_failure_delta "$tmp_summary")"
+
+status_label="PASS"
+if [ "$summary_status" -ne 0 ]; then
+    status_label="FAIL"
+fi
+
+{
+    printf '# HIDRelay Soak Gate Report\n\n'
+    printf -- '- status: %s\n' "$status_label"
+    printf -- '- input: `%s`\n' "$input_path"
+    printf -- '- generated_utc: `%s`\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    printf -- '- summary_exit_code: `%s`\n' "$summary_status"
+    if [ -n "$gate_result" ]; then
+        printf -- '- gate_result: `%s`\n' "$gate_result"
+    fi
+    if [ -n "$max_reconnect_failure_delta" ]; then
+        printf -- '- reconnect_failure_gate_limit: `%s`\n' "$max_reconnect_failure_delta"
+    fi
+    printf '\n## Key Metrics\n\n'
+    printf '| Metric | Value |\n'
+    printf '| --- | --- |\n'
+    printf '| samples | %s |\n' "${samples:-n/a}"
+    printf '| duration_ms | %s |\n' "${duration_ms:-n/a}"
+    printf '| usb_tx_dropped_delta | %s |\n' "${usb_drop_delta:-n/a}"
+    printf '| bt_tx_dropped_delta | %s |\n' "${bt_drop_delta:-n/a}"
+    printf '| stack_event_dropped_delta | %s |\n' "${stack_drop_delta:-n/a}"
+    printf '| reconnect_failure_delta | %s |\n' "${reconnect_failure_delta:-n/a}"
+    printf '| raw_result | %s |\n' "${result:-n/a}"
+    printf '\n## Gate Checks\n\n'
+    awk -F, '
+        /^gate_/ && ($1 != "gate_result") {
+            metric=$1
+            sub(/^gate_/, "", metric)
+            actual=$2
+            sub(/^actual=/, "", actual)
+            limit=$3
+            sub(/^limit=/, "", limit)
+            status=$4
+            sub(/^status=/, "", status)
+            printf "- %s: actual=%s limit=%s status=%s\n", metric, actual, limit, status
+            found=1
+        }
+        END {
+            if (found != 1) {
+                printf "- no gate rows emitted\n"
+            }
+        }
+    ' "$tmp_summary"
+
+    if [ "$summary_status" -ne 0 ]; then
+        printf '\n## Recommended Next Actions\n\n'
+        printf '%s\n' \
+            "1. Preserve the same firmware image and rerun a short capture to reproduce quickly." \
+            "2. Correlate drop counters with reconnect counters around the failure interval." \
+            "3. Adjust reconnect pacing or queue policy, then rerun the same soak profile."
+    fi
+} > "$tmp_report"
+
+if [ -n "$output_path" ]; then
+    cat "$tmp_report" > "$output_path"
+else
+    cat "$tmp_report"
+fi
+
+exit "$summary_status"

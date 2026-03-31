@@ -18,7 +18,7 @@ CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
 CMAKE ?= cmake
 HOST_CC ?= gcc
 
-.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-app-replay test-host
+.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host
 
 help:
 	@printf '%s\n' \
@@ -35,6 +35,7 @@ help:
 		'  make tool-diag-capture - Build host-side CDC diagnostics capture tool' \
 		'  make tool-diag-summary INPUT=diag.csv - Summarize captured diagnostics CSV' \
 		'  make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n] - Enforce soak thresholds' \
+		'  make tool-diag-alert INPUT=diag.csv [OUTPUT=diag_report.md] [MAX_RECONNECT_FAILURE_DELTA=n] - Generate markdown gate report' \
 		'  make tool-app-replay   - Build host-side app replay validator' \
 		'  make test-host         - Run host-side app replay validator'
 
@@ -136,4 +137,25 @@ tool-diag-gate:
 			--max-reconnect-failure-delta "$(MAX_RECONNECT_FAILURE_DELTA)"; \
 	else \
 		./tool/bin/diag_summary --input "$(INPUT)" --require-no-drops; \
+	fi
+
+tool-diag-alert:
+	@if [ -z "$(INPUT)" ]; then \
+		echo 'Usage: make tool-diag-alert INPUT=diag.csv [OUTPUT=diag_report.md] [MAX_RECONNECT_FAILURE_DELTA=n]'; \
+		exit 2; \
+	fi
+	@if [ -n "$(MAX_RECONNECT_FAILURE_DELTA)" ]; then \
+		if [ -n "$(OUTPUT)" ]; then \
+			./tool/bin/diag_alert --input "$(INPUT)" --output "$(OUTPUT)" \
+				--max-reconnect-failure-delta "$(MAX_RECONNECT_FAILURE_DELTA)"; \
+		else \
+			./tool/bin/diag_alert --input "$(INPUT)" \
+				--max-reconnect-failure-delta "$(MAX_RECONNECT_FAILURE_DELTA)"; \
+		fi; \
+	else \
+		if [ -n "$(OUTPUT)" ]; then \
+			./tool/bin/diag_alert --input "$(INPUT)" --output "$(OUTPUT)"; \
+		else \
+			./tool/bin/diag_alert --input "$(INPUT)"; \
+		fi; \
 	fi

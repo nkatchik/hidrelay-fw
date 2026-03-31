@@ -87,6 +87,19 @@ Gate behavior:
   - exit `3`: at least one configured threshold failed
   - exit `2`: invalid input/arguments
 
+## Alert Report
+
+Generate a markdown report suitable for inbox/notification pipelines:
+
+```sh
+make tool-diag-alert INPUT=soak.csv OUTPUT=soak_report.md MAX_RECONNECT_FAILURE_DELTA=0
+```
+
+Behavior:
+
+- report output includes key metrics, gate rows, and recommended next actions on failure
+- command exit code mirrors gate status (`0` pass, `3` fail, `2` invalid usage/input)
+
 ## Operational Checks
 
 - `usb_tx_dropped_delta == 0`
