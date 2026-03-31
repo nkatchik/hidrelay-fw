@@ -216,10 +216,7 @@ void platform_poll(platform_input_t * input) {
 
     input->button_pressed = pico_w_hw_bootsel_pressed();
     input->uptime_ms = pico_w_hw_uptime_ms();
-    input->operator_command = APP_OPERATOR_COMMAND_NONE;
     input->transport_event.type = HID_TRANSPORT_EVENT_NONE;
-
-    (void)pico_w_tinyusb_runtime_take_operator_command(&input->operator_command);
 
     if (!pico_w_stack_take_event(&input->transport_event)) {
         input->transport_event.type = HID_TRANSPORT_EVENT_NONE;
@@ -239,10 +236,6 @@ void platform_apply(const platform_output_t * output) {
 
     if (output->forget_request.valid) {
         (void)pico_w_stack_forget_device(&output->forget_request.device_id);
-    }
-
-    if (output->security_rotate_request.valid) {
-        (void)pico_w_stack_rotate_security(&output->security_rotate_request.device_id);
     }
 
     pico_w_stack_set_usb_plan(

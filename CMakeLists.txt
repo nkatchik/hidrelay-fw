@@ -32,11 +32,8 @@ add_library(hidrelay_core STATIC
     src/bt_manager.c
     src/hid_report_policy.c
     src/hid_report_remap.c
-    src/operator_auth.c
-    src/operator_command.c
     src/usb_bridge.c
     src/util/cleanup.c
-    src/util/sha256.c
 )
 
 target_include_directories(hidrelay_core

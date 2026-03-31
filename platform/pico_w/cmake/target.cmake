@@ -27,17 +27,7 @@ function(pico_w_configure_target target_name)
         target_compile_definitions(${target_name} PRIVATE APP_PICO_HAS_TINYUSB=1)
 
         if(APP_PLATFORM_ENABLE_DIAG_CDC)
-            set(operator_auth_key_hex "${APP_PLATFORM_OPERATOR_AUTH_KEY_HEX}")
-            string(REPLACE "\\" "\\\\" operator_auth_key_hex "${operator_auth_key_hex}")
-            string(REPLACE "\"" "\\\"" operator_auth_key_hex "${operator_auth_key_hex}")
-
             target_compile_definitions(${target_name} PRIVATE APP_PICO_HAS_DIAG_CDC=1)
-            target_compile_definitions(
-                ${target_name}
-                PRIVATE
-                    APP_PICO_OPERATOR_AUTH_KEY_HEX=\"${operator_auth_key_hex}\"
-                    APP_PICO_OPERATOR_AUTH_SESSION_TTL_MS=${APP_PLATFORM_OPERATOR_AUTH_SESSION_TTL_MS}
-            )
         endif()
     elseif(APP_PLATFORM_ENABLE_DIAG_CDC)
         message(WARNING "APP_PLATFORM_ENABLE_DIAG_CDC is ON but APP_PLATFORM_ENABLE_TINYUSB is OFF; diagnostics CDC is disabled.")

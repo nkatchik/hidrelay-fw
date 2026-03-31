@@ -85,20 +85,6 @@ static void app_reconnect_clear_inflight(app_t * app) {
     (void)memset(&app->reconnect_device_id, 0, sizeof(app->reconnect_device_id));
 }
 
-static void app_schedule_security_rotate(
-    app_t * app,
-    const pair_device_id_t * device_id,
-    uint8_t reason
-) {
-    if ((app == NULL) || (device_id == NULL)) {
-        return;
-    }
-
-    app->security_rotate_pending = true;
-    app->security_rotate_device_id = *device_id;
-    app->security_rotate_reason = reason;
-}
-
 static void app_reconnect_mark_success(
     app_t * app,
     const pair_device_id_t * device_id,
@@ -161,11 +147,6 @@ static void app_reconnect_mark_failure(
 
         disable_reconnect = true;
         retry_after_ms = now_ms + APP_RECONNECT_AUTH_LOCKOUT_MS;
-        app_schedule_security_rotate(
-            app,
-            &app->reconnect_device_id,
-            HID_TRANSPORT_SECURITY_ROTATE_REASON_AUTH_FAILURE
-        );
     } else if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED) {
         retry_after_ms = now_ms
             + ((status_code == 2U) ? APP_RECONNECT_STACK_NOT_READY_RETRY_MS
@@ -254,49 +235,6 @@ static void app_handle_transport_event(
     }
 }
 
-static void app_handle_operator_command(
-    app_t * app,
-    app_operator_command_t command,
-    uint32_t now_ms
-) {
-    pair_device_id_t last_device_id = {0};
-    uint8_t last_index = 0U;
-
-    if ((app == NULL) || (command == APP_OPERATOR_COMMAND_NONE)) {
-        return;
-    }
-
-    if (pair_db_count(&app->pair_db) > 0U) {
-        last_index = (uint8_t)(pair_db_count(&app->pair_db) - 1U);
-        if (!pair_db_get(&app->pair_db, last_index, &last_device_id)) {
-            return;
-        }
-    }
-
-    if (command == APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_ALL) {
-        (void)pair_db_clear_reconnect_lockout_all(&app->pair_db, now_ms);
-        return;
-    }
-
-    if (command == APP_OPERATOR_COMMAND_CLEAR_LOCKOUT_LAST) {
-        if (pair_db_count(&app->pair_db) == 0U) {
-            return;
-        }
-
-        (void)pair_db_clear_reconnect_lockout(&app->pair_db, &last_device_id, now_ms);
-        return;
-    }
-
-    if ((command == APP_OPERATOR_COMMAND_ROTATE_SECURITY_LAST)
-        && (pair_db_count(&app->pair_db) > 0U)) {
-        app_schedule_security_rotate(
-            app,
-            &last_device_id,
-            HID_TRANSPORT_SECURITY_ROTATE_REASON_OPERATOR_RECOVERY
-        );
-    }
-}
-
 void app_init(
     app_t * app,
     const pair_db_t * initial_pair_db
@@ -319,9 +257,6 @@ void app_init(
     app->reconnect_failure_count = 0U;
     app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_NONE;
     app->reconnect_last_status_code = 0U;
-    app->security_rotate_pending = false;
-    (void)memset(&app->security_rotate_device_id, 0, sizeof(app->security_rotate_device_id));
-    app->security_rotate_reason = HID_TRANSPORT_SECURITY_ROTATE_REASON_UNSPECIFIED;
     app->factory_reset_armed = false;
     app->factory_reset_due_ms = 0U;
 }
@@ -378,7 +313,6 @@ void app_tick(
     }
 
     app_handle_transport_event(app, input);
-    app_handle_operator_command(app, input->operator_command, input->now_ms);
     (void)pair_db_reconnect_recover_expired(&app->pair_db, input->now_ms);
 
     if (app->reconnect_inflight
@@ -435,7 +369,6 @@ void app_tick(
 
     output->reconnect_request.valid = false;
     output->forget_request.valid = false;
-    output->security_rotate_request.valid = false;
     output->factory_reset_requested = false;
     (void)memset(
         &output->reconnect_request.device_id,
@@ -443,12 +376,6 @@ void app_tick(
         sizeof(output->reconnect_request.device_id)
     );
     (void)memset(&output->forget_request.device_id, 0, sizeof(output->forget_request.device_id));
-    (void)memset(
-        &output->security_rotate_request.device_id,
-        0,
-        sizeof(output->security_rotate_request.device_id)
-    );
-    output->security_rotate_request.reason = HID_TRANSPORT_SECURITY_ROTATE_REASON_UNSPECIFIED;
 
     if (app->reconnect_inflight
         && !pair_db_find(&app->pair_db, &app->reconnect_device_id, &reconnect_index)) {
@@ -513,15 +440,6 @@ void app_tick(
     output->diag.reconnect_last_result = app->reconnect_last_result;
     output->diag.reconnect_last_status_code = app->reconnect_last_status_code;
     output->forget_request = forget_request;
-
-    if (app->security_rotate_pending) {
-        output->security_rotate_request.valid = true;
-        output->security_rotate_request.device_id = app->security_rotate_device_id;
-        output->security_rotate_request.reason = app->security_rotate_reason;
-        app->security_rotate_pending = false;
-        (void)memset(&app->security_rotate_device_id, 0, sizeof(app->security_rotate_device_id));
-        app->security_rotate_reason = HID_TRANSPORT_SECURITY_ROTATE_REASON_UNSPECIFIED;
-    }
 
     if (app->factory_reset_armed && (input->now_ms >= app->factory_reset_due_ms)) {
         output->factory_reset_requested = true;

@@ -729,10 +729,6 @@ bool pico_w_stack_forget_device(const pair_device_id_t * device_id) {
 #endif
 }
 
-bool pico_w_stack_rotate_security(const pair_device_id_t * device_id) {
-    return pico_w_stack_forget_device(device_id);
-}
-
 uint8_t pico_w_stack_usb_interface_count(void) {
     return g_usb_interface_count;
 }

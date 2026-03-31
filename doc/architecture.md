@@ -20,8 +20,7 @@ Common logic never imports Pico-specific SDK headers.
 - `app`:
   - owns the main app state and event loop logic
   - wires the button FSM, LED UI, pair DB, BT manager, and USB bridge stubs
-  - emits reconnect requests, per-device forget/security-rotate requests, and diagnostic snapshots as part of platform output
-  - accepts operator command hooks (`clear-lockout-all`, `clear-lockout-last`, `rotate-security-last`) through `app_input_t`
+  - emits reconnect requests, per-device forget requests, and diagnostic snapshots as part of platform output
 - `button_fsm`:
   - translates BOOTSEL press patterns into high-level commands (`pair-any`, `remove-last`, `remove-all`)
 - `led_ui`:
@@ -48,17 +47,10 @@ Common logic never imports Pico-specific SDK headers.
 - `hid_report_remap`:
   - shared report remap helpers used when fallback descriptors are active
   - currently normalizes boot keyboard/mouse payload and report-id shaping for BT->USB and USB->BT paths
-- `operator_command`:
-  - shared parser for operator recovery commands
-  - validates operator command verbs (`LOCKOUT_CLEAR_ALL`, `LOCKOUT_CLEAR_LAST`, `ROTATE_LAST`)
-- `operator_auth`:
-  - shared challenge-response session/auth logic for CDC operator control channel
-  - verifies `AUTH PROVE` and signed `CMD` frames using HMAC-SHA256, lockout policy, and monotonic sequence checks
 - `platform_api`:
   - platform boundary: init, poll inputs, apply outputs
   - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
   - structured diagnostics dequeue hook: `platform_diag_take`
-  - optional operator command ingress from TinyUSB CDC line commands into `platform_input_t.operator_command`
 
 ## Pico W Platform Glue
 
@@ -110,10 +102,6 @@ Pico-specific linkage is isolated under this directory.
 - App now emits reconnect requests from persisted Pair DB metadata when idle, with per-device backoff windows.
 - Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
 - Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
-- App auth-failure handling now emits per-device security-rotate requests; Pico W currently maps this to key/bond revocation as a rotation hook.
-- Operator command ingress is active on TinyUSB CDC when diagnostics CDC is enabled, with challenge-response session auth (`AUTH HELLO` / `AUTH PROVE` + signed `CMD` frames), replay protection via monotonic command sequence, 500ms acceptance rate limiting, and auth-failure lockout (5 failures -> 30s cooldown).
-- Pico W operator auth key is configured at build time via `APP_PLATFORM_OPERATOR_AUTH_KEY_HEX`.
-- Operator-command handling now clears reconnect lockouts or triggers security-rotation requests in app state.
 - App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
 - Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
 - App reconnect policy now applies per-result handling (transient stack reject retry, connect-failure backoff, auth-failure timed lockout).
@@ -135,9 +123,6 @@ Pico-specific linkage is isolated under this directory.
 - Source: app emits `hid_transport_diag_snapshot_t` each tick through `platform_output_t`.
 - Queue: when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
 - Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
-- Operator command path: the same CDC interface accepts newline-delimited auth/session commands (`AUTH HELLO`, `AUTH PROVE`, signed `CMD` payloads for `LOCKOUT_CLEAR_ALL`, `LOCKOUT_CLEAR_LAST`, `ROTATE_LAST`) and maps authorized commands into app operator actions.
-- Operator command acceptance is rate-limited to one accepted command every 500ms.
-- Repeated auth failures trigger a 30s lockout after 5 failures.
 - Host capture helper: `tool/src/diag_capture.c` decodes CDC frames into CSV for offline analysis.
 - Host summary helper: `tool/bin/diag_summary` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
 - Host alert helper: `tool/bin/diag_alert` renders markdown gate reports for CI/inbox notifications and mirrors gate exit status.
@@ -195,7 +180,6 @@ Additional style constraints in this repository:
 ## Planned Bridging Flow (Next Iteration)
 
 1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
-2. Add host-side operator tooling for challenge-response signing and key/session rotation workflows.
-3. Extend descriptor remap beyond current boot-profile + keyboard-LED handling into broader host edge-case translation/remapping.
-4. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
-5. Keep platform glue thin so additional targets can supply equivalent stack hooks.
+2. Extend descriptor remap beyond current boot-profile + keyboard-LED handling into broader host edge-case translation/remapping.
+3. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
+4. Keep platform glue thin so additional targets can supply equivalent stack hooks.

@@ -24,8 +24,6 @@ Current implementation is a buildable skeleton with:
 - explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
 - reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
-- auth failure path now emits explicit security-rotation requests to platform stack (current Pico W implementation revokes stored key/bonding state for target device)
-- operator command surface now requires challenge-response sessions over CDC (`AUTH HELLO`/`AUTH PROVE` + signed `CMD` frames), enforces monotonic command sequence checks, applies auth lockout (5 failures -> 30s cooldown), and keeps 500ms command acceptance rate limiting
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - descriptor remap now covers boot fallback profiles with BT<->USB report-id/payload normalization, including boot-keyboard LED output translation
@@ -94,8 +92,7 @@ cmake -S . -B build/pico_w_debug \
   -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
   -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
-  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
-  -DAPP_PLATFORM_OPERATOR_AUTH_KEY_HEX=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+  -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON
 cmake --build build/pico_w_debug --parallel
 ```
 
@@ -120,7 +117,6 @@ cmake -S . -B build/pico_w_release_devdiag \
   -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
   -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
   -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
-  -DAPP_PLATFORM_OPERATOR_AUTH_KEY_HEX=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
   -DAPP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON
 cmake --build build/pico_w_release_devdiag --parallel
 ```
@@ -141,7 +137,6 @@ When stack options are enabled:
 - app reconnect requests now run through per-device backoff windows and timeout tracking
 - reconnect result events are emitted from stack paths (immediate reject/connect/auth outcomes)
 - app reconnect failure handling now applies per-result retry policy updates with cooldown-based auto-recovery windows
-- auth reconnect failures now raise a security-rotation request hook that platform consumes for key/bond refresh
 - TinyUSB report descriptors are exported per interface from live BT HID descriptor storage when available
 - descriptor acceptance/fallback now runs through shared policy checks, with boot-profile fallback descriptors for incompatible boot-mode reports
 - boot-profile fallback paths now apply report remap normalization in Pico stack TX/RX (keyboard/mouse payload + report-id shaping, including keyboard LED output handling)
@@ -152,7 +147,6 @@ When stack options are enabled:
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, diagnostics snapshots are mirrored to stdio and exposed via `platform_diag_take(...)`
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
 - diagnostics now include Pico stack event-queue telemetry (depth/high-water/drop counters) for dropped-event visibility
-- operator command ingress now requires challenge-response session auth configured by `APP_PLATFORM_OPERATOR_AUTH_KEY_HEX`
 - Pair DB save path now suppresses no-op writes and alternates flash slots using sequence-based latest selection
 - remove-last now also requests platform-side BT security cleanup for that specific device (link key/bonding records)
 - factory reset now clears Pair DB + BTstack persisted security data and triggers reboot
@@ -236,16 +230,6 @@ Generate a markdown-ready gate report for inbox/alert pipelines:
 make tool-diag-alert INPUT=diag.csv OUTPUT=diag_report.md MAX_RECONNECT_FAILURE_DELTA=0
 ```
 
-When diagnostics CDC is enabled, the same CDC interface accepts operator recovery via authenticated session commands:
-
-- start challenge: `AUTH HELLO <client_nonce_hex_16>`
-- complete auth: `AUTH PROVE <session_id_hex_8> <proof_mac_hex_64>`
-- signed command: `CMD <session_id_hex_8> <sequence_dec> <LOCKOUT_CLEAR_ALL|LOCKOUT_CLEAR_LAST|ROTATE_LAST> <command_mac_hex_64>`
-
-Operator commands are rate-limited to one accepted command every `500ms`.
-After `5` auth failures, operator command acceptance is locked for `30s`.
-Diagnostics CDC builds require `-DAPP_PLATFORM_OPERATOR_AUTH_KEY_HEX=<64 hex chars>`.
-
 ## Coding Rules
 
 Project-owned C code uses `__attribute__((cleanup(...)))` for resource disposal.
@@ -264,6 +248,5 @@ See:
 Next implementation steps:
 
 - tune reconnect policy thresholds/escalation with long-run device telemetry
-- add host-side operator client tooling for challenge-response signing and key rotation workflows
 - extend descriptor remap coverage beyond current boot-profile + keyboard-LED handling into broader host edge-case translation paths
 - wire `tool-diag-alert` output into your CI/inbox notification path for soak-gate failures (without runtime telemetry in release builds)

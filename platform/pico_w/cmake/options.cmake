@@ -28,19 +28,6 @@ option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK
 option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." OFF)
 option(APP_PLATFORM_ALLOW_RELEASE_TELEMETRY
     "Allow telemetry/diagnostics options in Release builds (development use only)." OFF)
-set(APP_PLATFORM_OPERATOR_AUTH_KEY_HEX
-    ""
-    CACHE STRING
-    "Root key for operator challenge-response auth (64 hex chars).")
-set(APP_PLATFORM_OPERATOR_AUTH_SESSION_TTL_MS
-    "60000"
-    CACHE STRING
-    "Operator auth session TTL in milliseconds.")
-
-if(NOT APP_PLATFORM_OPERATOR_AUTH_SESSION_TTL_MS MATCHES "^[0-9]+$")
-    message(FATAL_ERROR
-        "APP_PLATFORM_OPERATOR_AUTH_SESSION_TTL_MS must be a non-negative integer.")
-endif()
 
 if(NOT DEFINED APP_PLATFORM_ENABLE_TELEMETRY)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -62,20 +49,6 @@ if(APP_PLATFORM_ENABLE_DIAG_CDC AND (NOT APP_PLATFORM_ENABLE_TELEMETRY))
     message(WARNING
         "APP_PLATFORM_ENABLE_DIAG_CDC requires APP_PLATFORM_ENABLE_TELEMETRY=ON; forcing diagnostics CDC OFF.")
     set(APP_PLATFORM_ENABLE_DIAG_CDC OFF CACHE BOOL "Expose diagnostics over TinyUSB CDC on Pico W." FORCE)
-endif()
-
-if(APP_PLATFORM_ENABLE_DIAG_CDC)
-    if(APP_PLATFORM_OPERATOR_AUTH_KEY_HEX STREQUAL "")
-        message(FATAL_ERROR
-            "APP_PLATFORM_OPERATOR_AUTH_KEY_HEX must be set (64 hex chars) when diagnostics CDC is enabled.")
-    endif()
-
-    string(LENGTH "${APP_PLATFORM_OPERATOR_AUTH_KEY_HEX}" app_platform_operator_auth_key_len)
-    if((NOT app_platform_operator_auth_key_len EQUAL 64)
-        OR (NOT APP_PLATFORM_OPERATOR_AUTH_KEY_HEX MATCHES "^[0-9A-Fa-f]+$"))
-        message(FATAL_ERROR
-            "APP_PLATFORM_OPERATOR_AUTH_KEY_HEX must contain exactly 64 hexadecimal characters.")
-    endif()
 endif()
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" APP_PLATFORM_BUILD_TYPE_UPPER)

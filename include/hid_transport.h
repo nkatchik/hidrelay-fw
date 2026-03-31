@@ -19,9 +19,6 @@
 #define HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED 5U
 #define HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED 6U
 #define HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED 7U
-#define HID_TRANSPORT_SECURITY_ROTATE_REASON_UNSPECIFIED 0U
-#define HID_TRANSPORT_SECURITY_ROTATE_REASON_AUTH_FAILURE 1U
-#define HID_TRANSPORT_SECURITY_ROTATE_REASON_OPERATOR_RECOVERY 2U
 
 typedef enum {
     HID_TRANSPORT_EVENT_NONE = 0,
@@ -80,12 +77,6 @@ typedef struct {
     bool valid;
     pair_device_id_t device_id;
 } hid_transport_forget_request_t;
-
-typedef struct {
-    bool valid;
-    pair_device_id_t device_id;
-    uint8_t reason;
-} hid_transport_security_rotate_request_t;
 
 typedef struct {
     uint8_t bt_state;

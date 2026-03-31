@@ -42,7 +42,6 @@ int main(void) {
         .usb_interface_plan = {0},
         .reconnect_request = {.valid = false, .device_id = {.bytes = {0}}},
         .forget_request = {.valid = false, .device_id = {.bytes = {0}}},
-        .security_rotate_request = {.valid = false, .device_id = {.bytes = {0}}, .reason = 0U},
         .diag = {0},
         .usb_tx = {.valid = false, .interface_number = 0U, .report_len = 0U, .report = {0}},
         .bt_tx =
@@ -70,7 +69,6 @@ int main(void) {
 
         app_input.button_pressed = platform_input.button_pressed;
         app_input.now_ms = platform_input.uptime_ms;
-        app_input.operator_command = platform_input.operator_command;
         app_input.transport_event = platform_input.transport_event;
 
         app_tick(&app, &app_input, &app_output);
@@ -88,7 +86,6 @@ int main(void) {
         );
         platform_output.reconnect_request = app_output.reconnect_request;
         platform_output.forget_request = app_output.forget_request;
-        platform_output.security_rotate_request = app_output.security_rotate_request;
         platform_output.diag = app_output.diag;
         platform_output.usb_tx = app_output.usb_tx;
         platform_output.bt_tx = app_output.bt_tx;
