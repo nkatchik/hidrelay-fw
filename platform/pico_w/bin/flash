@@ -11,25 +11,81 @@ if [[ ! -f "${uf2_path}" ]]; then
 fi
 
 pico_volume="RPI-RP2"
-pico_mount=""
 mount_roots=("/Volumes")
 if [[ -n "${USER:-}" ]]; then
     mount_roots+=("/media/${USER}" "/run/media/${USER}")
 fi
 
-for root in "${mount_roots[@]}"; do
-    mount="${root}/${pico_volume}"
-    if [[ -d "${mount}" ]]; then
-        pico_mount="${mount}"
-        break
-    fi
-done
+picotool_wrapper="${repo_root}/platform/pico_w/bin/picotool"
+
+find_pico_mount() {
+    local root
+    local mount
+
+    for root in "${mount_roots[@]}"; do
+        mount="${root}/${pico_volume}"
+        if [[ -d "${mount}" ]]; then
+            printf '%s\n' "${mount}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+request_bootsel() {
+    local wrapper="$1"
+    local attempt
+    local max_attempts=12
+
+    for attempt in $(seq 1 "${max_attempts}"); do
+        if "${wrapper}" reboot -f -u; then
+            return 0
+        fi
+
+        if [[ "${attempt}" -lt "${max_attempts}" ]]; then
+            echo "⚠️ picotool reboot request failed (attempt ${attempt}/${max_attempts}); retrying..." >&2
+            sleep 1
+        fi
+    done
+
+    return 1
+}
+
+pico_mount="$(find_pico_mount || true)"
+picotool_attempted=0
 
 if [[ -z "${pico_mount}" ]]; then
-    echo "❌ Pico drive not found. Hold BOOTSEL while plugging in so ${pico_volume} appears." >&2
+    if [[ -x "${picotool_wrapper}" ]]; then
+        picotool_attempted=1
+        echo "🔄 Requesting BOOTSEL mode via $(basename "${picotool_wrapper}")..."
+        if ! request_bootsel "${picotool_wrapper}"; then
+            echo "⚠️ picotool reboot request failed; continuing to wait for ${pico_volume} mount." >&2
+        fi
+
+        for _ in $(seq 1 15); do
+            sleep 1
+            pico_mount="$(find_pico_mount || true)"
+            if [[ -n "${pico_mount}" ]]; then
+                break
+            fi
+        done
+    fi
+fi
+
+if [[ -z "${pico_mount}" ]]; then
+    if [[ "${picotool_attempted}" -eq 1 ]]; then
+        echo "❌ Pico drive not found after BOOTSEL request. Ensure USB data connection is active and retry." >&2
+    else
+        echo "❌ Pico drive not found and picotool wrapper is unavailable at ${picotool_wrapper}. Hold BOOTSEL while plugging in, or restore the wrapper script." >&2
+    fi
     exit 1
 fi
 
-cp "${uf2_path}" "${pico_mount}/"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    cp -Xf "${uf2_path}" "${pico_mount}/"
+else
+    cp -f "${uf2_path}" "${pico_mount}/"
+fi
 sync
 echo "✅ Flashed $(basename "${uf2_path}") to ${pico_mount}"

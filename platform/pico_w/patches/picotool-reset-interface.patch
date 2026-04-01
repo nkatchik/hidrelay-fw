@@ -1,0 +1,55 @@
+--- a/picoboot_connection/picoboot_connection.c
++++ b/picoboot_connection/picoboot_connection.c
+@@ -11,6 +11,7 @@
+ 
+ #include "picoboot_connection.h"
+ #include "pico/bootrom_constants.h"
++#include "pico/usb_reset_interface.h"
+ 
+ #if ENABLE_DEBUG_LOG
+ #include <stdio.h>
+@@ -57,7 +58,26 @@
+ unsigned int interface;
+ unsigned int out_ep;
+ unsigned int in_ep;
++
++static bool has_reset_interface(const struct libusb_config_descriptor *config) {
++    int i = 0;
++
++    if (config == NULL) {
++        return false;
++    }
++
++    for (i = 0; i < config->bNumInterfaces; i++) {
++        const struct libusb_interface_descriptor *alt = &config->interface[i].altsetting[0];
++        if ((alt->bInterfaceClass == LIBUSB_CLASS_VENDOR_SPEC) &&
++            (alt->bInterfaceSubClass == RESET_INTERFACE_SUBCLASS) &&
++            (alt->bInterfaceProtocol == RESET_INTERFACE_PROTOCOL)) {
++            return true;
++        }
++    }
+ 
++    return false;
++}
++
+ enum picoboot_device_result picoboot_open_device(libusb_device *device, libusb_device_handle **dev_handle, model_t *model, int vid, int pid, const char* ser) {
+     struct libusb_device_descriptor desc;
+     struct libusb_config_descriptor *config;
+@@ -97,12 +117,16 @@
+                     *model = rp2350;
+                     break;
+                 default:
+-                    return dr_vidpid_unknown;
++                    res = dr_vidpid_unknown;
++                    break;
+             }
+         }
+         ret = libusb_get_active_config_descriptor(device, &config);
+         if (ret && verbose) {
+             output("Failed to read config descriptor\n");
++        }
++        if (!ret && (res == dr_vidpid_unknown) && has_reset_interface(config)) {
++            res = dr_vidpid_stdio_usb;
+         }
+     }
+ 

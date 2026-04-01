@@ -5,8 +5,13 @@
 #include <string.h>
 
 #include "hid_report_policy.h"
+#include "pico/usb_reset_interface.h"
 #include "platform_pico_w_stack.h"
 #include "tusb.h"
+
+#define HIDRELAY_RESET_DESCRIPTOR_LEN 9U
+#define HIDRELAY_RESET_INTERFACE_COUNT 1U
+#define HIDRELAY_RESET_STRING_INDEX 0U
 
 #if defined(APP_PICO_HAS_DIAG_CDC)
 #define HIDRELAY_CDC_DESCRIPTOR_LEN (8U + 9U + 5U + 5U + 4U + 5U + 7U + 9U + 7U + 7U)
@@ -42,6 +47,7 @@ enum {
 static uint8_t g_config_desc
     [HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
         + (HIDRELAY_MAX_INTERFACE * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)
+        + HIDRELAY_RESET_DESCRIPTOR_LEN
         + HIDRELAY_CDC_DESCRIPTOR_LEN] = {0};
 static uint16_t g_config_desc_len = HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN;
 
@@ -246,6 +252,28 @@ static void hidrelay_descriptor_put_u16(
     buffer[1] = (uint8_t)((value >> 8U) & 0xFFU);
 }
 
+static uint16_t hidrelay_append_reset_descriptor(
+    uint8_t * buffer,
+    uint16_t offset,
+    uint8_t reset_interface_number
+) {
+    if (buffer == NULL) {
+        return offset;
+    }
+
+    buffer[offset++] = HIDRELAY_RESET_DESCRIPTOR_LEN;
+    buffer[offset++] = TUSB_DESC_INTERFACE;
+    buffer[offset++] = reset_interface_number;
+    buffer[offset++] = 0U;
+    buffer[offset++] = 0U;
+    buffer[offset++] = TUSB_CLASS_VENDOR_SPECIFIC;
+    buffer[offset++] = RESET_INTERFACE_SUBCLASS;
+    buffer[offset++] = RESET_INTERFACE_PROTOCOL;
+    buffer[offset++] = HIDRELAY_RESET_STRING_INDEX;
+
+    return offset;
+}
+
 #if defined(APP_PICO_HAS_DIAG_CDC)
 static uint16_t hidrelay_append_cdc_descriptor(
     uint8_t * buffer,
@@ -361,7 +389,10 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
     total_interface_count = (uint8_t)(interface_count + HIDRELAY_CDC_INTERFACE_COUNT);
     total_length = (uint16_t)(HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
         + (interface_count * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)
+        + HIDRELAY_RESET_DESCRIPTOR_LEN
         + HIDRELAY_CDC_DESCRIPTOR_LEN);
+
+    total_interface_count = (uint8_t)(total_interface_count + HIDRELAY_RESET_INTERFACE_COUNT);
 
     g_config_desc[offset++] = 9U;
     g_config_desc[offset++] = TUSB_DESC_CONFIGURATION;
@@ -417,7 +448,12 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
         g_config_desc[offset++] = HIDRELAY_HID_EP_INTERVAL_MS;
     }
 
-    offset = hidrelay_append_cdc_descriptor(g_config_desc, offset, interface_count);
+    offset = hidrelay_append_reset_descriptor(g_config_desc, offset, interface_count);
+    offset = hidrelay_append_cdc_descriptor(
+        g_config_desc,
+        offset,
+        (uint8_t)(interface_count + HIDRELAY_RESET_INTERFACE_COUNT)
+    );
 
     return offset;
 }

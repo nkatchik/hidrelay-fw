@@ -25,6 +25,7 @@ Useful targets:
 - `make bootstrap APP_PLATFORM=<target>`
 - `make configure APP_PLATFORM=<target>`
 - `make build APP_PLATFORM=<target>`
+- `platform/pico_w/bin/picotool <picotool args...>` (example: `platform/pico_w/bin/picotool reboot -f -u`)
 - `make clean [APP_PLATFORM=<target>]`
 - `make distclean`
 - `make tool-cache-probe`
@@ -137,7 +138,6 @@ Project-local stack config headers used by this path:
 - `platform/pico_w/include/tusb_config.h`
 - `platform/pico_w/include/btstack_config.h`
 
-UF2 output is required in this repository's default workflow; `PICO_NO_PICOTOOL=ON` is not supported.
 Pico SDK/picotool compatibility defaults are platform-owned in `platform/pico_w/cmake/options.cmake`: it sets `CMAKE_POLICY_DEFAULT_CMP0169=OLD` and defaults `PICOTOOL_FETCH_FROM_GIT_PATH` to `${APP_CACHE_DIR}/picotool`.
 
 ## Warning Policy

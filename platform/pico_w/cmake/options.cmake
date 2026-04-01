@@ -17,13 +17,6 @@ if(NOT DEFINED PICO_BOARD)
     set(PICO_BOARD pico_w CACHE STRING "Pico board type for platform/pico_w" FORCE)
 endif()
 
-if(PICO_NO_PICOTOOL)
-    message(FATAL_ERROR
-        "PICO_NO_PICOTOOL=ON is not supported in this repository; UF2 output is required for flashing.")
-endif()
-
-set(PICO_NO_PICOTOOL OFF CACHE BOOL "Enable picotool post-processing so UF2 is produced." FORCE)
-
 option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK." ON)
 option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." ON)
 option(APP_PLATFORM_ALLOW_RELEASE_TELEMETRY

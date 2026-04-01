@@ -1,5 +1,8 @@
 SHELL := /bin/sh
 
+# Keep this root Makefile platform-agnostic.
+# Platform-specific tooling belongs in platform/<target>/bin.
+
 APP_SOURCE_DIR := $(CURDIR)
 APP_PLATFORM ?=
 APP_CACHE_DIR := $(APP_SOURCE_DIR)/.cache
@@ -29,6 +32,7 @@ help:
 		'  make bootstrap APP_PLATFORM=<target> - Download/cache SDK/toolchain for target' \
 		'  make configure APP_PLATFORM=<target> - Generate CMake build tree (runs bootstrap first)' \
 		'  make build APP_PLATFORM=<target>     - Build firmware for target' \
+		'  platform/<target>/bin/*             - Platform-specific helper scripts (flash/picotool/etc.)' \
 		'  make clean [APP_PLATFORM=<target>]   - Remove target build dir, or all build dirs when omitted' \
 		'  make distclean         - Remove all local build/cache artifacts' \
 		'  make tool-cache-probe  - Build host-side cleanup demonstration tool' \

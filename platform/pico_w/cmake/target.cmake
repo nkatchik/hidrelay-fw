@@ -20,6 +20,7 @@ function(pico_w_configure_target target_name)
             hidrelay_core
             pico_stdlib
             pico_cyw43_arch_none
+            pico_usb_reset_interface_headers
     )
 
     if(APP_PLATFORM_ENABLE_TINYUSB)

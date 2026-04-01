@@ -54,7 +54,10 @@ Current implementation is a buildable skeleton with:
 ```sh
 make bootstrap APP_PLATFORM=pico_w
 make build APP_PLATFORM=pico_w
+platform/pico_w/bin/picotool reboot -f -u
 ```
+
+`platform/pico_w/bin/picotool` ensures a local libusb-enabled `picotool` build is available, then forwards all arguments to it (for example `reboot -f -u` to request BOOTSEL without pressing the button).
 
 Run host-side deterministic validation (no board required):
 

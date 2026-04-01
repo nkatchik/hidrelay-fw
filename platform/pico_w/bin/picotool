@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
+app_platform="pico_w"
+
+if [[ "$#" -eq 0 ]]; then
+    echo "Usage: platform/pico_w/bin/picotool <picotool args...>" >&2
+    echo "Example: platform/pico_w/bin/picotool reboot -f -u" >&2
+    exit 2
+fi
+
+picotool_libusb_version="${PICOTOOL_LIBUSB_VERSION:-1.0.27}"
+cache_dir="${repo_root}/.cache"
+libusb_src_root="${cache_dir}/libusb-src"
+libusb_archive="${libusb_src_root}/libusb-${picotool_libusb_version}.tar.bz2"
+libusb_source_dir="${libusb_src_root}/libusb-${picotool_libusb_version}"
+libusb_install_dir="${libusb_src_root}/install"
+libusb_lib_dir="${libusb_install_dir}/lib"
+picotool_source_dir="${cache_dir}/picotool/picotool-src"
+picotool_build_dir="${cache_dir}/picotool-libusb-build"
+picotool_install_dir="${cache_dir}/picotool-libusb-install"
+picotool_exe="${picotool_install_dir}/picotool/picotool"
+picotool_patch="${repo_root}/platform/pico_w/patches/picotool-reset-interface.patch"
+picotool_git_url="${PICOTOOL_GIT_URL:-https://github.com/raspberrypi/picotool.git}"
+picotool_git_tag="${PICOTOOL_GIT_TAG:-2.0.0}"
+cmake_policy_minimum="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
+cmake_bin="${CMAKE:-cmake}"
+pico_sdk_path="${PICO_SDK_PATH:-${cache_dir}/sdk/pico-sdk-2.0.0}"
+
+run_picotool() {
+    LD_LIBRARY_PATH="${libusb_lib_dir}:${LD_LIBRARY_PATH:-}" \
+        DYLD_LIBRARY_PATH="${libusb_lib_dir}:${DYLD_LIBRARY_PATH:-}" \
+        "${picotool_exe}" "$@"
+}
+
+picotool_ready() {
+    [[ -x "${picotool_exe}" ]] || return 1
+    run_picotool help reboot >/dev/null 2>&1
+}
+
+libusb_ready() {
+    [[ -f "${libusb_lib_dir}/libusb-1.0.dylib" \
+        || -f "${libusb_lib_dir}/libusb-1.0.so" \
+        || -f "${libusb_lib_dir}/libusb-1.0.so.0" ]]
+}
+
+resolve_pico_sdk_path() {
+    local candidate
+
+    if [[ -f "${pico_sdk_path}/external/pico_sdk_import.cmake" ]]; then
+        return 0
+    fi
+
+    if [[ ! -d "${cache_dir}/sdk" ]]; then
+        return 0
+    fi
+
+    candidate="$(
+        find "${cache_dir}/sdk" -mindepth 1 -maxdepth 1 -type d -name 'pico-sdk-*' 2>/dev/null \
+            | LC_ALL=C sort \
+            | tail -n 1
+    )" || true
+
+    if [[ -n "${candidate}" ]]; then
+        pico_sdk_path="${candidate}"
+    fi
+}
+
+resolve_picotool_git_tag() {
+    local findpicotool_cmake="${pico_sdk_path}/tools/Findpicotool.cmake"
+    local sdk_tag
+
+    if [[ ! -f "${findpicotool_cmake}" ]]; then
+        return 0
+    fi
+
+    sdk_tag="$(
+        sed -nE 's/^[[:space:]]*GIT_TAG[[:space:]]+([^[:space:]]+).*/\1/p' "${findpicotool_cmake}" \
+            | head -n 1
+    )"
+
+    if [[ -n "${sdk_tag}" ]]; then
+        picotool_git_tag="${sdk_tag}"
+    fi
+}
+
+ensure_pico_sdk() {
+    resolve_pico_sdk_path
+
+    if [[ ! -f "${pico_sdk_path}/external/pico_sdk_import.cmake" ]]; then
+        "${cmake_bin}" \
+            -DAPP_SOURCE_DIR="${repo_root}" \
+            -DAPP_PLATFORM="${app_platform}" \
+            -P "${repo_root}/cmake/Bootstrap.cmake"
+        resolve_pico_sdk_path
+    fi
+
+    if [[ ! -f "${pico_sdk_path}/external/pico_sdk_import.cmake" ]]; then
+        echo "Failed to locate Pico SDK under ${cache_dir}/sdk" >&2
+        exit 1
+    fi
+}
+
+ensure_picotool_source() {
+    if [[ -d "${picotool_source_dir}" ]]; then
+        if [[ ! -f "${picotool_source_dir}/CMakeLists.txt" ]]; then
+            echo "Picotool source cache is incomplete at ${picotool_source_dir}." >&2
+            echo "Run 'make distclean' or remove that directory, then retry." >&2
+            exit 1
+        fi
+        return 0
+    fi
+
+    ensure_pico_sdk
+    resolve_picotool_git_tag
+    mkdir -p "${cache_dir}/picotool"
+    git clone --branch "${picotool_git_tag}" --depth 1 "${picotool_git_url}" "${picotool_source_dir}"
+}
+
+build_libusb() {
+    mkdir -p "${libusb_src_root}"
+
+    if [[ ! -f "${libusb_archive}" ]]; then
+        curl -L --fail --retry 3 -o "${libusb_archive}" \
+            "https://github.com/libusb/libusb/releases/download/v${picotool_libusb_version}/libusb-${picotool_libusb_version}.tar.bz2"
+    fi
+
+    if [[ ! -d "${libusb_source_dir}" ]]; then
+        tar -xjf "${libusb_archive}" -C "${libusb_src_root}"
+    fi
+
+    (
+        cd "${libusb_source_dir}"
+        make distclean >/dev/null 2>&1 || true
+        NM="$(command -v nm)" ./configure --prefix="${libusb_install_dir}"
+        make -j8
+        make install
+    )
+}
+
+patch_picotool_source() {
+    local picoboot_connection_src="${picotool_source_dir}/picoboot_connection/picoboot_connection.c"
+
+    if grep -Fq "has_reset_interface(const struct libusb_config_descriptor *config)" "${picoboot_connection_src}"; then
+        return 0
+    fi
+
+    patch -d "${picotool_source_dir}" -p1 < "${picotool_patch}"
+}
+
+build_picotool() {
+    ensure_pico_sdk
+
+    CMAKE_POLICY_VERSION_MINIMUM="${cmake_policy_minimum}" cmake -S "${picotool_source_dir}" -B "${picotool_build_dir}" \
+        -DPICO_SDK_PATH="${pico_sdk_path}" \
+        -DPICOTOOL_NO_LIBUSB=0 \
+        -DLIBUSB_ROOT="${libusb_install_dir}" \
+        -DPICOTOOL_FLAT_INSTALL=1 \
+        -DCMAKE_INSTALL_PREFIX="${picotool_install_dir}"
+    CMAKE_POLICY_VERSION_MINIMUM="${cmake_policy_minimum}" cmake --build "${picotool_build_dir}" --parallel
+    CMAKE_POLICY_VERSION_MINIMUM="${cmake_policy_minimum}" cmake --install "${picotool_build_dir}"
+}
+
+ensure_local_picotool() {
+    if picotool_ready; then
+        return 0
+    fi
+
+    echo "🔧 Building local picotool with USB reboot support..."
+
+    ensure_picotool_source
+
+    if ! libusb_ready; then
+        build_libusb
+    fi
+
+    patch_picotool_source
+    build_picotool
+
+    if ! picotool_ready; then
+        echo "Failed to build local picotool with reboot support." >&2
+        exit 1
+    fi
+}
+
+ensure_local_picotool
+run_picotool "$@"
