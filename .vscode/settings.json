@@ -1,4 +1,8 @@
 {
+    "[c]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
     "C_Cpp.default.cStandard": "c17",
     "C_Cpp.default.cppStandard": "",
     "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
@@ -13,14 +17,14 @@
         "build": true
     },
     "C_Cpp.intelliSenseEngine": "default",
-    "[c]": {
-        "editor.formatOnSave": true,
-        "editor.defaultFormatter": "ms-vscode.cpptools"
-    },
-    "terminal.integrated.env.osx": {
+    "git.ignoredRepositories": [
+        ".cache"
+    ],
+    "rust-analyzer.showDependenciesExplorer": false,
+    "terminal.integrated.env.linux": {
         "PATH": "${workspaceFolder}/.vscode/bin:${env:PATH}"
     },
-    "terminal.integrated.env.linux": {
+    "terminal.integrated.env.osx": {
         "PATH": "${workspaceFolder}/.vscode/bin:${env:PATH}"
     },
     "terminal.integrated.env.windows": {
