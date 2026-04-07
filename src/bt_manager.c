@@ -76,6 +76,34 @@ static bool bt_manager_find_active_index_by_device_id(
     return false;
 }
 
+static bool bt_manager_find_active_index_by_device_id_and_link(
+    const bt_manager_t * manager,
+    const pair_device_id_t * device_id,
+    uint8_t bt_link_type,
+    uint8_t * out_index
+) {
+    uint8_t index = 0U;
+
+    if ((manager == NULL)
+        || (device_id == NULL)
+        || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)
+        || (out_index == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < manager->active_count; index++) {
+        if (!bt_manager_device_id_equal(&manager->active_device[index].device_id, device_id)
+            || (manager->active_device[index].bt_link_type != bt_link_type)) {
+            continue;
+        }
+
+        *out_index = index;
+        return true;
+    }
+
+    return false;
+}
+
 static bool bt_manager_pair_db_contains(
     const pair_db_t * pair_db,
     const pair_device_id_t * device_id
@@ -344,6 +372,58 @@ bool bt_manager_ingest_hid_close(
     }
 
     if (!bt_manager_find_active_index_by_hid_cid(manager, hid_cid, bt_link_type, &index)) {
+        return false;
+    }
+
+    closed_device = manager->active_device[index];
+    (void)pair_db_touch_session(
+        manager->pair_db,
+        &closed_device.device_id,
+        now_ms,
+        closed_device.vendor_id,
+        closed_device.product_id,
+        closed_device.report_descriptor_len,
+        closed_device.protocol_mode,
+        closed_device.bt_link_type,
+        closed_device.bt_addr_type
+    );
+    bt_manager_remove_active_index(manager, index);
+    bt_manager_refresh_state(manager);
+    return true;
+}
+
+bool bt_manager_ingest_hid_close_device(
+    bt_manager_t * manager,
+    const pair_device_id_t * device_id,
+    uint8_t bt_link_type,
+    uint32_t now_ms
+) {
+    uint8_t index = 0U;
+    bt_hid_device_t closed_device = {0};
+    bool found = false;
+
+    if ((manager == NULL) || (manager->pair_db == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    if ((bt_link_type != HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)
+        && bt_manager_find_active_index_by_device_id_and_link(
+            manager,
+            device_id,
+            bt_link_type,
+            &index
+        )) {
+        found = true;
+    } else if (bt_manager_find_active_index_by_device_id(manager, device_id, &index)) {
+        /*
+         * Metadata can be stale around LE reconnect/close races. Fall back to
+         * device-id-only close to avoid leaving ghost active sessions that
+         * block reconnect scheduling.
+         */
+        found = true;
+    }
+
+    if (!found) {
         return false;
     }
 

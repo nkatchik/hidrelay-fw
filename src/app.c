@@ -6,14 +6,12 @@
 enum {
     APP_DEFAULT_SLEEP_MS = 1U,
     APP_REMOVE_LAST_MAX_AGE_MS = 60U * 60U * 1000U,
-    APP_RECONNECT_TIMEOUT_MS = 8000U,
+    APP_RECONNECT_TIMEOUT_MS = 30000U,
     APP_RECONNECT_BASE_BACKOFF_MS = 5000U,
-    APP_RECONNECT_MAX_BACKOFF_SHIFT = 6U,
+    APP_RECONNECT_MAX_BACKOFF_SHIFT = 4U,
     APP_RECONNECT_STACK_REJECT_RETRY_MS = 1000U,
     APP_RECONNECT_STACK_NOT_READY_RETRY_MS = 3000U,
-    APP_RECONNECT_FAIL_DISABLE_THRESHOLD = 8U,
     APP_RECONNECT_AUTH_DISABLE_THRESHOLD = 3U,
-    APP_RECONNECT_FAIL_DISABLE_COOLDOWN_MS = 10U * 60U * 1000U,
     APP_RECONNECT_AUTH_LOCKOUT_MS = 60U * 60U * 1000U,
     APP_REMOVE_LAST_BLINK_COUNT = 1U,
     APP_FACTORY_RESET_BLINK_COUNT = 3U,
@@ -135,12 +133,11 @@ static void app_reconnect_mark_failure(
             fail_count = (uint8_t)(fail_count + 1U);
         }
 
-        if (fail_count >= APP_RECONNECT_FAIL_DISABLE_THRESHOLD) {
-            disable_reconnect = true;
-            retry_after_ms = now_ms + APP_RECONNECT_FAIL_DISABLE_COOLDOWN_MS;
-        } else {
-            retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
-        }
+        /*
+         * Transient connect/timeouts are expected for sleeping peripherals.
+         * Keep retrying with bounded backoff instead of entering lockout.
+         */
+        retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
     } else if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED) {
         if (fail_count < UINT8_MAX) {
             fail_count = (uint8_t)(fail_count + 1U);
@@ -200,14 +197,27 @@ static void app_handle_transport_event(
                 input->now_ms
             );
             break;
-        case HID_TRANSPORT_EVENT_BT_HID_CLOSE:
-            (void)bt_manager_ingest_hid_close(
-                &app->bt_manager,
-                event->hid_cid,
-                event->bt_link_type,
-                input->now_ms
-            );
-            break;
+        case HID_TRANSPORT_EVENT_BT_HID_CLOSE: {
+            bool close_ingested = false;
+
+            if (event->hid_cid != 0U) {
+                close_ingested = bt_manager_ingest_hid_close(
+                    &app->bt_manager,
+                    event->hid_cid,
+                    event->bt_link_type,
+                    input->now_ms
+                );
+            }
+
+            if (!close_ingested) {
+                (void)bt_manager_ingest_hid_close_device(
+                    &app->bt_manager,
+                    &event->device_id,
+                    event->bt_link_type,
+                    input->now_ms
+                );
+            }
+        } break;
         case HID_TRANSPORT_EVENT_BT_HID_DESCRIPTOR:
             (void)bt_manager_ingest_hid_descriptor(
                 &app->bt_manager,
@@ -290,6 +300,7 @@ void app_tick(
     pair_db_entry_t reconnect_candidate = {0};
     uint8_t reconnect_index = 0U;
     uint8_t interface_index = 0U;
+    bool disconnect_event_cue = false;
 
     if ((app == NULL) || (input == NULL) || (output == NULL)) {
         return;
@@ -329,6 +340,7 @@ void app_tick(
     }
 
     app_handle_transport_event(app, input);
+    disconnect_event_cue = input->transport_event.type == HID_TRANSPORT_EVENT_BT_HID_CLOSE;
     (void)pair_db_reconnect_recover_expired(&app->pair_db, input->now_ms);
 
     if (app->reconnect_inflight
@@ -358,6 +370,9 @@ void app_tick(
 
     bt_state = bt_manager_state(&app->bt_manager);
     led_ui_set_state(&app->led_ui, app_led_state_from_bt_state(bt_state), input->now_ms);
+    if (disconnect_event_cue) {
+        led_ui_trigger_disconnect_cue(&app->led_ui, input->now_ms);
+    }
 
     output->led_on = led_ui_tick(&app->led_ui, input->now_ms);
     output->pairing_active = bt_state == BT_MANAGER_STATE_PAIRING;
@@ -460,6 +475,12 @@ void app_tick(
     output->diag.reconnect_failure_count = app->reconnect_failure_count;
     output->diag.reconnect_last_result = app->reconnect_last_result;
     output->diag.reconnect_last_status_code = app->reconnect_last_status_code;
+    output->diag.stack_connect_pending = 0U;
+    output->diag.stack_reconnect_pending = 0U;
+    output->diag.stack_connect_mode = 0U;
+    output->diag.stack_reconnect_attempt_index = 0U;
+    output->diag.stack_reconnect_attempt_count = 0U;
+    output->diag.stack_last_connect_status = 0U;
     output->forget_request = forget_request;
 
     if (app->factory_reset_armed && (input->now_ms >= app->factory_reset_due_ms)) {

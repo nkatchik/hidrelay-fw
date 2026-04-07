@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -16,7 +17,7 @@ enum {
     DIAG_FRAME_MAGIC_0 = 0x48U,
     DIAG_FRAME_MAGIC_1 = 0x52U,
     DIAG_FRAME_VERSION = 1U,
-    DIAG_FRAME_PAYLOAD_LEN = 39U,
+    DIAG_FRAME_PAYLOAD_LEN = 45U,
     DIAG_FRAME_LEN = 4U + DIAG_FRAME_PAYLOAD_LEN,
     DIAG_DEFAULT_BAUD = 115200U,
 };
@@ -40,6 +41,12 @@ typedef struct {
     uint8_t stack_event_depth;
     uint8_t stack_event_high_watermark;
     uint32_t stack_event_dropped;
+    uint8_t stack_connect_pending;
+    uint8_t stack_reconnect_pending;
+    uint8_t stack_connect_mode;
+    uint8_t stack_reconnect_attempt_index;
+    uint8_t stack_reconnect_attempt_count;
+    uint8_t stack_last_connect_status;
 } diag_frame_t;
 
 typedef struct {
@@ -167,6 +174,13 @@ static bool diag_decode_frame(
     out_frame->stack_event_depth = frame[offset++];
     out_frame->stack_event_high_watermark = frame[offset++];
     out_frame->stack_event_dropped = diag_read_u32le(&frame[offset]);
+    offset = (uint16_t)(offset + 4U);
+    out_frame->stack_connect_pending = frame[offset++];
+    out_frame->stack_reconnect_pending = frame[offset++];
+    out_frame->stack_connect_mode = frame[offset++];
+    out_frame->stack_reconnect_attempt_index = frame[offset++];
+    out_frame->stack_reconnect_attempt_count = frame[offset++];
+    out_frame->stack_last_connect_status = frame[offset++];
 
     return true;
 }
@@ -244,8 +258,11 @@ static void diag_write_csv_header(FILE * stream) {
         "usb_tx_depth,bt_tx_depth,usb_tx_high_watermark,bt_tx_high_watermark,"
         "reconnect_last_result,reconnect_last_status_code,usb_tx_dropped,bt_tx_dropped,"
         "reconnect_attempt_count,reconnect_success_count,reconnect_failure_count,"
-        "stack_event_depth,stack_event_high_watermark,stack_event_dropped\n"
+        "stack_event_depth,stack_event_high_watermark,stack_event_dropped,"
+        "stack_connect_pending,stack_reconnect_pending,stack_connect_mode,"
+        "stack_reconnect_attempt_index,stack_reconnect_attempt_count,stack_last_connect_status\n"
     );
+    (void)fflush(stream);
 }
 
 static void diag_write_csv_row(
@@ -259,7 +276,7 @@ static void diag_write_csv_row(
 
     (void)fprintf(
         stream,
-        "%llu,%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%lu,%lu,%lu,%lu,%u,%u,%lu\n",
+        "%llu,%lu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%lu,%lu,%lu,%lu,%u,%u,%lu,%u,%u,%u,%u,%u,%u\n",
         (unsigned long long)host_ms,
         (unsigned long)frame->sequence,
         frame->bt_state,
@@ -278,7 +295,13 @@ static void diag_write_csv_row(
         (unsigned long)frame->reconnect_failure_count,
         frame->stack_event_depth,
         frame->stack_event_high_watermark,
-        (unsigned long)frame->stack_event_dropped
+        (unsigned long)frame->stack_event_dropped,
+        frame->stack_connect_pending,
+        frame->stack_reconnect_pending,
+        frame->stack_connect_mode,
+        frame->stack_reconnect_attempt_index,
+        frame->stack_reconnect_attempt_count,
+        frame->stack_last_connect_status
     );
     (void)fflush(stream);
 }
@@ -319,6 +342,25 @@ static bool diag_configure_serial(
 
     *out_original_tty = original_tty;
     return true;
+}
+
+static void diag_assert_modem_lines(int fd) {
+#if defined(TIOCMGET) && defined(TIOCMSET) && defined(TIOCM_DTR) && defined(TIOCM_RTS)
+    int modem_bits = 0;
+
+    if (fd < 0) {
+        return;
+    }
+
+    if (ioctl(fd, TIOCMGET, &modem_bits) != 0) {
+        return;
+    }
+
+    modem_bits |= (TIOCM_DTR | TIOCM_RTS);
+    (void)ioctl(fd, TIOCMSET, &modem_bits);
+#else
+    (void)fd;
+#endif
 }
 
 int main(
@@ -403,7 +445,7 @@ int main(
         output_stream = output_file;
     }
 
-    serial_fd = open(device_path, O_RDONLY | O_NOCTTY);
+    serial_fd = open(device_path, O_RDWR | O_NOCTTY);
     if (serial_fd < 0) {
         (void)fprintf(stderr, "Failed to open device '%s': %s\n", device_path, strerror(errno));
         return 1;
@@ -416,6 +458,7 @@ int main(
 
     serial_guard.fd = serial_fd;
     serial_guard.restore_tty = true;
+    diag_assert_modem_lines(serial_fd);
 
     diag_write_csv_header(output_stream);
 

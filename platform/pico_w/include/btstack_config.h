@@ -9,6 +9,7 @@
 /* LE roles required by SM/advertising code paths */
 #define ENABLE_LE_CENTRAL
 #define ENABLE_LE_PERIPHERAL
+#define ENABLE_LE_PRIVACY_ADDRESS_RESOLUTION
 
 /* Security helpers */
 #define ENABLE_MICRO_ECC_FOR_LE_SECURE_CONNECTIONS
@@ -35,6 +36,7 @@
 #define MAX_NR_RFCOMM_SERVICES 1
 #define MAX_NR_BNEP_CHANNELS 1
 #define MAX_NR_BNEP_SERVICES 1
+#define MAX_NR_HID_HOST_CONNECTIONS 1
 #define MAX_NR_GATT_CLIENTS 1
 #define MAX_NR_HIDS_CLIENTS 1
 #define MAX_NR_WHITELIST_ENTRIES 1

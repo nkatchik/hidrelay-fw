@@ -183,7 +183,7 @@ Implemented now:
 - reconnect retry policy with per-device backoff windows and timeout-based failure classification
 - reconnect outcome signaling from platform stack (stack reject/connect/auth result classes)
 - reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
-- reconnect escalation threshold now applies timed lockout with automatic recovery after repeated connect/timeout failures
+- reconnect connect/timeout handling now keeps retries enabled with capped backoff (no timed lockout)
 - reconnect requests now include Pair DB transport/address hints so stack reconnect can prioritize last-known BLE/Public/Random path
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)
@@ -202,7 +202,7 @@ Implemented now:
 - host-side diagnostics summary helper (`tool/bin/diag_summary`) reports soak max/delta counters from CSV captures
 - host-side diagnostics gate mode now enforces thresholds and exits non-zero for automation (`make tool-diag-gate`)
 - host-side diagnostics alert helper (`tool/bin/diag_alert`) emits markdown gate reports for inbox/notification workflows
-- host-side deterministic app replay validator (`build/tool/app_replay`) covers button command mapping, reconnect scheduling/lockout recovery, and queue overflow behavior (`make test-host`)
+- host-side deterministic app replay validator (`build/tool/app_replay`) covers button command mapping, reconnect scheduling/retry policy, and queue overflow behavior (`make test-host`)
 - release build guardrails reject telemetry/diagnostics in `Release` unless explicitly overridden (`APP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON`)
 - soak capture/trend runbook documented in `doc/soak.md`
 

@@ -19,6 +19,7 @@ typedef struct {
     uint8_t cue_remaining_blink;
     uint32_t last_transition_ms;
     uint32_t cue_phase_started_ms;
+    uint32_t disconnect_cue_until_ms;
 } led_ui_t;
 
 void led_ui_init(led_ui_t * ui);
@@ -30,6 +31,10 @@ void led_ui_set_state(
 void led_ui_trigger_long_blink(
     led_ui_t * ui,
     uint8_t blink_count,
+    uint32_t now_ms
+);
+void led_ui_trigger_disconnect_cue(
+    led_ui_t * ui,
     uint32_t now_ms
 );
 bool led_ui_tick(

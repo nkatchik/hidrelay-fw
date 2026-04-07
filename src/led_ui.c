@@ -23,6 +23,7 @@ void led_ui_init(led_ui_t * ui) {
     ui->cue_remaining_blink = 0U;
     ui->last_transition_ms = 0U;
     ui->cue_phase_started_ms = 0U;
+    ui->disconnect_cue_until_ms = 0U;
 }
 
 void led_ui_set_state(
@@ -74,6 +75,18 @@ void led_ui_trigger_long_blink(
     ui->led_on = true;
 }
 
+void led_ui_trigger_disconnect_cue(
+    led_ui_t * ui,
+    uint32_t now_ms
+) {
+    if (ui == NULL) {
+        return;
+    }
+
+    ui->disconnect_cue_until_ms = now_ms + LED_UI_CONNECTED_CUE_MS;
+    ui->led_on = true;
+}
+
 bool led_ui_tick(
     led_ui_t * ui,
     uint32_t now_ms
@@ -108,6 +121,13 @@ bool led_ui_tick(
         ui->led_on = ui->cue_led_on;
         return ui->led_on;
     }
+
+    if ((ui->disconnect_cue_until_ms != 0U)
+        && ((int32_t)(now_ms - ui->disconnect_cue_until_ms) < 0)) {
+        ui->led_on = true;
+        return ui->led_on;
+    }
+    ui->disconnect_cue_until_ms = 0U;
 
     if (ui->state == LED_UI_STATE_IDLE) {
         ui->led_on = false;

@@ -48,10 +48,79 @@ static uint8_t g_event_queue_tail = 0U;
 static uint8_t g_event_queue_count = 0U;
 static uint8_t g_event_queue_high_watermark = 0U;
 static uint32_t g_event_queue_dropped = 0U;
+static uint8_t g_stack_last_connect_status = 0U;
+
+static bool pico_w_stack_event_is_report_type(uint8_t event_type) {
+    return (event_type == HID_TRANSPORT_EVENT_BT_HID_REPORT)
+        || (event_type == HID_TRANSPORT_EVENT_USB_HID_REPORT);
+}
+
+static bool pico_w_stack_drop_oldest_report_event(void) {
+    hid_transport_event_t ordered[PICO_W_STACK_EVENT_QUEUE_SIZE] = {0};
+    uint8_t ordered_count = 0U;
+    uint8_t drop_index = 0U;
+    bool found_report = false;
+    uint8_t index = 0U;
+
+    if (g_event_queue_count == 0U) {
+        return false;
+    }
+
+    for (index = 0U; index < g_event_queue_count; index++) {
+        ordered[index] =
+            g_event_queue[(g_event_queue_head + index) % PICO_W_STACK_EVENT_QUEUE_SIZE];
+        ordered_count = (uint8_t)(ordered_count + 1U);
+    }
+
+    for (index = 0U; index < ordered_count; index++) {
+        if (!pico_w_stack_event_is_report_type(ordered[index].type)) {
+            continue;
+        }
+
+        drop_index = index;
+        found_report = true;
+        break;
+    }
+
+    if (!found_report) {
+        return false;
+    }
+
+    (void)memset(g_event_queue, 0, sizeof(g_event_queue));
+    g_event_queue_head = 0U;
+    g_event_queue_tail = 0U;
+    g_event_queue_count = 0U;
+
+    for (index = 0U; index < ordered_count; index++) {
+        if (index == drop_index) {
+            continue;
+        }
+
+        g_event_queue[g_event_queue_tail] = ordered[index];
+        g_event_queue_tail = (uint8_t)((g_event_queue_tail + 1U) % PICO_W_STACK_EVENT_QUEUE_SIZE);
+        g_event_queue_count = (uint8_t)(g_event_queue_count + 1U);
+    }
+
+    return true;
+}
 
 static bool pico_w_stack_push_event(const hid_transport_event_t * event) {
     if ((event == NULL) || (event->type == HID_TRANSPORT_EVENT_NONE)) {
         return false;
+    }
+
+    if (g_event_queue_count >= PICO_W_STACK_EVENT_QUEUE_SIZE) {
+        /*
+         * Keep control-path events (open/close/reconnect outcomes) flowing even
+         * when report traffic bursts saturate the queue.
+         */
+        if (!pico_w_stack_event_is_report_type(event->type)
+            && pico_w_stack_drop_oldest_report_event()) {
+            /* fallthrough: queue has space now */
+        } else {
+            g_event_queue_dropped = g_event_queue_dropped + 1U;
+            return false;
+        }
     }
 
     if (g_event_queue_count >= PICO_W_STACK_EVENT_QUEUE_SIZE) {
@@ -112,6 +181,9 @@ enum {
     PICO_W_STACK_LE_SCAN_WINDOW = 48U,
     PICO_W_STACK_LE_HIDS_SERVICE_INDEX = 0U,
     PICO_W_STACK_RECONNECT_MAX_ATTEMPT = 3U,
+    PICO_W_STACK_RECONNECT_CMD_DISALLOWED_TIMEOUT_MS = 1500U,
+    PICO_W_STACK_RECONNECT_CONNECT_PENDING_TIMEOUT_MS = 7000U,
+    PICO_W_STACK_RECONNECT_HIDS_PENDING_TIMEOUT_MS = 3000U,
     PICO_W_STACK_LE_SCAN_TYPE_ACTIVE = 1U,
     PICO_W_STACK_LE_ADV_EVENT_CONNECTABLE_UNDIRECTED = 0x00U,
     PICO_W_STACK_LE_ADV_EVENT_CONNECTABLE_DIRECTED = 0x01U,
@@ -125,6 +197,18 @@ typedef enum {
     PICO_W_STACK_CONNECT_MODE_CLASSIC,
     PICO_W_STACK_CONNECT_MODE_LE
 } pico_w_stack_connect_mode_t;
+
+static uint8_t pico_w_stack_diag_connect_mode(pico_w_stack_connect_mode_t mode) {
+    switch (mode) {
+        case PICO_W_STACK_CONNECT_MODE_CLASSIC:
+            return 1U;
+        case PICO_W_STACK_CONNECT_MODE_LE:
+            return 2U;
+        case PICO_W_STACK_CONNECT_MODE_NONE:
+        default:
+            return 0U;
+    }
+}
 
 typedef struct {
     bool connected;
@@ -151,13 +235,18 @@ static btstack_packet_callback_registration_t g_btstack_hci_event_callback_regis
 static btstack_packet_callback_registration_t g_btstack_sm_event_callback_registration = {0};
 static bool g_btstack_available = false;
 static bool g_btstack_hci_ready = false;
+static bool g_btstack_resolving_list_requested = false;
 static bool g_btstack_pairing_active = false;
 static bool g_btstack_inquiry_active = false;
 static bool g_btstack_scan_active = false;
 static bool g_btstack_connect_pending = false;
+static bool g_btstack_connect_command_issued = false;
 static bool g_btstack_reconnect_pending = false;
 static bool g_btstack_le_security_pending = false;
 static bool g_btstack_le_hids_connect_pending = false;
+static uint32_t g_btstack_now_ms = 0U;
+static uint32_t g_btstack_connect_pending_since_ms = 0U;
+static uint32_t g_btstack_le_hids_pending_since_ms = 0U;
 static bd_addr_t g_btstack_candidate_addr = {0};
 static bd_addr_type_t g_btstack_candidate_addr_type = BD_ADDR_TYPE_UNKNOWN;
 static pico_w_stack_connect_mode_t g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
@@ -220,6 +309,7 @@ static void pico_w_stack_reset_le_session(void) {
     g_btstack_le_session.con_handle = HCI_CON_HANDLE_INVALID;
     g_btstack_le_session.hids_cid = 0U;
     g_btstack_le_hids_connect_pending = false;
+    g_btstack_le_hids_pending_since_ms = 0U;
     (void)memset(g_btstack_le_session.addr, 0, sizeof(g_btstack_le_session.addr));
     g_btstack_le_session.addr_type = BD_ADDR_TYPE_UNKNOWN;
 }
@@ -336,6 +426,9 @@ static uint8_t pico_w_stack_classify_reconnect_failure(uint8_t status_code) {
         case ERROR_CODE_PAIRING_NOT_ALLOWED:
         case ERROR_CODE_PIN_OR_KEY_MISSING:
             return HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED;
+        case ERROR_CODE_COMMAND_DISALLOWED:
+        case BTSTACK_MEMORY_ALLOC_FAILED:
+            return HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED;
         default:
             return HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED;
     }
@@ -549,7 +642,10 @@ static void pico_w_stack_schedule_candidate(
     g_btstack_candidate_addr_type = addr_type;
     g_btstack_connect_mode = mode;
     g_btstack_connect_pending = true;
+    g_btstack_connect_command_issued = false;
+    g_btstack_connect_pending_since_ms = g_btstack_now_ms;
     g_btstack_reconnect_pending = reconnect_pending;
+    g_btstack_le_hids_pending_since_ms = 0U;
     if (!reconnect_pending) {
         pico_w_stack_clear_reconnect_state();
     }
@@ -589,6 +685,9 @@ static bool pico_w_stack_reconnect_apply_attempt(uint8_t attempt_index) {
     g_btstack_connect_mode = g_btstack_reconnect_attempt[attempt_index].mode;
     g_btstack_candidate_addr_type = g_btstack_reconnect_attempt[attempt_index].addr_type;
     g_btstack_connect_pending = true;
+    g_btstack_connect_command_issued = false;
+    g_btstack_connect_pending_since_ms = g_btstack_now_ms;
+    g_btstack_le_hids_pending_since_ms = 0U;
     return true;
 }
 
@@ -608,10 +707,19 @@ static bool pico_w_stack_try_reconnect_next_attempt(void) {
 }
 
 static void pico_w_stack_handle_connect_failure(uint8_t status_code) {
+    if ((g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_LE)
+        && (g_btstack_le_session.con_handle == HCI_CON_HANDLE_INVALID)) {
+        (void)gap_connect_cancel();
+    }
+
+    g_stack_last_connect_status = status_code;
     g_btstack_connect_pending = false;
+    g_btstack_connect_command_issued = false;
     g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
+    g_btstack_connect_pending_since_ms = 0U;
     g_btstack_le_security_pending = false;
     g_btstack_le_hids_connect_pending = false;
+    g_btstack_le_hids_pending_since_ms = 0U;
 
     if (g_btstack_reconnect_pending) {
         if (pico_w_stack_try_reconnect_next_attempt()) {
@@ -639,8 +747,11 @@ static bool pico_w_stack_status_requires_pairing_retry(uint8_t status_code) {
 }
 
 static void pico_w_stack_handle_connect_success(void) {
+    g_stack_last_connect_status = ERROR_CODE_SUCCESS;
     g_btstack_connect_pending = false;
+    g_btstack_connect_command_issued = false;
     g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
+    g_btstack_connect_pending_since_ms = 0U;
     g_btstack_le_security_pending = false;
 
     if (g_btstack_reconnect_pending) {
@@ -804,16 +915,20 @@ static void pico_w_stack_emit_le_descriptor_event(
     (void)pico_w_stack_push_event(&event);
 }
 
-static void pico_w_stack_emit_le_close_event(uint16_t hids_cid) {
+static void pico_w_stack_emit_le_close_event(
+    uint16_t hids_cid,
+    const bd_addr_t addr,
+    bd_addr_type_t addr_type
+) {
     hid_transport_event_t event = {0};
-
-    if (hids_cid == 0U) {
-        return;
-    }
 
     event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
     event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    event.bt_addr_type = pico_w_stack_map_bt_addr_type_from_stack(addr_type);
     event.hid_cid = hids_cid;
+    if (addr != NULL) {
+        (void)memcpy(event.device_id.bytes, addr, sizeof(event.device_id.bytes));
+    }
     (void)pico_w_stack_push_event(&event);
 }
 
@@ -849,7 +964,7 @@ static void pico_w_stack_try_connect_candidate(void) {
     uint8_t connect_status = ERROR_CODE_COMMAND_DISALLOWED;
     uint16_t hid_cid = 0U;
 
-    if (!g_btstack_hci_ready || !g_btstack_connect_pending) {
+    if (!g_btstack_hci_ready || !g_btstack_connect_pending || g_btstack_connect_command_issued) {
         return;
     }
 
@@ -862,15 +977,27 @@ static void pico_w_stack_try_connect_candidate(void) {
     } else if (g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_LE) {
         connect_status = gap_connect(g_btstack_candidate_addr, g_btstack_candidate_addr_type);
     } else {
+        g_stack_last_connect_status = ERROR_CODE_COMMAND_DISALLOWED;
         g_btstack_connect_pending = false;
+        g_btstack_connect_command_issued = false;
         return;
     }
 
     if (connect_status == ERROR_CODE_SUCCESS) {
+        g_stack_last_connect_status = ERROR_CODE_SUCCESS;
+        g_btstack_connect_command_issued = true;
+        g_btstack_connect_pending_since_ms = g_btstack_now_ms;
         return;
     }
 
     if (connect_status == ERROR_CODE_COMMAND_DISALLOWED) {
+        g_stack_last_connect_status = connect_status;
+        if (g_btstack_reconnect_pending
+            && g_btstack_connect_pending
+            && ((int32_t)(g_btstack_now_ms - g_btstack_connect_pending_since_ms)
+                >= (int32_t)PICO_W_STACK_RECONNECT_CMD_DISALLOWED_TIMEOUT_MS)) {
+            pico_w_stack_handle_connect_failure(connect_status);
+        }
         return;
     }
 
@@ -883,6 +1010,7 @@ static void pico_w_stack_start_le_hids_client(void) {
 
     if (g_btstack_le_session.con_handle == HCI_CON_HANDLE_INVALID) {
         g_btstack_le_hids_connect_pending = false;
+        g_btstack_le_hids_pending_since_ms = 0U;
         pico_w_stack_handle_connect_failure(ERROR_CODE_UNKNOWN_CONNECTION_IDENTIFIER);
         return;
     }
@@ -897,15 +1025,23 @@ static void pico_w_stack_start_le_hids_client(void) {
     if (status == ERROR_CODE_SUCCESS) {
         g_btstack_le_session.hids_cid = hids_cid;
         g_btstack_le_hids_connect_pending = false;
+        if (g_btstack_le_hids_pending_since_ms == 0U) {
+            g_btstack_le_hids_pending_since_ms = g_btstack_now_ms;
+        }
         return;
     }
 
     if (status == ERROR_CODE_COMMAND_DISALLOWED) {
+        g_stack_last_connect_status = status;
         g_btstack_le_hids_connect_pending = true;
+        if (g_btstack_le_hids_pending_since_ms == 0U) {
+            g_btstack_le_hids_pending_since_ms = g_btstack_now_ms;
+        }
         return;
     }
 
     g_btstack_le_hids_connect_pending = false;
+    g_btstack_le_hids_pending_since_ms = 0U;
     pico_w_stack_handle_connect_failure(status);
 }
 
@@ -1011,6 +1147,7 @@ static void pico_w_stack_handle_sm_event(uint8_t * packet) {
             if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS) {
                 g_btstack_le_security_pending = false;
                 g_btstack_le_hids_connect_pending = true;
+                g_btstack_le_hids_pending_since_ms = g_btstack_now_ms;
                 pico_w_stack_start_le_hids_client();
             } else {
                 g_btstack_le_security_pending = false;
@@ -1027,6 +1164,7 @@ static void pico_w_stack_handle_sm_event(uint8_t * packet) {
             if (sm_event_reencryption_complete_get_status(packet) == ERROR_CODE_SUCCESS) {
                 g_btstack_le_security_pending = false;
                 g_btstack_le_hids_connect_pending = true;
+                g_btstack_le_hids_pending_since_ms = g_btstack_now_ms;
                 pico_w_stack_start_le_hids_client();
             } else {
                 g_btstack_le_security_pending = false;
@@ -1077,6 +1215,7 @@ static void pico_w_stack_handle_gattservice_meta(uint8_t * packet) {
                     && pico_w_stack_status_requires_pairing_retry(status)) {
                     g_btstack_le_security_pending = true;
                     g_btstack_le_hids_connect_pending = true;
+                    g_btstack_le_hids_pending_since_ms = g_btstack_now_ms;
                     sm_request_pairing(g_btstack_le_session.con_handle);
                     break;
                 }
@@ -1091,6 +1230,7 @@ static void pico_w_stack_handle_gattservice_meta(uint8_t * packet) {
             g_btstack_le_hids_connect_pending = false;
             g_btstack_le_session.connected = true;
             g_btstack_le_session.hids_cid = hids_cid;
+            g_btstack_le_hids_pending_since_ms = 0U;
             pico_w_stack_handle_connect_success();
             pico_w_stack_emit_le_open_event(
                 hids_cid,
@@ -1121,6 +1261,7 @@ static void pico_w_stack_handle_gattservice_meta(uint8_t * packet) {
 
 static void pico_w_stack_handle_le_connection_complete(uint8_t * packet) {
     const uint8_t status = gap_subevent_le_connection_complete_get_status(packet);
+    static const bd_addr_t zero_addr = {0};
 
     if (packet == NULL) {
         return;
@@ -1137,7 +1278,9 @@ static void pico_w_stack_handle_le_connection_complete(uint8_t * packet) {
     }
 
     g_btstack_connect_pending = false;
+    g_btstack_connect_command_issued = false;
     g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
+    g_btstack_connect_pending_since_ms = 0U;
     g_btstack_le_session.connected = false;
     g_btstack_le_session.hids_cid = 0U;
     g_btstack_le_session.con_handle =
@@ -1145,8 +1288,22 @@ static void pico_w_stack_handle_le_connection_complete(uint8_t * packet) {
     g_btstack_le_session.addr_type =
         (bd_addr_type_t)gap_subevent_le_connection_complete_get_peer_address_type(packet);
     gap_subevent_le_connection_complete_get_peer_address(packet, g_btstack_le_session.addr);
+    if (g_btstack_reconnect_pending
+        && (memcmp(g_btstack_candidate_addr, zero_addr, sizeof(g_btstack_candidate_addr)) != 0)) {
+        /*
+         * During reconnect, keep app-facing device identity stable to the
+         * paired candidate address. Some keyboards reconnect with a rotating
+         * private address even when bonded, which can otherwise prevent
+         * app-side device-id matching/reconnect bookkeeping.
+         */
+        (void)memcpy(g_btstack_le_session.addr, g_btstack_candidate_addr, sizeof(bd_addr_t));
+        if (g_btstack_candidate_addr_type != BD_ADDR_TYPE_UNKNOWN) {
+            g_btstack_le_session.addr_type = g_btstack_candidate_addr_type;
+        }
+    }
     g_btstack_le_security_pending = false;
     g_btstack_le_hids_connect_pending = true;
+    g_btstack_le_hids_pending_since_ms = g_btstack_now_ms;
     pico_w_stack_start_le_hids_client();
 }
 
@@ -1154,18 +1311,50 @@ static void pico_w_stack_handle_disconnect(uint8_t * packet) {
     const hci_con_handle_t con_handle =
         hci_event_disconnection_complete_get_connection_handle(packet);
     uint16_t classic_hid_cid = 0U;
+    uint16_t le_close_hid_cid = 0U;
 
     if ((packet == NULL) || (con_handle == HCI_CON_HANDLE_INVALID)) {
         return;
     }
 
     if (con_handle == g_btstack_le_session.con_handle) {
+        le_close_hid_cid = g_btstack_le_session.hids_cid;
+
+        if (le_close_hid_cid == 0U) {
+            pair_device_id_t device_id = {0};
+            uint8_t bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
+            pico_w_stack_copy_device_id_from_addr(&device_id, g_btstack_le_session.addr);
+            if (pico_w_stack_find_hid_cid_for_device(&device_id, &le_close_hid_cid, &bt_link_type)
+                && (bt_link_type != HID_TRANSPORT_BT_LINK_TYPE_LE)) {
+                le_close_hid_cid = 0U;
+            }
+        }
+
+        /*
+         * Emit close before reconnect handling so app-level state and LED cues
+         * stay consistent even if LE hids_cid tracking was stale.
+         */
+        pico_w_stack_emit_le_close_event(
+            le_close_hid_cid,
+            g_btstack_le_session.addr,
+            g_btstack_le_session.addr_type
+        );
+
+        if (le_close_hid_cid != 0U) {
+            /*
+             * BTstack HIDS clients are pooled and must be explicitly finalized
+             * on disconnect. Without this, the single HIDS slot can remain
+             * occupied after a normal keyboard power-off, causing subsequent
+             * reconnect attempts to fail with alloc/command-disallowed errors
+             * until reboot.
+             */
+            (void)hids_client_disconnect(le_close_hid_cid);
+        }
+
         if (g_btstack_reconnect_pending) {
             pico_w_stack_handle_connect_failure(
                 hci_event_disconnection_complete_get_reason(packet)
             );
-        } else if (g_btstack_le_session.hids_cid != 0U) {
-            pico_w_stack_emit_le_close_event(g_btstack_le_session.hids_cid);
         }
 
         g_btstack_le_security_pending = false;
@@ -1230,6 +1419,10 @@ static void pico_w_btstack_packet_handler(
         case BTSTACK_EVENT_STATE:
             if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
                 g_btstack_hci_ready = true;
+                if (!g_btstack_resolving_list_requested) {
+                    (void)gap_load_resolving_list_from_le_device_db();
+                    g_btstack_resolving_list_requested = true;
+                }
                 pico_w_stack_try_start_discovery();
             }
             break;
@@ -1336,6 +1529,7 @@ bool pico_w_stack_init(bool radio_ready) {
     g_event_queue_count = 0U;
     g_event_queue_high_watermark = 0U;
     g_event_queue_dropped = 0U;
+    g_stack_last_connect_status = 0U;
 
     (void)pico_w_tinyusb_runtime_init();
 
@@ -1346,13 +1540,18 @@ bool pico_w_stack_init(bool radio_ready) {
 
     g_btstack_available = false;
     g_btstack_hci_ready = false;
+    g_btstack_resolving_list_requested = false;
     g_btstack_pairing_active = false;
     g_btstack_inquiry_active = false;
     g_btstack_scan_active = false;
     g_btstack_connect_pending = false;
+    g_btstack_connect_command_issued = false;
     g_btstack_reconnect_pending = false;
     g_btstack_le_security_pending = false;
     g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
+    g_btstack_now_ms = 0U;
+    g_btstack_connect_pending_since_ms = 0U;
+    g_btstack_le_hids_pending_since_ms = 0U;
     pico_w_stack_clear_reconnect_state();
     (void)memset(g_btstack_candidate_addr, 0, sizeof(g_btstack_candidate_addr));
     g_btstack_candidate_addr_type = BD_ADDR_TYPE_UNKNOWN;
@@ -1420,6 +1619,28 @@ void pico_w_stack_poll(uint32_t now_ms) {
     (void)now_ms;
 
 #ifdef APP_PICO_HAS_BTSTACK
+    g_btstack_now_ms = now_ms;
+
+    if (g_btstack_reconnect_pending
+        && g_btstack_connect_pending
+        && (g_btstack_connect_pending_since_ms != 0U)
+        && ((int32_t)(now_ms - g_btstack_connect_pending_since_ms)
+            >= (int32_t)PICO_W_STACK_RECONNECT_CONNECT_PENDING_TIMEOUT_MS)) {
+        const uint8_t timeout_status = (g_stack_last_connect_status != ERROR_CODE_SUCCESS)
+            ? g_stack_last_connect_status
+            : ERROR_CODE_CONNECTION_TIMEOUT;
+        pico_w_stack_handle_connect_failure(timeout_status);
+    }
+
+    if (g_btstack_reconnect_pending
+        && (g_btstack_le_session.con_handle != HCI_CON_HANDLE_INVALID)
+        && !g_btstack_le_session.connected
+        && (g_btstack_le_hids_pending_since_ms != 0U)
+        && ((int32_t)(now_ms - g_btstack_le_hids_pending_since_ms)
+            >= (int32_t)PICO_W_STACK_RECONNECT_HIDS_PENDING_TIMEOUT_MS)) {
+        pico_w_stack_handle_connect_failure(ERROR_CODE_COMMAND_DISALLOWED);
+    }
+
     if (g_btstack_available) {
         pico_w_stack_try_start_discovery();
         pico_w_stack_try_connect_candidate();
@@ -1482,8 +1703,11 @@ void pico_w_stack_set_pairing_active(bool pairing_active) {
     if (!g_btstack_pairing_active) {
         pico_w_stack_clear_reconnect_state();
         g_btstack_connect_pending = false;
+        g_btstack_connect_command_issued = false;
         g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
         g_btstack_le_hids_connect_pending = false;
+        g_btstack_connect_pending_since_ms = 0U;
+        g_btstack_le_hids_pending_since_ms = 0U;
         if ((g_btstack_le_session.con_handle != HCI_CON_HANDLE_INVALID)
             && !g_btstack_le_session.connected) {
             (void)gap_disconnect(g_btstack_le_session.con_handle);
@@ -1536,7 +1760,19 @@ bool pico_w_stack_request_reconnect(
         return false;
     }
 
+    /*
+     * App-level reconnect retries can overlap with an already pending stack reconnect.
+     * Coalesce duplicate requests for the same device so we don't self-trigger a
+     * 1s STACK_REJECTED loop while the original connect attempt is still in flight.
+     */
     if (g_btstack_connect_pending || g_btstack_inquiry_active || g_btstack_scan_active) {
+        if (g_btstack_connect_pending
+            && g_btstack_reconnect_pending
+            && (memcmp(g_btstack_candidate_addr, device_id->bytes, sizeof(device_id->bytes))
+                == 0)) {
+            return true;
+        }
+
         pico_w_stack_emit_reconnect_result(
             device_id,
             HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED,
@@ -1547,6 +1783,7 @@ bool pico_w_stack_request_reconnect(
 
     preferred_addr_type = pico_w_stack_map_bt_addr_type_to_stack(bt_addr_type_hint);
 
+    g_stack_last_connect_status = ERROR_CODE_SUCCESS;
     pico_w_stack_clear_reconnect_state();
     (void)memcpy(g_btstack_candidate_addr, device_id->bytes, sizeof(g_btstack_candidate_addr));
 
@@ -1570,8 +1807,6 @@ bool pico_w_stack_request_reconnect(
                 BD_ADDR_TYPE_LE_RANDOM
             );
         }
-        (void)
-            pico_w_stack_reconnect_add_attempt(PICO_W_STACK_CONNECT_MODE_CLASSIC, BD_ADDR_TYPE_ACL);
     } else {
         (void)
             pico_w_stack_reconnect_add_attempt(PICO_W_STACK_CONNECT_MODE_CLASSIC, BD_ADDR_TYPE_ACL);
@@ -1905,5 +2140,20 @@ bool pico_w_stack_event_telemetry_get(pico_w_stack_event_telemetry_t * out_telem
     out_telemetry->event_queue_depth = g_event_queue_count;
     out_telemetry->event_queue_high_watermark = g_event_queue_high_watermark;
     out_telemetry->event_queue_dropped = g_event_queue_dropped;
+#ifdef APP_PICO_HAS_BTSTACK
+    out_telemetry->connect_pending = g_btstack_connect_pending ? 1U : 0U;
+    out_telemetry->reconnect_pending = g_btstack_reconnect_pending ? 1U : 0U;
+    out_telemetry->connect_mode = pico_w_stack_diag_connect_mode(g_btstack_connect_mode);
+    out_telemetry->reconnect_attempt_index = g_btstack_reconnect_attempt_index;
+    out_telemetry->reconnect_attempt_count = g_btstack_reconnect_attempt_count;
+    out_telemetry->last_connect_status = g_stack_last_connect_status;
+#else
+    out_telemetry->connect_pending = 0U;
+    out_telemetry->reconnect_pending = 0U;
+    out_telemetry->connect_mode = 0U;
+    out_telemetry->reconnect_attempt_index = 0U;
+    out_telemetry->reconnect_attempt_count = 0U;
+    out_telemetry->last_connect_status = 0U;
+#endif
     return true;
 }

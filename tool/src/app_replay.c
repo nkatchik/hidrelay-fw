@@ -301,6 +301,72 @@ static bool app_replay_test_reconnect_backoff_schedule(void) {
     );
 }
 
+static bool app_replay_test_reconnect_connect_failed_no_lockout(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x0CU);
+    const uint32_t attempt_times_ms[] = {
+        0U,
+        5100U,
+        15200U,
+        35300U,
+        75400U,
+        155500U,
+        235600U,
+        315700U,
+        395800U,
+    };
+    size_t index = 0U;
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    event.type = HID_TRANSPORT_EVENT_RECONNECT_RESULT;
+    event.device_id = device_id;
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED;
+    event.status_code = 0x3EU;
+
+    for (index = 0U; index < (sizeof(attempt_times_ms) / sizeof(attempt_times_ms[0])); index++) {
+        app_replay_tick(&app, attempt_times_ms[index], false, NULL, &out);
+        if (!app_replay_expect_true(
+                out.reconnect_request.valid,
+                "connect failure path should continue scheduling reconnect attempts"
+            )) {
+            return false;
+        }
+
+        app_replay_tick(&app, attempt_times_ms[index] + 100U, false, &event, &out);
+    }
+
+    if (!app_replay_expect_u32_eq(
+            app.pair_db.entries[0].reconnect_allowed,
+            1U,
+            "connect failure retries should not disable reconnect"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            app.pair_db.entries[0].reconnect_fail_count,
+            9U,
+            "connect failure retries should keep counting failures"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 475900U, false, NULL, &out);
+    return app_replay_expect_true(
+        out.reconnect_request.valid,
+        "connect failure retries should continue at capped backoff interval"
+    );
+}
+
 static bool app_replay_test_reconnect_boot_epoch_normalized(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -449,6 +515,86 @@ static bool app_replay_test_reconnect_request_uses_last_link_hint(void) {
         out.reconnect_request.bt_addr_type,
         HID_TRANSPORT_BT_ADDR_TYPE_LE_RANDOM,
         "reconnect should keep LE address-type hint"
+    );
+}
+
+static bool app_replay_test_reconnect_close_stale_hid_cid_falls_back_to_device(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x0DU);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x77U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_LE_RANDOM;
+    app_replay_tick(&app, 1000U, false, &event, &out);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
+    event.device_id = device_id;
+    event.hid_cid = 0x99U; /* stale/non-matching hid_cid */
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    app_replay_tick(&app, 1010U, false, &event, &out);
+
+    if (!app_replay_expect_true(
+            out.reconnect_request.valid,
+            "stale close hid_cid should still allow reconnect via device-id fallback"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        app_replay_device_id_equal(&out.reconnect_request.device_id, &device_id),
+        "fallback reconnect should target original device"
+    );
+}
+
+static bool app_replay_test_reconnect_close_mismatched_link_falls_back_to_device(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x0EU);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x55U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_LE_RANDOM;
+    app_replay_tick(&app, 1000U, false, &event, &out);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
+    event.device_id = device_id;
+    event.hid_cid = 0x00U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC; /* mismatched link metadata */
+    app_replay_tick(&app, 1010U, false, &event, &out);
+
+    if (!app_replay_expect_true(
+            out.reconnect_request.valid,
+            "mismatched close link should still clear active session via device-id fallback"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        app_replay_device_id_equal(&out.reconnect_request.device_id, &device_id),
+        "device-id fallback should preserve reconnect target"
     );
 }
 
@@ -662,12 +808,18 @@ int main(void) {
             .fn = app_replay_test_remove_last_ignored_when_not_recent},
         {.name = "remove_all_very_long_press", .fn = app_replay_test_remove_all_very_long_press},
         {.name = "reconnect_backoff_schedule", .fn = app_replay_test_reconnect_backoff_schedule},
+        {.name = "reconnect_connect_failed_no_lockout",
+            .fn = app_replay_test_reconnect_connect_failed_no_lockout},
         {.name = "reconnect_boot_epoch_normalized",
             .fn = app_replay_test_reconnect_boot_epoch_normalized},
         {.name = "reconnect_auth_failure_lockout_and_recovery",
             .fn = app_replay_test_reconnect_auth_failure_lockout_and_recovery},
         {.name = "reconnect_request_uses_last_link_hint",
             .fn = app_replay_test_reconnect_request_uses_last_link_hint},
+        {.name = "reconnect_close_stale_hid_cid_falls_back_to_device",
+            .fn = app_replay_test_reconnect_close_stale_hid_cid_falls_back_to_device},
+        {.name = "reconnect_close_mismatched_link_falls_back_to_device",
+            .fn = app_replay_test_reconnect_close_mismatched_link_falls_back_to_device},
         {.name = "bt_report_routed_to_usb", .fn = app_replay_test_bt_report_routed_to_usb},
         {.name = "usb_report_routed_to_bt", .fn = app_replay_test_usb_report_routed_to_bt},
         {.name = "hid_device_map_profile_detection",

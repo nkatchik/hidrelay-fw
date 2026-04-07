@@ -122,6 +122,12 @@ typedef struct {
     uint32_t reconnect_failure_count;
     uint8_t reconnect_last_result;
     uint8_t reconnect_last_status_code;
+    uint8_t stack_connect_pending;
+    uint8_t stack_reconnect_pending;
+    uint8_t stack_connect_mode;
+    uint8_t stack_reconnect_attempt_index;
+    uint8_t stack_reconnect_attempt_count;
+    uint8_t stack_last_connect_status;
 } hid_transport_diag_snapshot_t;
 
 #endif

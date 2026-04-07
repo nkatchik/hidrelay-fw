@@ -28,7 +28,7 @@ Current implementation is a buildable skeleton with:
 - reconnect requests now carry last-session transport/address hints (Classic/LE + LE public/random) to reduce BLE reconnect probe latency
 - explicit reconnect outcome signaling from platform stack (stack-reject/connect-failed/auth-failed classes)
 - reconnect retry policy now branches by failure class (transient stack reject, connect failure timeout/backoff, auth failure timed lockout)
-- reconnect escalation threshold now applies timed lockout with automatic recovery instead of permanent disable
+- connect/timeout retry handling now keeps reconnect enabled with capped backoff instead of entering timed lockout
 - shared HID report-descriptor policy with extended sanitization checks (global stack balance, report-id limits, bounded field sizes, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback selection (native, boot keyboard, boot mouse, generic)
 - descriptor remap now covers boot fallback profiles with BT<->USB report-id/payload normalization, including boot-keyboard LED output translation

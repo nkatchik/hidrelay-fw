@@ -10,6 +10,12 @@ typedef struct {
     uint8_t event_queue_depth;
     uint8_t event_queue_high_watermark;
     uint32_t event_queue_dropped;
+    uint8_t connect_pending;
+    uint8_t reconnect_pending;
+    uint8_t connect_mode;
+    uint8_t reconnect_attempt_index;
+    uint8_t reconnect_attempt_count;
+    uint8_t last_connect_status;
 } pico_w_stack_event_telemetry_t;
 
 bool pico_w_stack_init(bool radio_ready);

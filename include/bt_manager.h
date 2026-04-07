@@ -67,6 +67,12 @@ bool bt_manager_ingest_hid_close(
     uint8_t bt_link_type,
     uint32_t now_ms
 );
+bool bt_manager_ingest_hid_close_device(
+    bt_manager_t * manager,
+    const pair_device_id_t * device_id,
+    uint8_t bt_link_type,
+    uint32_t now_ms
+);
 bool bt_manager_ingest_hid_descriptor(
     bt_manager_t * manager,
     uint16_t hid_cid,

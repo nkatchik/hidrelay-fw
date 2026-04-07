@@ -9,6 +9,7 @@
 #include "platform_pico_w_pair_store.h"
 #include "platform_pico_w_stack.h"
 #include "platform_pico_w_state.h"
+#include "platform_pico_w_tinyusb_runtime.h"
 
 static pico_w_state_t g_state = {
     .initialized = false,
@@ -20,7 +21,7 @@ enum {
     PICO_W_DIAG_FRAME_VERSION = 1U,
     PICO_W_DIAG_FRAME_MAGIC_0 = 0x48U,
     PICO_W_DIAG_FRAME_MAGIC_1 = 0x52U,
-    PICO_W_DIAG_FRAME_PAYLOAD_LEN = 39U,
+    PICO_W_DIAG_FRAME_PAYLOAD_LEN = 45U,
     PICO_W_DIAG_FRAME_LEN = 4U + PICO_W_DIAG_FRAME_PAYLOAD_LEN,
 };
 static hid_transport_diag_snapshot_t g_last_diag = {0};
@@ -88,6 +89,12 @@ static uint16_t pico_w_diag_encode_frame(
     frame[offset++] = diag->stack_event_depth;
     frame[offset++] = diag->stack_event_high_watermark;
     pico_w_diag_put_u32(frame, &offset, diag->stack_event_dropped);
+    frame[offset++] = diag->stack_connect_pending;
+    frame[offset++] = diag->stack_reconnect_pending;
+    frame[offset++] = diag->stack_connect_mode;
+    frame[offset++] = diag->stack_reconnect_attempt_index;
+    frame[offset++] = diag->stack_reconnect_attempt_count;
+    frame[offset++] = diag->stack_last_connect_status;
 
     return offset;
 }
@@ -138,39 +145,25 @@ static void pico_w_diag_queue_push(const hid_transport_diag_snapshot_t * diag) {
 }
 
 static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
+    bool changed = false;
+
     if (diag == NULL) {
         return;
     }
 
-    if (g_last_diag_valid && (memcmp(&g_last_diag, diag, sizeof(*diag)) == 0)) {
-        return;
+    changed = !g_last_diag_valid || (memcmp(&g_last_diag, diag, sizeof(*diag)) != 0);
+
+    if (changed) {
+        pico_w_diag_queue_push(diag);
+        g_last_diag = *diag;
+        g_last_diag_valid = true;
     }
 
-    pico_w_diag_queue_push(diag);
+    /*
+     * Always attempt USB diagnostics emission so a host that opens CDC after
+     * startup still receives the current snapshot stream.
+     */
     pico_w_diag_send_usb(diag);
-
-    printf(
-        "[diag] bt_state=%u active=%u usb_itf=%u usb_q=%u bt_q=%u ev_q=%u ev_q_hw=%u "
-        "usb_drop=%lu bt_drop=%lu ev_drop=%lu r_attempt=%lu "
-        "r_success=%lu r_fail=%lu r_last=%u r_status=%u\n",
-        diag->bt_state,
-        diag->active_device_count,
-        diag->usb_interface_count,
-        diag->usb_tx_depth,
-        diag->bt_tx_depth,
-        diag->stack_event_depth,
-        diag->stack_event_high_watermark,
-        (unsigned long)diag->usb_tx_dropped,
-        (unsigned long)diag->bt_tx_dropped,
-        (unsigned long)diag->stack_event_dropped,
-        (unsigned long)diag->reconnect_attempt_count,
-        (unsigned long)diag->reconnect_success_count,
-        (unsigned long)diag->reconnect_failure_count,
-        diag->reconnect_last_result,
-        diag->reconnect_last_status_code
-    );
-    g_last_diag = *diag;
-    g_last_diag_valid = true;
 }
 #else
 static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
@@ -282,6 +275,12 @@ void platform_apply(const platform_output_t * output) {
         diag.stack_event_depth = stack_telemetry.event_queue_depth;
         diag.stack_event_high_watermark = stack_telemetry.event_queue_high_watermark;
         diag.stack_event_dropped = stack_telemetry.event_queue_dropped;
+        diag.stack_connect_pending = stack_telemetry.connect_pending;
+        diag.stack_reconnect_pending = stack_telemetry.reconnect_pending;
+        diag.stack_connect_mode = stack_telemetry.connect_mode;
+        diag.stack_reconnect_attempt_index = stack_telemetry.reconnect_attempt_index;
+        diag.stack_reconnect_attempt_count = stack_telemetry.reconnect_attempt_count;
+        diag.stack_last_connect_status = stack_telemetry.last_connect_status;
     }
 
     pico_w_diag_publish(&diag);
