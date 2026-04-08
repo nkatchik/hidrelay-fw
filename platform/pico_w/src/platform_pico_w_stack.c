@@ -183,6 +183,7 @@ enum {
     PICO_W_STACK_RECONNECT_MAX_ATTEMPT = 4U,
     PICO_W_STACK_RECONNECT_CMD_DISALLOWED_TIMEOUT_MS = 1500U,
     PICO_W_STACK_RECONNECT_CONNECT_PENDING_TIMEOUT_MS = 7000U,
+    PICO_W_STACK_RECONNECT_LE_DIRECT_PENDING_TIMEOUT_MS = 3500U,
     PICO_W_STACK_RECONNECT_HIDS_PENDING_TIMEOUT_MS = 3000U,
     PICO_W_STACK_LE_SCAN_TYPE_ACTIVE = 1U,
     PICO_W_STACK_LE_ADV_EVENT_CONNECTABLE_UNDIRECTED = 0x00U,
@@ -824,6 +825,14 @@ static bool pico_w_stack_try_reconnect_next_attempt(void) {
     }
 
     return pico_w_stack_reconnect_apply_attempt(next_index);
+}
+
+static uint32_t pico_w_stack_reconnect_connect_timeout_ms(void) {
+    if (g_btstack_reconnect_pending && (g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_LE)) {
+        return PICO_W_STACK_RECONNECT_LE_DIRECT_PENDING_TIMEOUT_MS;
+    }
+
+    return PICO_W_STACK_RECONNECT_CONNECT_PENDING_TIMEOUT_MS;
 }
 
 static void pico_w_stack_handle_connect_failure(uint8_t status_code) {
@@ -1782,7 +1791,7 @@ void pico_w_stack_poll(uint32_t now_ms) {
     if (g_btstack_reconnect_pending
         && g_btstack_connect_pending
         && ((int32_t)(now_ms - g_btstack_connect_pending_since_ms)
-            >= (int32_t)PICO_W_STACK_RECONNECT_CONNECT_PENDING_TIMEOUT_MS)) {
+            >= (int32_t)pico_w_stack_reconnect_connect_timeout_ms())) {
         const uint8_t timeout_status = (g_stack_last_connect_status != ERROR_CODE_SUCCESS)
             ? g_stack_last_connect_status
             : ERROR_CODE_CONNECTION_TIMEOUT;
@@ -1945,9 +1954,9 @@ bool pico_w_stack_request_reconnect(
 
     if (bt_link_type_hint == HID_TRANSPORT_BT_LINK_TYPE_LE) {
         /*
-         * Prefer last-known LE path, but keep a Classic fallback in the same
-         * reconnect cycle for dual-mode keyboards that wake on a different
-         * transport after long offline/power-off windows.
+         * Prefer last-known LE path first. If that address is stale after a
+         * long offline window, try LE whitelist immediately before spending
+         * time on lower-probability fallbacks.
          */
         if (preferred_addr_type == BD_ADDR_TYPE_LE_RANDOM_IDENTITY) {
             (void)pico_w_stack_reconnect_add_attempt(
@@ -1955,16 +1964,16 @@ bool pico_w_stack_request_reconnect(
                 BD_ADDR_TYPE_LE_RANDOM_IDENTITY
             );
             (void)pico_w_stack_reconnect_add_attempt(
+                PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
+                BD_ADDR_TYPE_LE_RANDOM_IDENTITY
+            );
+            (void)pico_w_stack_reconnect_add_attempt(
                 PICO_W_STACK_CONNECT_MODE_CLASSIC,
                 BD_ADDR_TYPE_ACL
             );
             (void)pico_w_stack_reconnect_add_attempt(
                 PICO_W_STACK_CONNECT_MODE_LE,
                 BD_ADDR_TYPE_LE_PUBLIC_IDENTITY
-            );
-            (void)pico_w_stack_reconnect_add_attempt(
-                PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
-                BD_ADDR_TYPE_LE_RANDOM_IDENTITY
             );
         } else if (preferred_addr_type == BD_ADDR_TYPE_LE_RANDOM) {
             (void)pico_w_stack_reconnect_add_attempt(
@@ -1972,6 +1981,10 @@ bool pico_w_stack_request_reconnect(
                 BD_ADDR_TYPE_LE_RANDOM
             );
             (void)pico_w_stack_reconnect_add_attempt(
+                PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
+                BD_ADDR_TYPE_LE_RANDOM
+            );
+            (void)pico_w_stack_reconnect_add_attempt(
                 PICO_W_STACK_CONNECT_MODE_CLASSIC,
                 BD_ADDR_TYPE_ACL
             );
@@ -1979,13 +1992,13 @@ bool pico_w_stack_request_reconnect(
                 PICO_W_STACK_CONNECT_MODE_LE,
                 BD_ADDR_TYPE_LE_PUBLIC
             );
-            (void)pico_w_stack_reconnect_add_attempt(
-                PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
-                BD_ADDR_TYPE_LE_RANDOM
-            );
         } else if (preferred_addr_type == BD_ADDR_TYPE_LE_PUBLIC_IDENTITY) {
             (void)pico_w_stack_reconnect_add_attempt(
                 PICO_W_STACK_CONNECT_MODE_LE,
+                BD_ADDR_TYPE_LE_PUBLIC_IDENTITY
+            );
+            (void)pico_w_stack_reconnect_add_attempt(
+                PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
                 BD_ADDR_TYPE_LE_PUBLIC_IDENTITY
             );
             (void)pico_w_stack_reconnect_add_attempt(
@@ -1996,13 +2009,13 @@ bool pico_w_stack_request_reconnect(
                 PICO_W_STACK_CONNECT_MODE_LE,
                 BD_ADDR_TYPE_LE_RANDOM_IDENTITY
             );
-            (void)pico_w_stack_reconnect_add_attempt(
-                PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
-                BD_ADDR_TYPE_LE_PUBLIC_IDENTITY
-            );
         } else {
             (void)pico_w_stack_reconnect_add_attempt(
                 PICO_W_STACK_CONNECT_MODE_LE,
+                BD_ADDR_TYPE_LE_PUBLIC
+            );
+            (void)pico_w_stack_reconnect_add_attempt(
+                PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
                 BD_ADDR_TYPE_LE_PUBLIC
             );
             (void)pico_w_stack_reconnect_add_attempt(
@@ -2013,14 +2026,14 @@ bool pico_w_stack_request_reconnect(
                 PICO_W_STACK_CONNECT_MODE_LE,
                 BD_ADDR_TYPE_LE_RANDOM
             );
-            (void)pico_w_stack_reconnect_add_attempt(
-                PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
-                BD_ADDR_TYPE_LE_PUBLIC
-            );
         }
     } else {
         (void)
             pico_w_stack_reconnect_add_attempt(PICO_W_STACK_CONNECT_MODE_CLASSIC, BD_ADDR_TYPE_ACL);
+        (void)pico_w_stack_reconnect_add_attempt(
+            PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
+            BD_ADDR_TYPE_UNKNOWN
+        );
         (void)pico_w_stack_reconnect_add_attempt(
             PICO_W_STACK_CONNECT_MODE_LE,
             BD_ADDR_TYPE_LE_PUBLIC
@@ -2028,10 +2041,6 @@ bool pico_w_stack_request_reconnect(
         (void)pico_w_stack_reconnect_add_attempt(
             PICO_W_STACK_CONNECT_MODE_LE,
             BD_ADDR_TYPE_LE_RANDOM
-        );
-        (void)pico_w_stack_reconnect_add_attempt(
-            PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
-            BD_ADDR_TYPE_UNKNOWN
         );
     }
 
