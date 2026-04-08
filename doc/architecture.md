@@ -28,7 +28,7 @@ Common logic never imports Pico-specific SDK headers.
 - `pair_db`:
   - paired-device store abstraction with paired timestamp and last-session metadata (descriptor length, protocol mode, vendor/product IDs, reconnect flag)
   - stores last-session transport hints (`Classic`/`LE` and LE address type) for reconnect path prioritization
-  - tracks reconnect failure/backoff metadata per device for retry scheduling and auth-lockout recovery
+  - tracks reconnect failure/backoff metadata per device for retry scheduling and long-idle recovery without hard lockout
   - persisted on Pico W in a flash-backed blob through platform pair-store hooks
 - `bt_manager`:
   - Bluetooth management API with pairing lifecycle and active HID session model
@@ -114,8 +114,8 @@ Pico-specific linkage is isolated under this directory.
 - Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
 - App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
 - Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
-- App reconnect policy now applies per-result handling (transient stack reject retry, connect-failure backoff, auth-failure timed lockout).
-- App reconnect policy now keeps connect/timeout retries enabled with capped backoff, while auth-failure handling retains timed lockout.
+- App reconnect policy now applies per-result handling (transient stack reject retry, connect/auth-failure backoff).
+- App reconnect policy now keeps connect/timeout/auth retries enabled with capped backoff (no auth hard-lockout).
 - TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
 - Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
 - Descriptor export/source lookup now branches by active link type (Classic HID descriptor storage vs BLE HIDS descriptor storage).

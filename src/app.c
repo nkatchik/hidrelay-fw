@@ -8,11 +8,9 @@ enum {
     APP_REMOVE_LAST_MAX_AGE_MS = 60U * 60U * 1000U,
     APP_RECONNECT_TIMEOUT_MS = 30000U,
     APP_RECONNECT_BASE_BACKOFF_MS = 5000U,
-    APP_RECONNECT_MAX_BACKOFF_SHIFT = 4U,
+    APP_RECONNECT_MAX_BACKOFF_SHIFT = 2U,
     APP_RECONNECT_STACK_REJECT_RETRY_MS = 1000U,
     APP_RECONNECT_STACK_NOT_READY_RETRY_MS = 3000U,
-    APP_RECONNECT_AUTH_DISABLE_THRESHOLD = 3U,
-    APP_RECONNECT_AUTH_LOCKOUT_MS = 60U * 60U * 1000U,
     APP_REMOVE_LAST_BLINK_COUNT = 1U,
     APP_FACTORY_RESET_BLINK_COUNT = 3U,
     APP_FACTORY_RESET_SEQUENCE_MS = 2600U
@@ -110,7 +108,6 @@ static void app_reconnect_mark_failure(
     pair_db_entry_t entry = {0};
     uint8_t fail_count = 0U;
     uint32_t retry_after_ms = now_ms;
-    bool disable_reconnect = false;
 
     if ((app == NULL)
         || !app->reconnect_inflight
@@ -143,12 +140,12 @@ static void app_reconnect_mark_failure(
             fail_count = (uint8_t)(fail_count + 1U);
         }
 
-        if (fail_count >= APP_RECONNECT_AUTH_DISABLE_THRESHOLD) {
-            disable_reconnect = true;
-            retry_after_ms = now_ms + APP_RECONNECT_AUTH_LOCKOUT_MS;
-        } else {
-            retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
-        }
+        /*
+         * Some keyboards can surface transient auth/key-missing statuses after
+         * long idle windows. Keep retrying with bounded backoff so reconnect
+         * recovers without requiring a Pico reboot.
+         */
+        retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
     } else if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED) {
         retry_after_ms = now_ms
             + ((status_code == 2U) ? APP_RECONNECT_STACK_NOT_READY_RETRY_MS
@@ -161,9 +158,6 @@ static void app_reconnect_mark_failure(
         fail_count,
         retry_after_ms
     );
-    if (disable_reconnect) {
-        (void)pair_db_set_reconnect_allowed(&app->pair_db, &app->reconnect_device_id, false);
-    }
 
     app->reconnect_failure_count = app->reconnect_failure_count + 1U;
     app->reconnect_last_result = reconnect_result;

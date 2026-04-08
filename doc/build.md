@@ -182,8 +182,8 @@ Implemented now:
 - reconnect transport fallback stages for unknown persisted transport history (`Classic -> LE public -> LE random`)
 - reconnect retry policy with per-device backoff windows and timeout-based failure classification
 - reconnect outcome signaling from platform stack (stack reject/connect/auth result classes)
-- reconnect policy handling by failure class (transient stack-reject retry, connect-failure backoff, auth-failure timed lockout)
-- reconnect connect/timeout handling now keeps retries enabled with capped backoff (no timed lockout)
+- reconnect policy handling by failure class (transient stack-reject retry, connect/auth-failure backoff)
+- reconnect connect/timeout/auth handling now keeps retries enabled with capped backoff (no timed lockout)
 - reconnect requests now include Pair DB transport/address hints so stack reconnect can prioritize last-known BLE/Public/Random path
 - shared HID report-descriptor policy checks (global stack push/pop balance, report-id limits, field bounds, required input/application items)
 - per-interface TinyUSB report descriptor export from BTstack HID descriptor storage with deterministic fallback profiles (native, boot keyboard, boot mouse, generic)

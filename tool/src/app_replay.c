@@ -312,11 +312,11 @@ static bool app_replay_test_reconnect_connect_failed_no_lockout(void) {
         5100U,
         15200U,
         35300U,
-        75400U,
-        155500U,
-        235600U,
-        315700U,
-        395800U,
+        55400U,
+        75500U,
+        95600U,
+        115700U,
+        135800U,
     };
     size_t index = 0U;
 
@@ -360,7 +360,7 @@ static bool app_replay_test_reconnect_connect_failed_no_lockout(void) {
         return false;
     }
 
-    app_replay_tick(&app, 475900U, false, NULL, &out);
+    app_replay_tick(&app, 155900U, false, NULL, &out);
     return app_replay_expect_true(
         out.reconnect_request.valid,
         "connect failure retries should continue at capped backoff interval"
@@ -395,7 +395,7 @@ static bool app_replay_test_reconnect_boot_epoch_normalized(void) {
     );
 }
 
-static bool app_replay_test_reconnect_auth_failure_lockout_and_recovery(void) {
+static bool app_replay_test_reconnect_auth_failure_no_lockout(void) {
     app_t app = {0};
     app_output_t out = {0};
     hid_transport_event_t event = {0};
@@ -448,18 +448,34 @@ static bool app_replay_test_reconnect_auth_failure_lockout_and_recovery(void) {
     }
 
     app_replay_tick(&app, 15300U, false, &event, &out);
-    app_replay_tick(&app, 10U * 60U * 1000U, false, NULL, &out);
+    app_replay_tick(&app, 35300U, false, NULL, &out);
     if (!app_replay_expect_true(
-            !out.reconnect_request.valid,
-            "third auth failure should enter lockout window"
+            out.reconnect_request.valid,
+            "third auth failure should keep retrying with backoff"
         )) {
         return false;
     }
 
-    app_replay_tick(&app, (60U * 60U * 1000U) + 16000U, false, NULL, &out);
+    if (!app_replay_expect_u32_eq(
+            app.pair_db.entries[0].reconnect_allowed,
+            1U,
+            "auth failures should not disable reconnect"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 10U * 60U * 1000U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.reconnect_request.valid,
+            "inflight reconnect timeout should respect backoff before next retry"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, (10U * 60U * 1000U) + 40100U, false, NULL, &out);
     return app_replay_expect_true(
         out.reconnect_request.valid,
-        "auth lockout should recover automatically after cooldown"
+        "auth failure path should keep reconnecting after long idle intervals"
     );
 }
 
@@ -812,8 +828,8 @@ int main(void) {
             .fn = app_replay_test_reconnect_connect_failed_no_lockout},
         {.name = "reconnect_boot_epoch_normalized",
             .fn = app_replay_test_reconnect_boot_epoch_normalized},
-        {.name = "reconnect_auth_failure_lockout_and_recovery",
-            .fn = app_replay_test_reconnect_auth_failure_lockout_and_recovery},
+        {.name = "reconnect_auth_failure_no_lockout",
+            .fn = app_replay_test_reconnect_auth_failure_no_lockout},
         {.name = "reconnect_request_uses_last_link_hint",
             .fn = app_replay_test_reconnect_request_uses_last_link_hint},
         {.name = "reconnect_close_stale_hid_cid_falls_back_to_device",
