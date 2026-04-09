@@ -2356,28 +2356,28 @@ bool pico_w_stack_send_bt_report(
 #endif
 }
 
-bool pico_w_stack_event_telemetry_get(pico_w_stack_event_telemetry_t * out_telemetry) {
-    if (out_telemetry == NULL) {
+bool pico_w_stack_runtime_state_get(pico_w_stack_runtime_state_t * out_state) {
+    if (out_state == NULL) {
         return false;
     }
 
-    out_telemetry->event_queue_depth = g_event_queue_count;
-    out_telemetry->event_queue_high_watermark = g_event_queue_high_watermark;
-    out_telemetry->event_queue_dropped = g_event_queue_dropped;
+    out_state->event_queue_depth = g_event_queue_count;
+    out_state->event_queue_high_watermark = g_event_queue_high_watermark;
+    out_state->event_queue_dropped = g_event_queue_dropped;
 #ifdef APP_PICO_HAS_BTSTACK
-    out_telemetry->connect_pending = g_btstack_connect_pending ? 1U : 0U;
-    out_telemetry->reconnect_pending = g_btstack_reconnect_pending ? 1U : 0U;
-    out_telemetry->connect_mode = pico_w_stack_diag_connect_mode(g_btstack_connect_mode);
-    out_telemetry->reconnect_attempt_index = g_btstack_reconnect_attempt_index;
-    out_telemetry->reconnect_attempt_count = g_btstack_reconnect_attempt_count;
-    out_telemetry->last_connect_status = g_stack_last_connect_status;
+    out_state->connect_pending = g_btstack_connect_pending ? 1U : 0U;
+    out_state->reconnect_pending = g_btstack_reconnect_pending ? 1U : 0U;
+    out_state->connect_mode = pico_w_stack_diag_connect_mode(g_btstack_connect_mode);
+    out_state->reconnect_attempt_index = g_btstack_reconnect_attempt_index;
+    out_state->reconnect_attempt_count = g_btstack_reconnect_attempt_count;
+    out_state->last_connect_status = g_stack_last_connect_status;
 #else
-    out_telemetry->connect_pending = 0U;
-    out_telemetry->reconnect_pending = 0U;
-    out_telemetry->connect_mode = 0U;
-    out_telemetry->reconnect_attempt_index = 0U;
-    out_telemetry->reconnect_attempt_count = 0U;
-    out_telemetry->last_connect_status = 0U;
+    out_state->connect_pending = 0U;
+    out_state->reconnect_pending = 0U;
+    out_state->connect_mode = 0U;
+    out_state->reconnect_attempt_index = 0U;
+    out_state->reconnect_attempt_count = 0U;
+    out_state->last_connect_status = 0U;
 #endif
     return true;
 }

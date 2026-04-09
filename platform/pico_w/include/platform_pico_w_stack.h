@@ -16,7 +16,7 @@ typedef struct {
     uint8_t reconnect_attempt_index;
     uint8_t reconnect_attempt_count;
     uint8_t last_connect_status;
-} pico_w_stack_event_telemetry_t;
+} pico_w_stack_runtime_state_t;
 
 bool pico_w_stack_init(bool radio_ready);
 void pico_w_stack_poll(uint32_t now_ms);
@@ -57,6 +57,6 @@ bool pico_w_stack_send_bt_report(
     const uint8_t * report,
     uint16_t report_len
 );
-bool pico_w_stack_event_telemetry_get(pico_w_stack_event_telemetry_t * out_telemetry);
+bool pico_w_stack_runtime_state_get(pico_w_stack_runtime_state_t * out_state);
 
 #endif

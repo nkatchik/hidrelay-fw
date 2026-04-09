@@ -218,13 +218,17 @@ void platform_poll(platform_input_t * input) {
 }
 
 void platform_apply(const platform_output_t * output) {
+    pico_w_stack_runtime_state_t stack_runtime_state = {0};
+    const bool have_stack_runtime_state = pico_w_stack_runtime_state_get(&stack_runtime_state);
+    uint32_t sleep_us = 0U;
 #if defined(APP_PICO_HAS_TELEMETRY)
-    pico_w_stack_event_telemetry_t stack_telemetry = {0};
     hid_transport_diag_snapshot_t diag = {0};
 #endif
     if ((output == NULL) || !pico_w_state_is_initialized(&g_state)) {
         return;
     }
+
+    sleep_us = output->sleep_us;
 
     if (output->forget_request.valid) {
         (void)pico_w_stack_forget_device(&output->forget_request.device_id);
@@ -271,16 +275,16 @@ void platform_apply(const platform_output_t * output) {
 #if defined(APP_PICO_HAS_TELEMETRY)
     diag = output->diag;
 
-    if (pico_w_stack_event_telemetry_get(&stack_telemetry)) {
-        diag.stack_event_depth = stack_telemetry.event_queue_depth;
-        diag.stack_event_high_watermark = stack_telemetry.event_queue_high_watermark;
-        diag.stack_event_dropped = stack_telemetry.event_queue_dropped;
-        diag.stack_connect_pending = stack_telemetry.connect_pending;
-        diag.stack_reconnect_pending = stack_telemetry.reconnect_pending;
-        diag.stack_connect_mode = stack_telemetry.connect_mode;
-        diag.stack_reconnect_attempt_index = stack_telemetry.reconnect_attempt_index;
-        diag.stack_reconnect_attempt_count = stack_telemetry.reconnect_attempt_count;
-        diag.stack_last_connect_status = stack_telemetry.last_connect_status;
+    if (have_stack_runtime_state) {
+        diag.stack_event_depth = stack_runtime_state.event_queue_depth;
+        diag.stack_event_high_watermark = stack_runtime_state.event_queue_high_watermark;
+        diag.stack_event_dropped = stack_runtime_state.event_queue_dropped;
+        diag.stack_connect_pending = stack_runtime_state.connect_pending;
+        diag.stack_reconnect_pending = stack_runtime_state.reconnect_pending;
+        diag.stack_connect_mode = stack_runtime_state.connect_mode;
+        diag.stack_reconnect_attempt_index = stack_runtime_state.reconnect_attempt_index;
+        diag.stack_reconnect_attempt_count = stack_runtime_state.reconnect_attempt_count;
+        diag.stack_last_connect_status = stack_runtime_state.last_connect_status;
     }
 
     pico_w_diag_publish(&diag);
@@ -288,8 +292,12 @@ void platform_apply(const platform_output_t * output) {
     pico_w_diag_publish(&output->diag);
 #endif
 
+    if (have_stack_runtime_state && (stack_runtime_state.event_queue_depth > 0U)) {
+        sleep_us = 0U;
+    }
+
     pico_w_hw_set_led(output->led_on);
-    pico_w_hw_sleep_us(output->sleep_us);
+    pico_w_hw_sleep_us(sleep_us);
 }
 
 bool platform_pair_db_load(pair_db_t * db) {
