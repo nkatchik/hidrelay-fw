@@ -85,6 +85,80 @@ static bool app_replay_expect_u32_eq(
     return false;
 }
 
+static bool app_replay_test_led_startup_cue_short(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 0U, false, NULL, &out);
+    if (!app_replay_expect_true(out.led_on, "startup cue should light LED on boot")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 199U, false, NULL, &out);
+    if (!app_replay_expect_true(out.led_on, "startup cue should stay on briefly")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 200U, false, NULL, &out);
+    return app_replay_expect_true(!out.led_on, "startup cue should end quickly");
+}
+
+static bool app_replay_test_led_signal_preempt_disconnect_cue(void) {
+    led_ui_t led = {0};
+    uint32_t dark_until_ms = 0U;
+
+    led_ui_init(&led);
+    led_ui_trigger_long_blink(&led, 1U, 100U);
+    if (!app_replay_expect_true(led_ui_tick(&led, 100U), "long blink should start immediately")) {
+        return false;
+    }
+
+    led_ui_trigger_disconnect_cue(&led, 200U);
+    dark_until_ms = led.signal_dark_until_ms;
+    if (!app_replay_expect_true(
+            dark_until_ms > 200U,
+            "preempt should schedule a dark handoff window"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            !led_ui_tick(&led, 200U),
+            "preempt should force LED dark immediately"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            led_ui_tick(&led, dark_until_ms),
+            "disconnect cue should start after dark handoff"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            led.disconnect_cue_until_ms - dark_until_ms,
+            1000U,
+            "disconnect cue should be programmed for 1 second after dark handoff"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            led_ui_tick(&led, dark_until_ms + 500U),
+            "disconnect cue should remain active for 1 second"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        !led_ui_tick(&led, dark_until_ms + 1000U),
+        "disconnect cue should finish at 1 second"
+    );
+}
+
 static bool app_replay_test_pair_any_from_long_press(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -138,6 +212,30 @@ static bool app_replay_test_pair_any_timeout_after_60s(void) {
 
     app_replay_tick(&app, 65601U, false, NULL, &out);
     return app_replay_expect_true(!out.pairing_active, "pair-any should stop after 60s timeout");
+}
+
+static bool app_replay_test_pair_any_cancelled_by_single_click(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 3100U, false, NULL, &out);
+    app_replay_tick(&app, 5601U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            out.pairing_active,
+            "pair-any should be active before single-click cancel"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6000U, true, NULL, &out);
+    app_replay_tick(&app, 6200U, false, NULL, &out);
+    return app_replay_expect_true(
+        !out.pairing_active,
+        "single click should cancel pairing when active"
+    );
 }
 
 static bool app_replay_test_remove_last_double_long_press_recent_only(void) {
@@ -816,8 +914,13 @@ static bool app_replay_test_hid_device_map_fn_esc_toggle(void) {
 
 int main(void) {
     static const app_replay_test_case_t test_cases[] = {
+        {.name = "led_startup_cue_short", .fn = app_replay_test_led_startup_cue_short},
+        {.name = "led_signal_preempt_disconnect_cue",
+            .fn = app_replay_test_led_signal_preempt_disconnect_cue},
         {.name = "pair_any_from_long_press", .fn = app_replay_test_pair_any_from_long_press},
         {.name = "pair_any_timeout_after_60s", .fn = app_replay_test_pair_any_timeout_after_60s},
+        {.name = "pair_any_cancelled_by_single_click",
+            .fn = app_replay_test_pair_any_cancelled_by_single_click},
         {.name = "remove_last_double_long_press_recent_only",
             .fn = app_replay_test_remove_last_double_long_press_recent_only},
         {.name = "remove_last_ignored_when_not_recent",

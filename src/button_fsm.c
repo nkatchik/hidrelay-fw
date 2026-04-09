@@ -3,7 +3,7 @@
 #include <stddef.h>
 
 enum {
-    BUTTON_LONG_PRESS_MIN_MS = 2000U,
+    BUTTON_LONG_PRESS_MIN_MS = 1000U,
     BUTTON_DOUBLE_LONG_WINDOW_MS = 2500U,
     BUTTON_VERY_LONG_PRESS_MS = 10000U
 };
@@ -65,7 +65,7 @@ button_command_t button_fsm_update(
             return BUTTON_COMMAND_NONE;
         }
 
-        return BUTTON_COMMAND_NONE;
+        return BUTTON_COMMAND_SINGLE_CLICK;
     }
 
     if (!pressed && !fsm->stable_pressed && fsm->pending_long_press) {

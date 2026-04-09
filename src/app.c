@@ -278,6 +278,7 @@ void app_init(
     app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_NONE;
     app->reconnect_last_status_code = 0U;
     app->factory_reset_armed = false;
+    app->startup_cue_pending = true;
     app->factory_reset_due_ms = 0U;
 }
 
@@ -300,11 +301,18 @@ void app_tick(
         return;
     }
 
+    if (app->startup_cue_pending) {
+        led_ui_trigger_startup_cue(&app->led_ui, input->now_ms);
+        app->startup_cue_pending = false;
+    }
+
     pair_db_before = app->pair_db;
     command = button_fsm_update(&app->button_fsm, input->button_pressed, input->now_ms);
 
     if (command == BUTTON_COMMAND_PAIR_ANY) {
         (void)bt_manager_start_pair_any(&app->bt_manager, input->now_ms);
+    } else if (command == BUTTON_COMMAND_SINGLE_CLICK) {
+        (void)bt_manager_cancel_pair_any(&app->bt_manager);
     } else if (command == BUTTON_COMMAND_REMOVE_LAST) {
         pair_device_id_t removed_device_id = {0};
         bool removed_device_known = false;

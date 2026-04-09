@@ -175,16 +175,20 @@ Generated/downloaded artifacts are local and git-ignored:
 
 Current mapping:
 
+- single click (< 1s): cancel `pair-any` when pairing is active (otherwise no-op)
 - long press (>= 2s): `pair-any` (fires after a 2.5s double-long window)
 - double long press (two >= 2s presses): `remove-last` only when the last paired device is at most 1 hour old; otherwise no-op
 - very long press (>= 10s): `remove-all` / factory reset
 
 LED behavior:
 
-- pairing mode blinks quickly while active (250ms toggle, up to 60s timeout)
-- connected and bridged state shows LED on for 4 seconds, then turns off
+- startup-complete cue: short pulse once app init completes
+- pairing mode blinks quickly while active (100ms toggle, up to 60s timeout)
+- connected and bridged state shows LED on for 3 seconds, then turns off
+- disconnect cue: solid on for 1 second
 - remove-last success: one long blink
 - factory reset: three long blinks
+- if a new cue arrives while another cue is active, the active cue is interrupted, LED goes dark, then the new cue starts
 - after the three blinks complete, firmware erases all persisted pairing/security state and reboots
 
 ## Diagnostics CDC Frame

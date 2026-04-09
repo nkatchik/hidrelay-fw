@@ -173,6 +173,21 @@ bool bt_manager_start_pair_any(
     return true;
 }
 
+bool bt_manager_cancel_pair_any(bt_manager_t * manager) {
+    if (manager == NULL) {
+        return false;
+    }
+
+    if (manager->state != BT_MANAGER_STATE_PAIRING) {
+        return false;
+    }
+
+    manager->pairing_started_ms = 0U;
+    manager->state =
+        (manager->active_count == 0U) ? BT_MANAGER_STATE_IDLE : BT_MANAGER_STATE_ACTIVE;
+    return true;
+}
+
 bool bt_manager_remove_last(bt_manager_t * manager) {
     pair_device_id_t removed_device = {0};
     uint8_t active_index = 0U;

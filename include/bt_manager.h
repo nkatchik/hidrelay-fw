@@ -43,6 +43,7 @@ bool bt_manager_start_pair_any(
     bt_manager_t * manager,
     uint32_t now_ms
 );
+bool bt_manager_cancel_pair_any(bt_manager_t * manager);
 bool bt_manager_remove_last(bt_manager_t * manager);
 bool bt_manager_remove_last_if_recent(
     bt_manager_t * manager,
