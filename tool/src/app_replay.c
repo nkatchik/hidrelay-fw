@@ -238,6 +238,54 @@ static bool app_replay_test_pair_any_cancelled_by_single_click(void) {
     );
 }
 
+static bool app_replay_test_sleep_adaptive_idle_vs_connected(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x11U);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    app_replay_tick(&app, 0U, false, NULL, &out);
+    if (!app_replay_expect_u32_eq(
+            out.sleep_us,
+            5000U,
+            "idle loop should use relaxed sleep budget"
+        )) {
+        return false;
+    }
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x33U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    app_replay_tick(&app, 1000U, false, &event, &out);
+    if (!app_replay_expect_u32_eq(
+            out.sleep_us,
+            5U,
+            "active connection should use low-latency sleep budget"
+        )) {
+        return false;
+    }
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
+    event.hid_cid = 0x33U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    app_replay_tick(&app, 1010U, false, &event, &out);
+    return app_replay_expect_u32_eq(
+        out.sleep_us,
+        5000U,
+        "sleep budget should relax again after disconnect"
+    );
+}
+
 static bool app_replay_test_remove_last_double_long_press_recent_only(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -921,6 +969,8 @@ int main(void) {
         {.name = "pair_any_timeout_after_60s", .fn = app_replay_test_pair_any_timeout_after_60s},
         {.name = "pair_any_cancelled_by_single_click",
             .fn = app_replay_test_pair_any_cancelled_by_single_click},
+        {.name = "sleep_adaptive_idle_vs_connected",
+            .fn = app_replay_test_sleep_adaptive_idle_vs_connected},
         {.name = "remove_last_double_long_press_recent_only",
             .fn = app_replay_test_remove_last_double_long_press_recent_only},
         {.name = "remove_last_ignored_when_not_recent",

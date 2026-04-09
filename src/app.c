@@ -4,7 +4,8 @@
 #include <string.h>
 
 enum {
-    APP_DEFAULT_SLEEP_US = 100U,
+    APP_IDLE_SLEEP_US = 5000U,
+    APP_CONNECTED_SLEEP_US = 5U,
     APP_REMOVE_LAST_MAX_AGE_MS = 60U * 60U * 1000U,
     APP_RECONNECT_TIMEOUT_MS = 30000U,
     APP_RECONNECT_BASE_BACKOFF_MS = 2000U,
@@ -378,10 +379,11 @@ void app_tick(
 
     output->led_on = led_ui_tick(&app->led_ui, input->now_ms);
     output->pairing_active = bt_state == BT_MANAGER_STATE_PAIRING;
-    output->sleep_us = APP_DEFAULT_SLEEP_US;
     output->usb_interface_count = usb_bridge_interface_count(&app->usb_bridge);
     output->usb_descriptor_generation = usb_bridge_descriptor_generation(&app->usb_bridge);
     output->active_device_count = bt_manager_active_count(&app->bt_manager);
+    output->sleep_us =
+        (output->active_device_count > 0U) ? APP_CONNECTED_SLEEP_US : APP_IDLE_SLEEP_US;
     (void)memset(output->usb_interface_plan, 0, sizeof(output->usb_interface_plan));
 
     for (interface_index = 0U; (interface_index < output->usb_interface_count)
