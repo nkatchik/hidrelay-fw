@@ -16,7 +16,7 @@ typedef struct {
 typedef struct {
     bool led_on;
     bool pairing_active;
-    uint32_t sleep_ms;
+    uint32_t sleep_us;
     uint8_t usb_interface_count;
     uint32_t usb_descriptor_generation;
     hid_transport_usb_interface_plan_t usb_interface_plan[HID_TRANSPORT_MAX_INTERFACE];

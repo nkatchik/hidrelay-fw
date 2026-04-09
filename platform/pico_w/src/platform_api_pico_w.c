@@ -289,7 +289,7 @@ void platform_apply(const platform_output_t * output) {
 #endif
 
     pico_w_hw_set_led(output->led_on);
-    pico_w_hw_sleep_ms(output->sleep_ms);
+    pico_w_hw_sleep_us(output->sleep_us);
 }
 
 bool platform_pair_db_load(pair_db_t * db) {

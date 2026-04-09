@@ -67,6 +67,6 @@ void pico_w_hw_set_led(bool led_on) {
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on ? 1 : 0);
 }
 
-void pico_w_hw_sleep_ms(uint32_t sleep_duration_ms) {
-    sleep_ms(sleep_duration_ms);
+void pico_w_hw_sleep_us(uint32_t sleep_duration_us) {
+    sleep_us(sleep_duration_us);
 }
