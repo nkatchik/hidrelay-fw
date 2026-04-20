@@ -179,6 +179,10 @@ static bool pico_w_stack_find_hid_cid_for_device(
 enum {
     PICO_W_STACK_LE_SCAN_INTERVAL = 48U,
     PICO_W_STACK_LE_SCAN_WINDOW = 48U,
+    PICO_W_STACK_LE_CONN_INTERVAL_MIN = 9U,
+    PICO_W_STACK_LE_CONN_INTERVAL_MAX = 12U,
+    PICO_W_STACK_LE_CONN_LATENCY = 0U,
+    PICO_W_STACK_LE_CONN_SUPERVISION_TIMEOUT = 40U,
     PICO_W_STACK_LE_HIDS_SERVICE_INDEX = 0U,
     PICO_W_STACK_RECONNECT_MAX_ATTEMPT = 4U,
     PICO_W_STACK_RECONNECT_CMD_DISALLOWED_TIMEOUT_MS = 1500U,
@@ -537,6 +541,24 @@ static bool pico_w_stack_is_valid_le_addr_type(bd_addr_type_t addr_type) {
         || (addr_type == BD_ADDR_TYPE_LE_RANDOM)
         || (addr_type == BD_ADDR_TYPE_LE_PUBLIC_IDENTITY)
         || (addr_type == BD_ADDR_TYPE_LE_RANDOM_IDENTITY);
+}
+
+static void pico_w_stack_request_le_low_latency_params(void) {
+    if (g_btstack_le_session.con_handle == HCI_CON_HANDLE_INVALID) {
+        return;
+    }
+
+    /*
+     * Best-effort latency reduction: peripherals may reject or ignore this
+     * request, in which case the existing negotiated parameters remain active.
+     */
+    (void)gap_request_connection_parameter_update(
+        g_btstack_le_session.con_handle,
+        PICO_W_STACK_LE_CONN_INTERVAL_MIN,
+        PICO_W_STACK_LE_CONN_INTERVAL_MAX,
+        PICO_W_STACK_LE_CONN_LATENCY,
+        PICO_W_STACK_LE_CONN_SUPERVISION_TIMEOUT
+    );
 }
 
 static uint8_t pico_w_stack_connect_with_reconnect_whitelist(void) {
@@ -1377,6 +1399,7 @@ static void pico_w_stack_handle_gattservice_meta(uint8_t * packet) {
             g_btstack_le_session.hids_cid = hids_cid;
             g_btstack_le_hids_pending_since_ms = 0U;
             pico_w_stack_handle_connect_success();
+            pico_w_stack_request_le_low_latency_params();
             pico_w_stack_emit_le_open_event(
                 hids_cid,
                 g_btstack_le_session.addr,
@@ -1447,6 +1470,7 @@ static void pico_w_stack_handle_le_connection_complete(uint8_t * packet) {
             g_btstack_le_session.addr_type = g_btstack_candidate_addr_type;
         }
     }
+    pico_w_stack_request_le_low_latency_params();
     g_btstack_le_security_pending = false;
     g_btstack_le_hids_connect_pending = true;
     g_btstack_le_hids_pending_since_ms = g_btstack_now_ms;
@@ -1764,9 +1788,7 @@ bool pico_w_stack_init(bool radio_ready) {
     hci_add_event_handler(&g_btstack_hci_event_callback_registration);
     g_btstack_sm_event_callback_registration.callback = &pico_w_btstack_packet_handler;
     sm_add_event_handler(&g_btstack_sm_event_callback_registration);
-    gap_set_default_link_policy_settings(
-        LM_LINK_POLICY_ENABLE_SNIFF_MODE | LM_LINK_POLICY_ENABLE_ROLE_SWITCH
-    );
+    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH);
     hci_set_master_slave_policy(HCI_ROLE_MASTER);
     (void)hci_power_control(HCI_POWER_ON);
     g_btstack_available = true;
