@@ -15,6 +15,12 @@ static pico_w_state_t g_state = {
     .initialized = false,
 };
 
+#if defined(APP_PICO_HAS_TINYUSB)
+enum {
+    PICO_W_TINYUSB_MAX_POLL_SLEEP_US = 500U,
+};
+#endif
+
 #if defined(APP_PICO_HAS_TELEMETRY)
 enum {
     PICO_W_DIAG_QUEUE_SIZE = 16U,
@@ -295,6 +301,12 @@ void platform_apply(const platform_output_t * output) {
     if (have_stack_runtime_state && (stack_runtime_state.event_queue_depth > 0U)) {
         sleep_us = 0U;
     }
+
+#if defined(APP_PICO_HAS_TINYUSB)
+    if (sleep_us > PICO_W_TINYUSB_MAX_POLL_SLEEP_US) {
+        sleep_us = PICO_W_TINYUSB_MAX_POLL_SLEEP_US;
+    }
+#endif
 
     pico_w_hw_set_led(output->led_on);
     pico_w_hw_sleep_us(sleep_us);

@@ -10,13 +10,25 @@
 #include "device/usbd_pvt.h"
 
 static uint8_t g_reset_interface_number = 0U;
+static uint8_t g_reset_pending_request = 0U;
+static uint16_t g_reset_pending_bootsel_activity_mask = 0U;
+
+enum {
+    PICO_W_RESET_REQUEST_NONE = 0U,
+    PICO_W_RESET_REQUEST_BOOTSEL = 1U,
+    PICO_W_RESET_REQUEST_FLASH = 2U,
+};
 
 static void pico_w_resetd_init(void) {
+    g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+    g_reset_pending_bootsel_activity_mask = 0U;
 }
 
 static void pico_w_resetd_reset(uint8_t rhport) {
     (void)rhport;
     g_reset_interface_number = 0U;
+    g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+    g_reset_pending_bootsel_activity_mask = 0U;
 }
 
 static uint16_t pico_w_resetd_open(
@@ -46,30 +58,63 @@ static bool pico_w_resetd_control_xfer_cb(
     uint8_t stage,
     tusb_control_request_t const * request
 ) {
-    uint16_t interface_index = 0U;
-
-    (void)rhport;
-
-    if ((stage != CONTROL_STAGE_SETUP) || (request == NULL)) {
+    if (request == NULL) {
         return true;
     }
 
-    interface_index = request->wIndex;
-    if (interface_index != g_reset_interface_number) {
+    if ((uint8_t)(request->wIndex & 0x00FFU) != g_reset_interface_number) {
         return false;
     }
 
-    if (request->bRequest == RESET_REQUEST_BOOTSEL) {
-        reset_usb_boot(0U, (uint32_t)(request->wValue & 0x007FU));
+    if (stage == CONTROL_STAGE_SETUP) {
+        g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+        g_reset_pending_bootsel_activity_mask = 0U;
+
+        if (request->bRequest == RESET_REQUEST_BOOTSEL) {
+            g_reset_pending_request = PICO_W_RESET_REQUEST_BOOTSEL;
+            g_reset_pending_bootsel_activity_mask = (uint16_t)(request->wValue & 0x007FU);
+            if (!tud_control_status(rhport, request)) {
+                g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+                g_reset_pending_bootsel_activity_mask = 0U;
+                return false;
+            }
+            return true;
+        }
+
+        if (request->bRequest == RESET_REQUEST_FLASH) {
+            g_reset_pending_request = PICO_W_RESET_REQUEST_FLASH;
+            g_reset_pending_bootsel_activity_mask = 0U;
+            if (!tud_control_status(rhport, request)) {
+                g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+                return false;
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    if ((stage != CONTROL_STAGE_ACK) || (g_reset_pending_request == PICO_W_RESET_REQUEST_NONE)) {
         return true;
     }
 
-    if (request->bRequest == RESET_REQUEST_FLASH) {
+    if ((g_reset_pending_request == PICO_W_RESET_REQUEST_BOOTSEL)
+        && (request->bRequest == RESET_REQUEST_BOOTSEL)) {
+        g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+        reset_usb_boot(0U, (uint32_t)g_reset_pending_bootsel_activity_mask);
+        return true;
+    }
+
+    if ((g_reset_pending_request == PICO_W_RESET_REQUEST_FLASH)
+        && (request->bRequest == RESET_REQUEST_FLASH)) {
+        g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
         watchdog_reboot(0U, 0U, 0U);
         return true;
     }
 
-    return false;
+    g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+    g_reset_pending_bootsel_activity_mask = 0U;
+    return true;
 }
 
 static bool pico_w_resetd_xfer_cb(

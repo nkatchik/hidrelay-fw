@@ -21,7 +21,9 @@ picotool_source_dir="${cache_dir}/picotool/picotool-src"
 picotool_build_dir="${cache_dir}/picotool-libusb-build"
 picotool_install_dir="${cache_dir}/picotool-libusb-install"
 picotool_exe="${picotool_install_dir}/picotool/picotool"
-picotool_patch="${repo_root}/platform/pico_w/patches/picotool-reset-interface.patch"
+picotool_revision="hidrelay-upstream-v1"
+picotool_revision_file="${picotool_install_dir}/picotool/.hidrelay_revision"
+legacy_patch_revision_file="${picotool_install_dir}/picotool/.hidrelay_patch_revision"
 picotool_git_url="${PICOTOOL_GIT_URL:-https://github.com/raspberrypi/picotool.git}"
 picotool_git_tag="${PICOTOOL_GIT_TAG:-2.0.0}"
 cmake_policy_minimum="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
@@ -36,6 +38,10 @@ run_picotool() {
 
 picotool_ready() {
     [[ -x "${picotool_exe}" ]] || return 1
+    [[ -f "${picotool_revision_file}" ]] || return 1
+    if [[ "$(cat "${picotool_revision_file}")" != "${picotool_revision}" ]]; then
+        return 1
+    fi
     run_picotool help reboot >/dev/null 2>&1
 }
 
@@ -139,16 +145,6 @@ build_libusb() {
     )
 }
 
-patch_picotool_source() {
-    local picoboot_connection_src="${picotool_source_dir}/picoboot_connection/picoboot_connection.c"
-
-    if grep -Fq "has_reset_interface(const struct libusb_config_descriptor *config)" "${picoboot_connection_src}"; then
-        return 0
-    fi
-
-    patch -d "${picotool_source_dir}" -p1 < "${picotool_patch}"
-}
-
 build_picotool() {
     ensure_pico_sdk
 
@@ -167,7 +163,7 @@ ensure_local_picotool() {
         return 0
     fi
 
-    echo "🔧 Building local picotool with USB reboot support..."
+    echo "🔧 Building local libusb-enabled picotool..."
 
     ensure_picotool_source
 
@@ -175,11 +171,17 @@ ensure_local_picotool() {
         build_libusb
     fi
 
-    patch_picotool_source
+    if [[ -d "${picotool_source_dir}/.git" ]]; then
+        git -C "${picotool_source_dir}" checkout -- picoboot_connection/picoboot_connection.c
+    fi
+
     build_picotool
+    mkdir -p "$(dirname "${picotool_revision_file}")"
+    printf '%s\n' "${picotool_revision}" > "${picotool_revision_file}"
+    rm -f "${legacy_patch_revision_file}"
 
     if ! picotool_ready; then
-        echo "Failed to build local picotool with reboot support." >&2
+        echo "Failed to build local libusb-enabled picotool." >&2
         exit 1
     fi
 }
