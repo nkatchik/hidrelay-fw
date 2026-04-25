@@ -14,6 +14,10 @@ enum {
     APP_RECONNECT_STACK_NOT_READY_RETRY_MS = 3000U,
     APP_REMOVE_LAST_BLINK_COUNT = 1U,
     APP_FACTORY_RESET_BLINK_COUNT = 3U,
+    APP_PAIRING_ERROR_BLINK_CONNECT_COUNT = 1U,
+    APP_PAIRING_ERROR_BLINK_AUTH_COUNT = 2U,
+    APP_PAIRING_ERROR_BLINK_STACK_COUNT = 3U,
+    APP_PAIRING_ERROR_BLINK_UNKNOWN_COUNT = 4U,
     APP_FACTORY_RESET_SEQUENCE_MS = 2600U
 };
 
@@ -31,6 +35,29 @@ static led_ui_state_t app_led_state_from_bt_state(bt_manager_state_t bt_state) {
     }
 
     return LED_UI_STATE_IDLE;
+}
+
+static uint8_t app_pairing_error_blink_count(uint8_t reconnect_result) {
+    if ((reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED)
+        || (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_TIMEOUT)) {
+        return APP_PAIRING_ERROR_BLINK_CONNECT_COUNT;
+    }
+
+    if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED) {
+        return APP_PAIRING_ERROR_BLINK_AUTH_COUNT;
+    }
+
+    if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED) {
+        return APP_PAIRING_ERROR_BLINK_STACK_COUNT;
+    }
+
+    if ((reconnect_result != HID_TRANSPORT_RECONNECT_RESULT_NONE)
+        && (reconnect_result != HID_TRANSPORT_RECONNECT_RESULT_REQUESTED)
+        && (reconnect_result != HID_TRANSPORT_RECONNECT_RESULT_SUCCESS)) {
+        return APP_PAIRING_ERROR_BLINK_UNKNOWN_COUNT;
+    }
+
+    return 0U;
 }
 
 static void app_seed_pair_db(
@@ -293,10 +320,14 @@ void app_tick(
     hid_transport_forget_request_t forget_request = {.valid = false, .device_id = {.bytes = {0}}};
     usb_bridge_telemetry_t bridge_telemetry = {0};
     bt_manager_state_t bt_state = BT_MANAGER_STATE_IDLE;
+    bt_manager_state_t bt_state_before_event = BT_MANAGER_STATE_IDLE;
     pair_db_entry_t reconnect_candidate = {0};
     uint8_t reconnect_index = 0U;
     uint8_t interface_index = 0U;
     bool disconnect_event_cue = false;
+    bool pairing_attempt_started = false;
+    bool pairing_attempt_succeeded = false;
+    uint8_t pairing_attempt_error_blinks = 0U;
 
     if ((app == NULL) || (input == NULL) || (output == NULL)) {
         return;
@@ -342,6 +373,20 @@ void app_tick(
         app->factory_reset_due_ms = input->now_ms + APP_FACTORY_RESET_SEQUENCE_MS;
     }
 
+    bt_state_before_event = bt_manager_state(&app->bt_manager);
+    if ((input->transport_event.type == HID_TRANSPORT_EVENT_RECONNECT_RESULT)
+        && (bt_state_before_event == BT_MANAGER_STATE_PAIRING)) {
+        if (input->transport_event.reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_REQUESTED) {
+            pairing_attempt_started = true;
+        } else if (input->transport_event.reconnect_result
+            == HID_TRANSPORT_RECONNECT_RESULT_SUCCESS) {
+            pairing_attempt_succeeded = true;
+        } else {
+            pairing_attempt_error_blinks =
+                app_pairing_error_blink_count(input->transport_event.reconnect_result);
+        }
+    }
+
     app_handle_transport_event(app, input);
     disconnect_event_cue = input->transport_event.type == HID_TRANSPORT_EVENT_BT_HID_CLOSE;
     (void)pair_db_reconnect_recover_expired(&app->pair_db, input->now_ms);
@@ -375,6 +420,16 @@ void app_tick(
     led_ui_set_state(&app->led_ui, app_led_state_from_bt_state(bt_state), input->now_ms);
     if (disconnect_event_cue) {
         led_ui_trigger_disconnect_cue(&app->led_ui, input->now_ms);
+    }
+    if (bt_state == BT_MANAGER_STATE_PAIRING) {
+        if (pairing_attempt_started) {
+            led_ui_set_pairing_attempt_active(&app->led_ui, true, input->now_ms);
+        } else if (pairing_attempt_succeeded) {
+            led_ui_set_pairing_attempt_active(&app->led_ui, false, input->now_ms);
+        } else if (pairing_attempt_error_blinks > 0U) {
+            led_ui_set_pairing_attempt_active(&app->led_ui, false, input->now_ms);
+            led_ui_trigger_error_blink(&app->led_ui, pairing_attempt_error_blinks, input->now_ms);
+        }
     }
 
     output->led_on = led_ui_tick(&app->led_ui, input->now_ms);

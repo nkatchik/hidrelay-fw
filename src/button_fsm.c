@@ -15,6 +15,8 @@ void button_fsm_init(button_fsm_t * fsm) {
 
     fsm->stable_pressed = false;
     fsm->very_long_emitted = false;
+    fsm->long_press_emitted = false;
+    fsm->arm_pending_on_release = false;
     fsm->pending_long_press = false;
     fsm->press_started_ms = 0U;
     fsm->first_long_released_ms = 0U;
@@ -32,14 +34,34 @@ button_command_t button_fsm_update(
     if (pressed && !fsm->stable_pressed) {
         fsm->stable_pressed = true;
         fsm->very_long_emitted = false;
+        fsm->long_press_emitted = false;
+        fsm->arm_pending_on_release = false;
         fsm->press_started_ms = now_ms;
     }
 
     if (pressed && fsm->stable_pressed && !fsm->very_long_emitted) {
-        if ((now_ms - fsm->press_started_ms) >= BUTTON_VERY_LONG_PRESS_MS) {
+        const uint32_t press_duration_ms = now_ms - fsm->press_started_ms;
+
+        if (press_duration_ms >= BUTTON_VERY_LONG_PRESS_MS) {
             fsm->very_long_emitted = true;
+            fsm->long_press_emitted = true;
+            fsm->arm_pending_on_release = false;
             fsm->pending_long_press = false;
             return BUTTON_COMMAND_REMOVE_ALL;
+        }
+
+        if (!fsm->long_press_emitted && (press_duration_ms >= BUTTON_LONG_PRESS_MIN_MS)) {
+            fsm->long_press_emitted = true;
+
+            if (fsm->pending_long_press
+                && ((now_ms - fsm->first_long_released_ms) <= BUTTON_DOUBLE_LONG_WINDOW_MS)) {
+                fsm->pending_long_press = false;
+                fsm->arm_pending_on_release = false;
+                return BUTTON_COMMAND_REMOVE_LAST;
+            }
+
+            fsm->arm_pending_on_release = true;
+            return BUTTON_COMMAND_PAIR_ANY;
         }
     }
 
@@ -50,6 +72,19 @@ button_command_t button_fsm_update(
 
         if (fsm->very_long_emitted) {
             fsm->very_long_emitted = false;
+            fsm->long_press_emitted = false;
+            fsm->arm_pending_on_release = false;
+            return BUTTON_COMMAND_NONE;
+        }
+
+        if (fsm->long_press_emitted) {
+            if (fsm->arm_pending_on_release) {
+                fsm->pending_long_press = true;
+                fsm->first_long_released_ms = now_ms;
+            }
+
+            fsm->long_press_emitted = false;
+            fsm->arm_pending_on_release = false;
             return BUTTON_COMMAND_NONE;
         }
 
@@ -62,16 +97,16 @@ button_command_t button_fsm_update(
 
             fsm->pending_long_press = true;
             fsm->first_long_released_ms = now_ms;
-            return BUTTON_COMMAND_NONE;
+            return BUTTON_COMMAND_PAIR_ANY;
         }
 
+        fsm->pending_long_press = false;
         return BUTTON_COMMAND_SINGLE_CLICK;
     }
 
     if (!pressed && !fsm->stable_pressed && fsm->pending_long_press) {
         if ((now_ms - fsm->first_long_released_ms) > BUTTON_DOUBLE_LONG_WINDOW_MS) {
             fsm->pending_long_press = false;
-            return BUTTON_COMMAND_PAIR_ANY;
         }
     }
 

@@ -170,18 +170,18 @@ static bool app_replay_test_pair_any_from_long_press(void) {
         return false;
     }
 
-    app_replay_tick(&app, 3100U, false, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
     if (!app_replay_expect_true(
-            !out.pairing_active,
-            "pairing should still wait for double-long window"
+            out.pairing_active,
+            "pair-any should activate once long-press threshold is reached while held"
         )) {
         return false;
     }
 
-    app_replay_tick(&app, 5601U, false, NULL, &out);
+    app_replay_tick(&app, 3100U, false, NULL, &out);
     return app_replay_expect_true(
         out.pairing_active,
-        "pair-any should activate after long-press release window"
+        "pair-any should stay active after long-press release"
     );
 }
 
@@ -192,8 +192,8 @@ static bool app_replay_test_pair_any_timeout_after_60s(void) {
     app_init(&app, NULL);
 
     app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
     app_replay_tick(&app, 3100U, false, NULL, &out);
-    app_replay_tick(&app, 5601U, false, NULL, &out);
 
     if (!app_replay_expect_true(
             out.pairing_active,
@@ -202,7 +202,7 @@ static bool app_replay_test_pair_any_timeout_after_60s(void) {
         return false;
     }
 
-    app_replay_tick(&app, 65600U, false, NULL, &out);
+    app_replay_tick(&app, 61999U, false, NULL, &out);
     if (!app_replay_expect_true(
             out.pairing_active,
             "pair-any should stay active until full 60s elapsed"
@@ -210,8 +210,8 @@ static bool app_replay_test_pair_any_timeout_after_60s(void) {
         return false;
     }
 
-    app_replay_tick(&app, 65601U, false, NULL, &out);
-    return app_replay_expect_true(!out.pairing_active, "pair-any should stop after 60s timeout");
+    app_replay_tick(&app, 62000U, false, NULL, &out);
+    return app_replay_expect_true(!out.pairing_active, "pair-any should stop at 60s timeout");
 }
 
 static bool app_replay_test_pair_any_cancelled_by_single_click(void) {
@@ -221,8 +221,8 @@ static bool app_replay_test_pair_any_cancelled_by_single_click(void) {
     app_init(&app, NULL);
 
     app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
     app_replay_tick(&app, 3100U, false, NULL, &out);
-    app_replay_tick(&app, 5601U, false, NULL, &out);
     if (!app_replay_expect_true(
             out.pairing_active,
             "pair-any should be active before single-click cancel"
@@ -235,6 +235,154 @@ static bool app_replay_test_pair_any_cancelled_by_single_click(void) {
     return app_replay_expect_true(
         !out.pairing_active,
         "single click should cancel pairing when active"
+    );
+}
+
+static bool app_replay_test_pairing_attempt_led_lifecycle(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x12U);
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
+    if (!app_replay_expect_true(out.pairing_active, "pair-any should be active during hold")) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(!out.led_on, "pairing LED should stay dark until attempt starts")) {
+        return false;
+    }
+
+    event.type = HID_TRANSPORT_EVENT_RECONNECT_RESULT;
+    event.device_id = device_id;
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_REQUESTED;
+    event.status_code = 0U;
+    app_replay_tick(&app, 2100U, false, &event, &out);
+    if (!app_replay_expect_true(
+            out.led_on,
+            "pairing attempt should drive steady LED on while in progress"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 2400U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            out.led_on,
+            "pairing attempt LED should remain steady on until completion"
+        )) {
+        return false;
+    }
+
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED;
+    event.status_code = 0x04U;
+    app_replay_tick(&app, 3000U, false, &event, &out);
+    if (!app_replay_expect_true(
+            out.led_on,
+            "connect-failed attempt should start failure blink cue on-phase"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 3499U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            out.led_on,
+            "failure blink on-phase should last for half a second"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 3500U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.led_on,
+            "single failure blink should complete after first half-second pulse"
+        )) {
+        return false;
+    }
+
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_REQUESTED;
+    event.status_code = 0U;
+    app_replay_tick(&app, 3600U, false, &event, &out);
+    if (!app_replay_expect_true(
+            out.led_on,
+            "next attempt request should preempt cues and restore steady-on attempt signal"
+        )) {
+        return false;
+    }
+
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_SUCCESS;
+    app_replay_tick(&app, 4100U, false, &event, &out);
+    if (!app_replay_expect_true(
+            !out.led_on,
+            "successful attempt should drop LED to dark immediately"
+        )) {
+        return false;
+    }
+
+    (void)memset(&event, 0, sizeof(event));
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x88U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    app_replay_tick(&app, 4200U, false, &event, &out);
+
+    if (!app_replay_expect_true(
+            !out.pairing_active,
+            "pairing mode should end after successful HID open"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        !out.led_on,
+        "pairing success should transition to connected state without a long on cue"
+    );
+}
+
+static bool app_replay_test_pairing_auth_failure_uses_double_blink(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x13U);
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
+
+    event.type = HID_TRANSPORT_EVENT_RECONNECT_RESULT;
+    event.device_id = device_id;
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_REQUESTED;
+    event.status_code = 0U;
+    app_replay_tick(&app, 2100U, false, &event, &out);
+
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED;
+    event.status_code = 0x05U;
+    app_replay_tick(&app, 3000U, false, &event, &out);
+    if (!app_replay_expect_true(out.led_on, "auth-failure cue should begin with LED on")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 3500U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.led_on,
+            "auth-failure cue should turn LED off after first pulse"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 4000U, false, NULL, &out);
+    if (!app_replay_expect_true(out.led_on, "auth-failure cue should run a second on pulse")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 4500U, false, NULL, &out);
+    return app_replay_expect_true(
+        !out.led_on,
+        "auth-failure double-blink should complete after second pulse"
     );
 }
 
@@ -300,9 +448,10 @@ static bool app_replay_test_remove_last_double_long_press_recent_only(void) {
     app_init(&app, &initial_pair_db);
 
     app_replay_tick(&app, 5000U, true, NULL, &out);
+    app_replay_tick(&app, 6100U, true, NULL, &out);
     app_replay_tick(&app, 7100U, false, NULL, &out);
     app_replay_tick(&app, 7500U, true, NULL, &out);
-    app_replay_tick(&app, 9550U, false, NULL, &out);
+    app_replay_tick(&app, 8600U, true, NULL, &out);
 
     if (!app_replay_expect_u32_eq(
             pair_db_count(&app.pair_db),
@@ -319,9 +468,18 @@ static bool app_replay_test_remove_last_double_long_press_recent_only(void) {
         return false;
     }
 
-    return app_replay_expect_true(
-        app_replay_device_id_equal(&out.forget_request.device_id, &device_id),
-        "forget request device id should match removed device"
+    if (!app_replay_expect_true(
+            app_replay_device_id_equal(&out.forget_request.device_id, &device_id),
+            "forget request device id should match removed device"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 9550U, false, NULL, &out);
+    return app_replay_expect_u32_eq(
+        pair_db_count(&app.pair_db),
+        0U,
+        "remove-last result should persist after release"
     );
 }
 
@@ -339,9 +497,10 @@ static bool app_replay_test_remove_last_ignored_when_not_recent(void) {
     app_init(&app, &initial_pair_db);
 
     app_replay_tick(&app, (60U * 60U * 1000U) + 5000U, true, NULL, &out);
+    app_replay_tick(&app, (60U * 60U * 1000U) + 6100U, true, NULL, &out);
     app_replay_tick(&app, (60U * 60U * 1000U) + 7100U, false, NULL, &out);
     app_replay_tick(&app, (60U * 60U * 1000U) + 7500U, true, NULL, &out);
-    app_replay_tick(&app, (60U * 60U * 1000U) + 9550U, false, NULL, &out);
+    app_replay_tick(&app, (60U * 60U * 1000U) + 8600U, true, NULL, &out);
 
     if (!app_replay_expect_u32_eq(
             pair_db_count(&app.pair_db),
@@ -969,6 +1128,10 @@ int main(void) {
         {.name = "pair_any_timeout_after_60s", .fn = app_replay_test_pair_any_timeout_after_60s},
         {.name = "pair_any_cancelled_by_single_click",
             .fn = app_replay_test_pair_any_cancelled_by_single_click},
+        {.name = "pairing_attempt_led_lifecycle",
+            .fn = app_replay_test_pairing_attempt_led_lifecycle},
+        {.name = "pairing_auth_failure_uses_double_blink",
+            .fn = app_replay_test_pairing_auth_failure_uses_double_blink},
         {.name = "sleep_adaptive_idle_vs_connected",
             .fn = app_replay_test_sleep_adaptive_idle_vs_connected},
         {.name = "remove_last_double_long_press_recent_only",

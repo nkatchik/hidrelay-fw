@@ -448,7 +448,7 @@ static uint8_t pico_w_stack_classify_reconnect_failure(
         return HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED;
     }
 
-    if (auth_attempted && pico_w_stack_status_is_auth_related(status_code)) {
+    if (auth_attempted || pico_w_stack_status_is_auth_related(status_code)) {
         return HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED;
     }
 
@@ -791,6 +791,12 @@ static void pico_w_stack_schedule_candidate(
     g_btstack_le_hids_pending_since_ms = 0U;
     if (!reconnect_pending) {
         pico_w_stack_clear_reconnect_state();
+        if (g_btstack_pairing_active) {
+            pico_w_stack_emit_reconnect_result_for_candidate(
+                HID_TRANSPORT_RECONNECT_RESULT_REQUESTED,
+                ERROR_CODE_SUCCESS
+            );
+        }
     }
     pico_w_stack_stop_discovery();
 }
@@ -887,6 +893,11 @@ static void pico_w_stack_handle_connect_failure(uint8_t status_code) {
             status_code
         );
         pico_w_stack_clear_reconnect_state();
+    } else if (g_btstack_pairing_active) {
+        pico_w_stack_emit_reconnect_result_for_candidate(
+            pico_w_stack_classify_reconnect_failure(status_code, auth_attempted),
+            status_code
+        );
     }
 
     pico_w_stack_try_start_discovery();
@@ -916,6 +927,11 @@ static void pico_w_stack_handle_connect_success(void) {
             ERROR_CODE_SUCCESS
         );
         pico_w_stack_clear_reconnect_state();
+    } else if (g_btstack_pairing_active) {
+        pico_w_stack_emit_reconnect_result_for_candidate(
+            HID_TRANSPORT_RECONNECT_RESULT_SUCCESS,
+            ERROR_CODE_SUCCESS
+        );
     }
 }
 

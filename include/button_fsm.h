@@ -15,6 +15,8 @@ typedef enum {
 typedef struct {
     bool stable_pressed;
     bool very_long_emitted;
+    bool long_press_emitted;
+    bool arm_pending_on_release;
     bool pending_long_press;
     uint32_t press_started_ms;
     uint32_t first_long_released_ms;
