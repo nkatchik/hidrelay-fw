@@ -1242,6 +1242,83 @@ static bool app_replay_test_reconnect_close_mismatched_link_falls_back_to_device
     );
 }
 
+static bool app_replay_test_known_open_preserves_stored_hid_metadata(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    uint32_t open_generation = 0U;
+    const pair_device_id_t device_id = app_replay_device_id(0x45U);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    if (!pair_db_touch_session(
+            &initial_pair_db,
+            &device_id,
+            10U,
+            0x05ACU,
+            0x030DU,
+            77U,
+            HID_TRANSPORT_PROTOCOL_REPORT,
+            HID_TRANSPORT_BT_LINK_TYPE_LE,
+            HID_TRANSPORT_BT_ADDR_TYPE_LE_RANDOM_IDENTITY
+        )) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+    app_replay_tick(&app, 100U, false, NULL, &out);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x45U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_UNKNOWN;
+    event.report_descriptor_len = 0U;
+    event.protocol_mode = HID_TRANSPORT_PROTOCOL_UNKNOWN;
+    app_replay_tick(&app, 110U, false, &event, &out);
+    open_generation = out.usb_descriptor_generation;
+
+    if (!app_replay_expect_u32_eq(
+            out.usb_interface_plan[0].report_descriptor_len,
+            77U,
+            "known open should reuse stored descriptor length"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            out.usb_interface_plan[0].protocol_mode,
+            HID_TRANSPORT_PROTOCOL_REPORT,
+            "known open should reuse stored protocol mode"
+        )) {
+        return false;
+    }
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_DESCRIPTOR;
+    event.report_descriptor_len = 77U;
+    app_replay_tick(&app, 120U, false, &event, &out);
+    if (!app_replay_expect_u32_eq(
+            out.usb_descriptor_generation,
+            open_generation,
+            "matching descriptor event should not dirty USB topology"
+        )) {
+        return false;
+    }
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_PROTOCOL;
+    event.protocol_mode = HID_TRANSPORT_PROTOCOL_REPORT;
+    app_replay_tick(&app, 130U, false, &event, &out);
+    return app_replay_expect_u32_eq(
+        out.usb_descriptor_generation,
+        open_generation,
+        "matching protocol event should not dirty USB topology"
+    );
+}
+
 static bool app_replay_test_bt_report_routed_to_usb(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -1485,6 +1562,8 @@ int main(void) {
             .fn = app_replay_test_reconnect_close_stale_hid_cid_falls_back_to_device},
         {.name = "reconnect_close_mismatched_link_falls_back_to_device",
             .fn = app_replay_test_reconnect_close_mismatched_link_falls_back_to_device},
+        {.name = "known_open_preserves_stored_hid_metadata",
+            .fn = app_replay_test_known_open_preserves_stored_hid_metadata},
         {.name = "bt_report_routed_to_usb", .fn = app_replay_test_bt_report_routed_to_usb},
         {.name = "usb_report_routed_to_bt", .fn = app_replay_test_usb_report_routed_to_bt},
         {.name = "hid_device_map_profile_detection",

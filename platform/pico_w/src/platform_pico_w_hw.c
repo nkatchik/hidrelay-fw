@@ -12,9 +12,13 @@ enum {
 };
 
 static bool g_pico_w_radio_initialized = false;
+static bool g_pico_w_led_state_valid = false;
+static bool g_pico_w_led_on = false;
 
 bool pico_w_hw_init_radio(void) {
     g_pico_w_radio_initialized = false;
+    g_pico_w_led_state_valid = false;
+    g_pico_w_led_on = false;
 
     if (cyw43_arch_init() != 0) {
         return false;
@@ -64,7 +68,13 @@ void pico_w_hw_set_led(bool led_on) {
         return;
     }
 
+    if (g_pico_w_led_state_valid && (g_pico_w_led_on == led_on)) {
+        return;
+    }
+
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on ? 1 : 0);
+    g_pico_w_led_on = led_on;
+    g_pico_w_led_state_valid = true;
 }
 
 void pico_w_hw_sleep_us(uint32_t sleep_duration_us) {

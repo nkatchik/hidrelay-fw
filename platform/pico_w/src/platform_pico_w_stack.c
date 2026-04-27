@@ -179,10 +179,14 @@ static bool pico_w_stack_find_hid_cid_for_device(
 enum {
     PICO_W_STACK_LE_SCAN_INTERVAL = 48U,
     PICO_W_STACK_LE_SCAN_WINDOW = 48U,
+    PICO_W_STACK_LE_CONN_SCAN_INTERVAL = 48U,
+    PICO_W_STACK_LE_CONN_SCAN_WINDOW = 48U,
     PICO_W_STACK_LE_CONN_INTERVAL_MIN = 9U,
     PICO_W_STACK_LE_CONN_INTERVAL_MAX = 12U,
     PICO_W_STACK_LE_CONN_LATENCY = 0U,
     PICO_W_STACK_LE_CONN_SUPERVISION_TIMEOUT = 40U,
+    PICO_W_STACK_LE_CONN_CE_LENGTH_MIN = 0U,
+    PICO_W_STACK_LE_CONN_CE_LENGTH_MAX = 0U,
     PICO_W_STACK_LE_HIDS_SERVICE_INDEX = 0U,
     PICO_W_STACK_RECONNECT_MAX_ATTEMPT = 4U,
     PICO_W_STACK_RECONNECT_CMD_DISALLOWED_TIMEOUT_MS = 1500U,
@@ -2057,6 +2061,16 @@ bool pico_w_stack_init(bool radio_ready) {
         PICO_W_STACK_LE_SCAN_TYPE_ACTIVE,
         PICO_W_STACK_LE_SCAN_INTERVAL,
         PICO_W_STACK_LE_SCAN_WINDOW
+    );
+    gap_set_connection_parameters(
+        PICO_W_STACK_LE_CONN_SCAN_INTERVAL,
+        PICO_W_STACK_LE_CONN_SCAN_WINDOW,
+        PICO_W_STACK_LE_CONN_INTERVAL_MIN,
+        PICO_W_STACK_LE_CONN_INTERVAL_MAX,
+        PICO_W_STACK_LE_CONN_LATENCY,
+        PICO_W_STACK_LE_CONN_SUPERVISION_TIMEOUT,
+        PICO_W_STACK_LE_CONN_CE_LENGTH_MIN,
+        PICO_W_STACK_LE_CONN_CE_LENGTH_MAX
     );
     hids_client_init(g_btstack_hid_descriptor_storage, sizeof(g_btstack_hid_descriptor_storage));
     hid_host_init(g_btstack_hid_descriptor_storage, sizeof(g_btstack_hid_descriptor_storage));

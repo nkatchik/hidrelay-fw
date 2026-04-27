@@ -122,6 +122,64 @@ static bool bt_manager_pair_db_contains(
     return pair_db_find(pair_db, device_id, &index);
 }
 
+static bool bt_manager_pair_db_entry_for_device(
+    const pair_db_t * pair_db,
+    const pair_device_id_t * device_id,
+    pair_db_entry_t * out_entry
+) {
+    uint8_t index = 0U;
+
+    if ((pair_db == NULL) || (device_id == NULL) || (out_entry == NULL)) {
+        return false;
+    }
+
+    if (!pair_db_find(pair_db, device_id, &index)) {
+        return false;
+    }
+
+    return pair_db_get_entry(pair_db, index, out_entry);
+}
+
+static void bt_manager_fill_open_metadata_from_pair_db(
+    const pair_db_entry_t * entry,
+    uint16_t * vendor_id,
+    uint16_t * product_id,
+    uint16_t * report_descriptor_len,
+    uint8_t * protocol_mode,
+    uint8_t * bt_addr_type
+) {
+    if ((entry == NULL)
+        || (vendor_id == NULL)
+        || (product_id == NULL)
+        || (report_descriptor_len == NULL)
+        || (protocol_mode == NULL)
+        || (bt_addr_type == NULL)) {
+        return;
+    }
+
+    if ((*vendor_id == 0U) && (entry->last_vendor_id != 0U)) {
+        *vendor_id = entry->last_vendor_id;
+    }
+
+    if ((*product_id == 0U) && (entry->last_product_id != 0U)) {
+        *product_id = entry->last_product_id;
+    }
+
+    if ((*report_descriptor_len == 0U) && (entry->last_report_descriptor_len != 0U)) {
+        *report_descriptor_len = entry->last_report_descriptor_len;
+    }
+
+    if ((*protocol_mode == HID_TRANSPORT_PROTOCOL_UNKNOWN)
+        && (entry->last_protocol_mode != HID_TRANSPORT_PROTOCOL_UNKNOWN)) {
+        *protocol_mode = entry->last_protocol_mode;
+    }
+
+    if ((*bt_addr_type == HID_TRANSPORT_BT_ADDR_TYPE_UNKNOWN)
+        && (entry->last_bt_addr_type != HID_TRANSPORT_BT_ADDR_TYPE_UNKNOWN)) {
+        *bt_addr_type = entry->last_bt_addr_type;
+    }
+}
+
 static void bt_manager_remove_active_index(
     bt_manager_t * manager,
     uint8_t index
@@ -276,6 +334,8 @@ bool bt_manager_ingest_hid_open(
     bt_hid_device_t * slot = NULL;
     uint8_t existing_index = 0U;
     bool known_device = false;
+    pair_db_entry_t known_entry = {0};
+    uint8_t protocol_mode = BT_MANAGER_PROTOCOL_UNKNOWN;
 
     if ((manager == NULL) || (manager->pair_db == NULL) || (device_id == NULL)) {
         return false;
@@ -291,6 +351,20 @@ bool bt_manager_ingest_hid_open(
     }
 
     known_device = bt_manager_pair_db_contains(manager->pair_db, device_id);
+    if (known_device) {
+        (void)bt_manager_pair_db_entry_for_device(manager->pair_db, device_id, &known_entry);
+        if ((known_entry.last_bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)
+            || (known_entry.last_bt_link_type == bt_link_type)) {
+            bt_manager_fill_open_metadata_from_pair_db(
+                &known_entry,
+                &vendor_id,
+                &product_id,
+                &report_descriptor_len,
+                &protocol_mode,
+                &bt_addr_type
+            );
+        }
+    }
 
     if (!known_device && (manager->state != BT_MANAGER_STATE_PAIRING)) {
         return false;
@@ -304,7 +378,7 @@ bool bt_manager_ingest_hid_open(
         slot->vendor_id = vendor_id;
         slot->product_id = product_id;
         slot->report_descriptor_len = report_descriptor_len;
-        slot->protocol_mode = BT_MANAGER_PROTOCOL_UNKNOWN;
+        slot->protocol_mode = protocol_mode;
         (void)pair_db_touch_session(
             manager->pair_db,
             device_id,
@@ -330,7 +404,7 @@ bool bt_manager_ingest_hid_open(
         slot->vendor_id = vendor_id;
         slot->product_id = product_id;
         slot->report_descriptor_len = report_descriptor_len;
-        slot->protocol_mode = BT_MANAGER_PROTOCOL_UNKNOWN;
+        slot->protocol_mode = protocol_mode;
         (void)pair_db_touch_session(
             manager->pair_db,
             device_id,
@@ -368,7 +442,7 @@ bool bt_manager_ingest_hid_open(
     slot->vendor_id = vendor_id;
     slot->product_id = product_id;
     slot->report_descriptor_len = report_descriptor_len;
-    slot->protocol_mode = BT_MANAGER_PROTOCOL_UNKNOWN;
+    slot->protocol_mode = protocol_mode;
 
     manager->active_count = (uint8_t)(manager->active_count + 1U);
     (void)pair_db_touch_session(
