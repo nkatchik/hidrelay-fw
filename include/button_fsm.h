@@ -6,7 +6,8 @@
 
 typedef enum {
     BUTTON_COMMAND_NONE = 0,
-    BUTTON_COMMAND_PAIR_ANY,
+    BUTTON_COMMAND_PAIR_BLE,
+    BUTTON_COMMAND_PAIR_CLASSIC,
     BUTTON_COMMAND_REMOVE_LAST,
     BUTTON_COMMAND_REMOVE_ALL,
     BUTTON_COMMAND_SINGLE_CLICK
@@ -16,6 +17,7 @@ typedef struct {
     bool stable_pressed;
     bool very_long_emitted;
     bool long_press_emitted;
+    bool classic_pair_emitted;
     bool arm_pending_on_release;
     bool pending_long_press;
     uint32_t press_started_ms;

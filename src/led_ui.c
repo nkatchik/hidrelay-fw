@@ -3,7 +3,8 @@
 #include <stddef.h>
 
 enum {
-    LED_UI_PAIRING_TOGGLE_MS = 100U,
+    LED_UI_PAIRING_TOGGLE_BLE_MS = 100U,
+    LED_UI_PAIRING_TOGGLE_CLASSIC_MS = 300U,
     LED_UI_CONNECTED_CUE_MS = 3000U,
     LED_UI_DISCONNECT_CUE_MS = 1000U,
     LED_UI_STARTUP_CUE_MS = 200U,
@@ -102,6 +103,7 @@ void led_ui_init(led_ui_t * ui) {
     ui->state = LED_UI_STATE_IDLE;
     ui->led_on = false;
     ui->pairing_attempt_active = false;
+    ui->pairing_toggle_ms = LED_UI_PAIRING_TOGGLE_BLE_MS;
     ui->cue_active = false;
     ui->cue_led_on = false;
     ui->cue_remaining_blink = 0U;
@@ -292,6 +294,29 @@ void led_ui_set_pairing_attempt_active(
     ui->last_transition_ms = now_ms;
 }
 
+void led_ui_set_pairing_classic_mode(
+    led_ui_t * ui,
+    bool classic_mode,
+    uint32_t now_ms
+) {
+    const uint32_t next_toggle_ms =
+        classic_mode ? LED_UI_PAIRING_TOGGLE_CLASSIC_MS : LED_UI_PAIRING_TOGGLE_BLE_MS;
+
+    if (ui == NULL) {
+        return;
+    }
+
+    if (ui->pairing_toggle_ms == next_toggle_ms) {
+        return;
+    }
+
+    ui->pairing_toggle_ms = next_toggle_ms;
+    if ((ui->state == LED_UI_STATE_PAIRING) && !ui->pairing_attempt_active) {
+        ui->led_on = true;
+        ui->last_transition_ms = now_ms;
+    }
+}
+
 bool led_ui_tick(
     led_ui_t * ui,
     uint32_t now_ms
@@ -364,7 +389,7 @@ bool led_ui_tick(
             return ui->led_on;
         }
 
-        if ((now_ms - ui->last_transition_ms) >= LED_UI_PAIRING_TOGGLE_MS) {
+        if ((now_ms - ui->last_transition_ms) >= ui->pairing_toggle_ms) {
             ui->led_on = !ui->led_on;
             ui->last_transition_ms = now_ms;
         }

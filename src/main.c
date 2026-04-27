@@ -20,6 +20,7 @@ static pair_db_t g_persisted_pair_db = {0};
 static app_output_t g_app_output = {
     .led_on = false,
     .pairing_active = false,
+    .pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN,
     .sleep_us = 100U,
     .usb_interface_count = 0U,
     .usb_descriptor_generation = 0U,
@@ -90,6 +91,7 @@ int main(void) {
 
         platform_output.led_on = g_app_output.led_on;
         platform_output.pairing_active = g_app_output.pairing_active;
+        platform_output.pairing_link_type = g_app_output.pairing_link_type;
         platform_output.sleep_us = g_app_output.sleep_us;
         platform_output.usb_interface_count = g_app_output.usb_interface_count;
         platform_output.usb_descriptor_generation = g_app_output.usb_descriptor_generation;

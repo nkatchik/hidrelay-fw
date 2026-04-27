@@ -32,6 +32,11 @@ static void bt_manager_refresh_state(bt_manager_t * manager) {
         (manager->active_count == 0U) ? BT_MANAGER_STATE_IDLE : BT_MANAGER_STATE_ACTIVE;
 }
 
+static bool bt_manager_valid_pairing_link_type(uint8_t bt_link_type) {
+    return (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_LE)
+        || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC);
+}
+
 static bool bt_manager_find_active_index_by_hid_cid(
     const bt_manager_t * manager,
     uint16_t hid_cid,
@@ -152,24 +157,30 @@ void bt_manager_init(
     manager->pair_db = pair_db;
     manager->state = BT_MANAGER_STATE_IDLE;
     manager->pairing_started_ms = 0U;
+    manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     manager->active_count = 0U;
     (void)memset(manager->active_device, 0, sizeof(manager->active_device));
 }
 
-bool bt_manager_start_pair_any(
+bool bt_manager_start_pairing(
     bt_manager_t * manager,
-    uint32_t now_ms
+    uint32_t now_ms,
+    uint8_t bt_link_type
 ) {
-    if ((manager == NULL) || (manager->pair_db == NULL)) {
+    if ((manager == NULL)
+        || (manager->pair_db == NULL)
+        || !bt_manager_valid_pairing_link_type(bt_link_type)) {
         return false;
     }
 
-    if (manager->state == BT_MANAGER_STATE_PAIRING) {
+    if ((manager->state == BT_MANAGER_STATE_PAIRING)
+        && (manager->pairing_bt_link_type == bt_link_type)) {
         return false;
     }
 
     manager->state = BT_MANAGER_STATE_PAIRING;
     manager->pairing_started_ms = now_ms;
+    manager->pairing_bt_link_type = bt_link_type;
     return true;
 }
 
@@ -183,6 +194,7 @@ bool bt_manager_cancel_pair_any(bt_manager_t * manager) {
     }
 
     manager->pairing_started_ms = 0U;
+    manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     manager->state =
         (manager->active_count == 0U) ? BT_MANAGER_STATE_IDLE : BT_MANAGER_STATE_ACTIVE;
     return true;
@@ -245,6 +257,7 @@ bool bt_manager_remove_all(bt_manager_t * manager) {
     (void)memset(manager->active_device, 0, sizeof(manager->active_device));
     manager->active_count = 0U;
     manager->pairing_started_ms = 0U;
+    manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     manager->state = BT_MANAGER_STATE_IDLE;
     return true;
 }
@@ -304,6 +317,7 @@ bool bt_manager_ingest_hid_open(
             slot->bt_addr_type
         );
         manager->pairing_started_ms = 0U;
+        manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         manager->state = BT_MANAGER_STATE_ACTIVE;
         return true;
     }
@@ -329,16 +343,19 @@ bool bt_manager_ingest_hid_open(
             slot->bt_addr_type
         );
         manager->pairing_started_ms = 0U;
+        manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         manager->state = BT_MANAGER_STATE_ACTIVE;
         return true;
     }
 
     if (manager->active_count >= BT_MANAGER_MAX_ACTIVE_DEVICE) {
+        manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         manager->state = BT_MANAGER_STATE_ERROR;
         return false;
     }
 
     if (!known_device && !pair_db_add(manager->pair_db, device_id, now_ms)) {
+        manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         manager->state = BT_MANAGER_STATE_ERROR;
         return false;
     }
@@ -366,6 +383,7 @@ bool bt_manager_ingest_hid_open(
         slot->bt_addr_type
     );
     manager->pairing_started_ms = 0U;
+    manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     manager->state = BT_MANAGER_STATE_ACTIVE;
     return true;
 }
@@ -545,6 +563,7 @@ void bt_manager_tick(
 
     if ((now_ms - manager->pairing_started_ms) >= BT_MANAGER_PAIRING_TIMEOUT_MS) {
         manager->pairing_started_ms = 0U;
+        manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         manager->state =
             (manager->active_count == 0U) ? BT_MANAGER_STATE_IDLE : BT_MANAGER_STATE_ACTIVE;
     }
@@ -556,6 +575,14 @@ bt_manager_state_t bt_manager_state(const bt_manager_t * manager) {
     }
 
     return manager->state;
+}
+
+uint8_t bt_manager_pairing_link_type(const bt_manager_t * manager) {
+    if ((manager == NULL) || (manager->state != BT_MANAGER_STATE_PAIRING)) {
+        return HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
+    }
+
+    return manager->pairing_bt_link_type;
 }
 
 uint8_t bt_manager_active_count(const bt_manager_t * manager) {

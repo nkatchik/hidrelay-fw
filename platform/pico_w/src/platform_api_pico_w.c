@@ -245,7 +245,7 @@ void platform_apply(const platform_output_t * output) {
         output->usb_descriptor_generation,
         output->usb_interface_plan
     );
-    pico_w_stack_set_pairing_active(output->pairing_active);
+    pico_w_stack_set_pairing(output->pairing_active, output->pairing_link_type);
 
     if (output->reconnect_request.valid) {
         (void)pico_w_stack_request_reconnect(

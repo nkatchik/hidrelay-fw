@@ -16,6 +16,7 @@ typedef struct {
 typedef struct {
     bool led_on;
     bool pairing_active;
+    uint8_t pairing_link_type;
     uint32_t sleep_us;
     uint8_t usb_interface_count;
     uint32_t usb_descriptor_generation;

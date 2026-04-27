@@ -20,8 +20,8 @@ Current implementation is a buildable skeleton with:
 - bidirectional report path skeleton (`BT HID report` -> USB IN, `USB OUT report` -> BT HID protocol-aware send)
 - transport metadata now carries BT link type (Classic vs LE) so routing remains unambiguous when CIDs overlap
 - USB descriptor/topology generation now triggers TinyUSB disconnect/reconnect sequencing so host re-enumerates interfaces on live topology changes
-- dual-mode pair-any discovery/connect flow (Classic inquiry + BLE active scan with HID UUID preference and connectable+HID-appearance fallback, pairing mode gated)
-- BLE HID-over-GATT host path (`hids_client`) with LE pairing flow, descriptor/report ingestion, and USB bridge routing
+- transport-specific pair-any discovery/connect flow (1s hold enters BLE-only active scan with HID UUID/appearance/name filtering; 5s total hold switches to Classic-only inquiry; pairing mode gated)
+- BLE HID-over-GATT host path (`hids_client`) with LE security requested before HID discovery during pair-any, descriptor/report ingestion, and USB bridge routing
 - per-device protocol/descriptor metadata propagation and protocol-aware BT report send path
 - device-specific mapping state scaffold for Apple Magic Keyboard profile detection, including `Fn+Esc` mode-toggle tracking hook (used as a bridge-side policy state, remap expansion pending)
 - reconnect policy with multi-device candidate selection, per-device backoff, and timeout-based failure classification
@@ -134,7 +134,7 @@ With default Pico W stack settings:
 - BTstack HID open/close/report events are bridged into common app transport events
 - BTstack HID descriptor/protocol events are bridged into common app transport events
 - TinyUSB `set_report` callbacks are bridged into common app transport events
-- pair-any state drives one BT/BLE candidate attempt per pairing-mode entry, with class-of-device filtering for Classic and HID UUID/appearance filtering for BLE
+- pair-any state drives one selected BT/BLE candidate attempt per pairing-mode entry; BLE mode uses HID UUID/appearance/name-filtered advertisements, while Classic mode uses class-of-device-filtered inquiry
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 - TinyUSB runtime now performs controlled re-enumeration on descriptor-generation changes so hosts pick up interface topology updates without manual unplug/replug
 - app reconnect requests now run through per-device backoff windows and timeout tracking
@@ -175,14 +175,15 @@ Generated/downloaded artifacts are local and git-ignored:
 Current mapping:
 
 - single click (< 1s): cancel `pair-any` when pairing is active (otherwise no-op)
-- long press (>= 2s): `pair-any` (fires after a 2.5s double-long window)
-- double long press (two >= 2s presses): `remove-last` only when the last paired device is at most 1 hour old; otherwise no-op
+- hold (>= 1s): BLE `pair-any`
+- keep holding (>= 5s total): switch to Classic `pair-any`
+- double long press (two >= 1s presses): `remove-last` only when the last paired device is at most 1 hour old; otherwise no-op
 - very long press (>= 10s): `remove-all` / factory reset
 
 LED behavior:
 
 - startup-complete cue: short pulse once app init completes
-- pairing mode blinks during discovery, turns steady on during the single active connect/pair attempt, exits on terminal attempt failure, then shows connect/auth/stack/unknown failures as 1/2/3/4 counted pulses after a 2s dark gap; each pulse is 1s on with 1s off between pulses
+- pairing mode blinks during discovery (100ms BLE cadence, 300ms Classic cadence), turns steady on during the single active connect/pair attempt, exits on terminal attempt failure, then shows connect/auth/stack/unknown failures as 1/2/3/4 counted pulses after a 2s dark gap; pair-any diagnostic connect failures use 5/6/7 pulses for Classic connect/LE connect/LE HIDS discovery; each pulse is 1s on with 1s off between pulses
 - connected and bridged state shows LED on for 3 seconds, then turns off
 - disconnect cue: solid on for 1 second
 - remove-last success: one long blink

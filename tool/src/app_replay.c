@@ -178,10 +178,139 @@ static bool app_replay_test_pair_any_from_long_press(void) {
         return false;
     }
 
+    if (!app_replay_expect_u32_eq(
+            out.pairing_link_type,
+            HID_TRANSPORT_BT_LINK_TYPE_LE,
+            "initial long press should enter BLE pairing"
+        )) {
+        return false;
+    }
+
     app_replay_tick(&app, 3100U, false, NULL, &out);
     return app_replay_expect_true(
         out.pairing_active,
         "pair-any should stay active after long-press release"
+    );
+}
+
+static bool app_replay_test_pair_classic_after_extended_hold(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
+    if (!app_replay_expect_u32_eq(
+            out.pairing_link_type,
+            HID_TRANSPORT_BT_LINK_TYPE_LE,
+            "pairing should start in BLE mode at one second"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 5999U, true, NULL, &out);
+    if (!app_replay_expect_u32_eq(
+            out.pairing_link_type,
+            HID_TRANSPORT_BT_LINK_TYPE_LE,
+            "pairing should remain BLE before five-second hold threshold"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6000U, true, NULL, &out);
+    if (!app_replay_expect_true(out.pairing_active, "pairing should stay active after switch")) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            out.pairing_link_type,
+            HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
+            "five-second hold should switch to Classic pairing"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6500U, false, NULL, &out);
+    return app_replay_expect_u32_eq(
+        out.pairing_link_type,
+        HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
+        "Classic pairing should stay active after release"
+    );
+}
+
+static bool app_replay_test_pairing_led_cadence_follows_link_type(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
+    if (!app_replay_expect_u32_eq(
+            out.pairing_link_type,
+            HID_TRANSPORT_BT_LINK_TYPE_LE,
+            "pairing should start in BLE mode"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 2099U, true, NULL, &out);
+    if (!app_replay_expect_true(out.led_on, "BLE pairing blink should stay on before 100ms")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 2100U, true, NULL, &out);
+    if (!app_replay_expect_true(!out.led_on, "BLE pairing blink should toggle at 100ms")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6000U, true, NULL, &out);
+    if (!app_replay_expect_u32_eq(
+            out.pairing_link_type,
+            HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
+            "extended hold should switch to Classic mode"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6299U, true, NULL, &out);
+    if (!app_replay_expect_true(out.led_on, "Classic pairing blink should stay on before 300ms")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6300U, true, NULL, &out);
+    return app_replay_expect_true(!out.led_on, "Classic pairing blink should toggle at 300ms");
+}
+
+static bool app_replay_test_duplicate_pair_command_keeps_attempt_led(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x34U);
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
+    app_replay_tick(&app, 2100U, false, NULL, &out);
+
+    event.type = HID_TRANSPORT_EVENT_RECONNECT_RESULT;
+    event.device_id = device_id;
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_REQUESTED;
+    event.status_code = 0U;
+    app_replay_tick(&app, 2200U, false, &event, &out);
+    if (!app_replay_expect_true(out.led_on, "pairing attempt should hold LED on")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 5000U, false, NULL, &out);
+    app_replay_tick(&app, 6000U, true, NULL, &out);
+    app_replay_tick(&app, 7000U, true, NULL, &out);
+    app_replay_tick(&app, 7050U, true, NULL, &out);
+    return app_replay_expect_true(
+        out.led_on,
+        "ignored duplicate pair command should not clear active attempt LED"
     );
 }
 
@@ -211,7 +340,15 @@ static bool app_replay_test_pair_any_timeout_after_60s(void) {
     }
 
     app_replay_tick(&app, 62000U, false, NULL, &out);
-    return app_replay_expect_true(!out.pairing_active, "pair-any should stop at 60s timeout");
+    if (!app_replay_expect_true(!out.pairing_active, "pair-any should stop at 60s timeout")) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        out.pairing_link_type,
+        HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN,
+        "pairing link type should clear after timeout"
+    );
 }
 
 static bool app_replay_test_pair_any_cancelled_by_single_click(void) {
@@ -446,6 +583,97 @@ static bool app_replay_test_pairing_auth_failure_uses_double_blink(void) {
         !out.led_on,
         "auth-failure double-blink should complete after second pulse"
     );
+}
+
+static bool app_replay_expect_pairing_error_blink_count(
+    uint8_t reconnect_result,
+    uint8_t expected_count,
+    uint8_t device_suffix
+) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    const pair_device_id_t device_id = app_replay_device_id(device_suffix);
+    uint8_t blink_index = 0U;
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
+
+    event.type = HID_TRANSPORT_EVENT_RECONNECT_RESULT;
+    event.device_id = device_id;
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_REQUESTED;
+    event.status_code = 0U;
+    app_replay_tick(&app, 2100U, false, &event, &out);
+
+    event.reconnect_result = reconnect_result;
+    event.status_code = 0x04U;
+    app_replay_tick(&app, 3000U, false, &event, &out);
+    if (!app_replay_expect_true(!out.led_on, "diagnostic cue should start dark")) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            !out.pairing_active,
+            "diagnostic pairing failure should exit pairing mode"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 4999U, false, NULL, &out);
+    if (!app_replay_expect_true(!out.led_on, "diagnostic cue should hold dark gap")) {
+        return false;
+    }
+
+    for (blink_index = 0U; blink_index < expected_count; blink_index++) {
+        const uint32_t on_start_ms = 5000U + ((uint32_t)blink_index * 2000U);
+
+        app_replay_tick(&app, on_start_ms, false, NULL, &out);
+        if (!app_replay_expect_true(out.led_on, "diagnostic cue should run counted on pulse")) {
+            return false;
+        }
+
+        app_replay_tick(&app, on_start_ms + 999U, false, NULL, &out);
+        if (!app_replay_expect_true(out.led_on, "diagnostic cue pulse should last one second")) {
+            return false;
+        }
+
+        app_replay_tick(&app, on_start_ms + 1000U, false, NULL, &out);
+        if (!app_replay_expect_true(!out.led_on, "diagnostic cue should turn off after pulse")) {
+            return false;
+        }
+
+        if ((uint8_t)(blink_index + 1U) < expected_count) {
+            app_replay_tick(&app, on_start_ms + 1999U, false, NULL, &out);
+            if (!app_replay_expect_true(
+                    !out.led_on,
+                    "diagnostic cue should stay off between pulses"
+                )) {
+                return false;
+            }
+        }
+    }
+
+    return app_replay_expect_true(!out.led_on, "diagnostic cue should finish after count");
+}
+
+static bool app_replay_test_pairing_phase_failures_use_diagnostic_blinks(void) {
+    return app_replay_expect_pairing_error_blink_count(
+               HID_TRANSPORT_RECONNECT_RESULT_PAIRING_CLASSIC_CONNECT_FAILED,
+               5U,
+               0x31U
+           )
+        && app_replay_expect_pairing_error_blink_count(
+            HID_TRANSPORT_RECONNECT_RESULT_PAIRING_LE_CONNECT_FAILED,
+            6U,
+            0x32U
+        )
+        && app_replay_expect_pairing_error_blink_count(
+            HID_TRANSPORT_RECONNECT_RESULT_PAIRING_LE_HIDS_FAILED,
+            7U,
+            0x33U
+        );
 }
 
 static bool app_replay_test_pairing_close_without_active_device_keeps_attempt_led(void) {
@@ -1220,6 +1448,12 @@ int main(void) {
         {.name = "led_signal_preempt_disconnect_cue",
             .fn = app_replay_test_led_signal_preempt_disconnect_cue},
         {.name = "pair_any_from_long_press", .fn = app_replay_test_pair_any_from_long_press},
+        {.name = "pair_classic_after_extended_hold",
+            .fn = app_replay_test_pair_classic_after_extended_hold},
+        {.name = "pairing_led_cadence_follows_link_type",
+            .fn = app_replay_test_pairing_led_cadence_follows_link_type},
+        {.name = "duplicate_pair_command_keeps_attempt_led",
+            .fn = app_replay_test_duplicate_pair_command_keeps_attempt_led},
         {.name = "pair_any_timeout_after_60s", .fn = app_replay_test_pair_any_timeout_after_60s},
         {.name = "pair_any_cancelled_by_single_click",
             .fn = app_replay_test_pair_any_cancelled_by_single_click},
@@ -1227,6 +1461,8 @@ int main(void) {
             .fn = app_replay_test_pairing_attempt_led_lifecycle},
         {.name = "pairing_auth_failure_uses_double_blink",
             .fn = app_replay_test_pairing_auth_failure_uses_double_blink},
+        {.name = "pairing_phase_failures_use_diagnostic_blinks",
+            .fn = app_replay_test_pairing_phase_failures_use_diagnostic_blinks},
         {.name = "pairing_close_without_active_device_keeps_attempt_led",
             .fn = app_replay_test_pairing_close_without_active_device_keeps_attempt_led},
         {.name = "sleep_adaptive_idle_vs_connected",

@@ -15,6 +15,7 @@ typedef struct {
     led_ui_state_t state;
     bool led_on;
     bool pairing_attempt_active;
+    uint32_t pairing_toggle_ms;
     bool cue_active;
     bool cue_led_on;
     uint8_t cue_remaining_blink;
@@ -55,6 +56,11 @@ void led_ui_trigger_startup_cue(
 void led_ui_set_pairing_attempt_active(
     led_ui_t * ui,
     bool attempt_active,
+    uint32_t now_ms
+);
+void led_ui_set_pairing_classic_mode(
+    led_ui_t * ui,
+    bool classic_mode,
     uint32_t now_ms
 );
 bool led_ui_tick(

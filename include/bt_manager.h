@@ -31,6 +31,7 @@ typedef struct {
     pair_db_t * pair_db;
     bt_manager_state_t state;
     uint32_t pairing_started_ms;
+    uint8_t pairing_bt_link_type;
     bt_hid_device_t active_device[BT_MANAGER_MAX_ACTIVE_DEVICE];
     uint8_t active_count;
 } bt_manager_t;
@@ -39,9 +40,10 @@ void bt_manager_init(
     bt_manager_t * manager,
     pair_db_t * pair_db
 );
-bool bt_manager_start_pair_any(
+bool bt_manager_start_pairing(
     bt_manager_t * manager,
-    uint32_t now_ms
+    uint32_t now_ms,
+    uint8_t bt_link_type
 );
 bool bt_manager_cancel_pair_any(bt_manager_t * manager);
 bool bt_manager_remove_last(bt_manager_t * manager);
@@ -93,6 +95,7 @@ void bt_manager_tick(
     uint32_t now_ms
 );
 bt_manager_state_t bt_manager_state(const bt_manager_t * manager);
+uint8_t bt_manager_pairing_link_type(const bt_manager_t * manager);
 uint8_t bt_manager_active_count(const bt_manager_t * manager);
 bool bt_manager_active_get(
     const bt_manager_t * manager,

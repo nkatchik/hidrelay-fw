@@ -25,7 +25,10 @@ void pico_w_stack_set_usb_plan(
     uint32_t descriptor_generation,
     const hid_transport_usb_interface_plan_t * interface_plan
 );
-void pico_w_stack_set_pairing_active(bool pairing_active);
+void pico_w_stack_set_pairing(
+    bool pairing_active,
+    uint8_t bt_link_type
+);
 bool pico_w_stack_request_reconnect(
     const pair_device_id_t * device_id,
     uint8_t bt_link_type_hint,
