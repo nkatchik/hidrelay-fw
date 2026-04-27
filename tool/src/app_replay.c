@@ -252,7 +252,7 @@ static bool app_replay_test_pairing_attempt_led_lifecycle(void) {
         return false;
     }
 
-    if (!app_replay_expect_true(!out.led_on, "pairing LED should stay dark until attempt starts")) {
+    if (!app_replay_expect_true(out.led_on, "pairing LED should turn on when pairing starts")) {
         return false;
     }
 
@@ -280,43 +280,75 @@ static bool app_replay_test_pairing_attempt_led_lifecycle(void) {
     event.status_code = 0x04U;
     app_replay_tick(&app, 3000U, false, &event, &out);
     if (!app_replay_expect_true(
-            out.led_on,
-            "connect-failed attempt should start failure blink cue on-phase"
+            !out.led_on,
+            "connect-failed attempt should insert dark handoff before failure cue"
         )) {
         return false;
     }
 
-    app_replay_tick(&app, 3499U, false, NULL, &out);
     if (!app_replay_expect_true(
-            out.led_on,
-            "failure blink on-phase should last for half a second"
+            !out.pairing_active,
+            "connect-failed attempt should exit pairing mode"
         )) {
         return false;
     }
 
-    app_replay_tick(&app, 3500U, false, NULL, &out);
+    app_replay_tick(&app, 4999U, false, NULL, &out);
     if (!app_replay_expect_true(
             !out.led_on,
-            "single failure blink should complete after first half-second pulse"
+            "failure cue should keep LED dark for two seconds before blinking"
         )) {
         return false;
     }
+
+    app_replay_tick(&app, 5000U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            out.led_on,
+            "failure cue should start first counted on pulse after dark gap"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 5999U, false, NULL, &out);
+    if (!app_replay_expect_true(out.led_on, "failure cue on pulse should last for one second")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6000U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.led_on,
+            "single failure blink should complete after first one-second pulse"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 7100U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.pairing_active,
+            "pairing should stay inactive after failure cue"
+        )) {
+        return false;
+    }
+
+    app_init(&app, NULL);
+    app_replay_tick(&app, 5000U, true, NULL, &out);
+    app_replay_tick(&app, 6000U, true, NULL, &out);
 
     event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_REQUESTED;
     event.status_code = 0U;
-    app_replay_tick(&app, 3600U, false, &event, &out);
+    app_replay_tick(&app, 6100U, false, &event, &out);
     if (!app_replay_expect_true(
             out.led_on,
-            "next attempt request should preempt cues and restore steady-on attempt signal"
+            "new pairing mode entry should accept a fresh attempt request"
         )) {
         return false;
     }
 
     event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_SUCCESS;
-    app_replay_tick(&app, 4100U, false, &event, &out);
+    app_replay_tick(&app, 6200U, false, &event, &out);
     if (!app_replay_expect_true(
-            !out.led_on,
-            "successful attempt should drop LED to dark immediately"
+            out.led_on,
+            "success result should keep attempt LED on until HID open is processed"
         )) {
         return false;
     }
@@ -327,7 +359,7 @@ static bool app_replay_test_pairing_attempt_led_lifecycle(void) {
     event.hid_cid = 0x88U;
     event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
     event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
-    app_replay_tick(&app, 4200U, false, &event, &out);
+    app_replay_tick(&app, 6300U, false, &event, &out);
 
     if (!app_replay_expect_true(
             !out.pairing_active,
@@ -362,11 +394,33 @@ static bool app_replay_test_pairing_auth_failure_uses_double_blink(void) {
     event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED;
     event.status_code = 0x05U;
     app_replay_tick(&app, 3000U, false, &event, &out);
-    if (!app_replay_expect_true(out.led_on, "auth-failure cue should begin with LED on")) {
+    if (!app_replay_expect_true(!out.led_on, "auth-failure cue should start with dark handoff")) {
         return false;
     }
 
-    app_replay_tick(&app, 3500U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.pairing_active,
+            "auth-failure attempt should exit pairing mode"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 4999U, false, NULL, &out);
+    if (!app_replay_expect_true(!out.led_on, "auth-failure cue should hold dark gap")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 5000U, false, NULL, &out);
+    if (!app_replay_expect_true(out.led_on, "auth-failure cue should run first on pulse")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 5999U, false, NULL, &out);
+    if (!app_replay_expect_true(out.led_on, "auth-failure first pulse should last one second")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6000U, false, NULL, &out);
     if (!app_replay_expect_true(
             !out.led_on,
             "auth-failure cue should turn LED off after first pulse"
@@ -374,15 +428,56 @@ static bool app_replay_test_pairing_auth_failure_uses_double_blink(void) {
         return false;
     }
 
-    app_replay_tick(&app, 4000U, false, NULL, &out);
+    app_replay_tick(&app, 6999U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.led_on,
+            "auth-failure cue should wait one second between pulses"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 7000U, false, NULL, &out);
     if (!app_replay_expect_true(out.led_on, "auth-failure cue should run a second on pulse")) {
         return false;
     }
 
-    app_replay_tick(&app, 4500U, false, NULL, &out);
+    app_replay_tick(&app, 8000U, false, NULL, &out);
     return app_replay_expect_true(
         !out.led_on,
         "auth-failure double-blink should complete after second pulse"
+    );
+}
+
+static bool app_replay_test_pairing_close_without_active_device_keeps_attempt_led(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x14U);
+
+    app_init(&app, NULL);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 2000U, true, NULL, &out);
+
+    event.type = HID_TRANSPORT_EVENT_RECONNECT_RESULT;
+    event.device_id = device_id;
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_REQUESTED;
+    event.status_code = 0U;
+    app_replay_tick(&app, 2100U, false, &event, &out);
+    if (!app_replay_expect_true(out.led_on, "attempt LED should be on after request")) {
+        return false;
+    }
+
+    (void)memset(&event, 0, sizeof(event));
+    event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
+    event.device_id = device_id;
+    event.hid_cid = 0U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    app_replay_tick(&app, 2200U, false, &event, &out);
+
+    return app_replay_expect_true(
+        out.led_on,
+        "close without an active device should not cancel pairing attempt LED"
     );
 }
 
@@ -1132,6 +1227,8 @@ int main(void) {
             .fn = app_replay_test_pairing_attempt_led_lifecycle},
         {.name = "pairing_auth_failure_uses_double_blink",
             .fn = app_replay_test_pairing_auth_failure_uses_double_blink},
+        {.name = "pairing_close_without_active_device_keeps_attempt_led",
+            .fn = app_replay_test_pairing_close_without_active_device_keeps_attempt_led},
         {.name = "sleep_adaptive_idle_vs_connected",
             .fn = app_replay_test_sleep_adaptive_idle_vs_connected},
         {.name = "remove_last_double_long_press_recent_only",

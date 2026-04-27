@@ -193,14 +193,15 @@ static void app_reconnect_mark_failure(
     app_reconnect_clear_inflight(app);
 }
 
-static void app_handle_transport_event(
+static bool app_handle_transport_event(
     app_t * app,
     const app_input_t * input
 ) {
     const hid_transport_event_t * event = NULL;
+    bool close_ingested = false;
 
     if ((app == NULL) || (input == NULL)) {
-        return;
+        return false;
     }
 
     event = &input->transport_event;
@@ -220,8 +221,6 @@ static void app_handle_transport_event(
             );
             break;
         case HID_TRANSPORT_EVENT_BT_HID_CLOSE: {
-            bool close_ingested = false;
-
             if (event->hid_cid != 0U) {
                 close_ingested = bt_manager_ingest_hid_close(
                     &app->bt_manager,
@@ -232,7 +231,7 @@ static void app_handle_transport_event(
             }
 
             if (!close_ingested) {
-                (void)bt_manager_ingest_hid_close_device(
+                close_ingested = bt_manager_ingest_hid_close_device(
                     &app->bt_manager,
                     &event->device_id,
                     event->bt_link_type,
@@ -280,6 +279,8 @@ static void app_handle_transport_event(
         default:
             break;
     }
+
+    return close_ingested;
 }
 
 void app_init(
@@ -326,7 +327,6 @@ void app_tick(
     uint8_t interface_index = 0U;
     bool disconnect_event_cue = false;
     bool pairing_attempt_started = false;
-    bool pairing_attempt_succeeded = false;
     uint8_t pairing_attempt_error_blinks = 0U;
 
     if ((app == NULL) || (input == NULL) || (output == NULL)) {
@@ -378,18 +378,17 @@ void app_tick(
         && (bt_state_before_event == BT_MANAGER_STATE_PAIRING)) {
         if (input->transport_event.reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_REQUESTED) {
             pairing_attempt_started = true;
-        } else if (input->transport_event.reconnect_result
-            == HID_TRANSPORT_RECONNECT_RESULT_SUCCESS) {
-            pairing_attempt_succeeded = true;
         } else {
             pairing_attempt_error_blinks =
                 app_pairing_error_blink_count(input->transport_event.reconnect_result);
         }
     }
 
-    app_handle_transport_event(app, input);
-    disconnect_event_cue = input->transport_event.type == HID_TRANSPORT_EVENT_BT_HID_CLOSE;
+    disconnect_event_cue = app_handle_transport_event(app, input);
     (void)pair_db_reconnect_recover_expired(&app->pair_db, input->now_ms);
+    if (pairing_attempt_error_blinks > 0U) {
+        (void)bt_manager_cancel_pair_any(&app->bt_manager);
+    }
 
     if (app->reconnect_inflight
         && (input->transport_event.type == HID_TRANSPORT_EVENT_BT_HID_OPEN)
@@ -417,6 +416,9 @@ void app_tick(
     usb_bridge_tick(&app->usb_bridge, input->now_ms);
 
     bt_state = bt_manager_state(&app->bt_manager);
+    if (pairing_attempt_error_blinks > 0U) {
+        led_ui_trigger_error_blink(&app->led_ui, pairing_attempt_error_blinks, input->now_ms);
+    }
     led_ui_set_state(&app->led_ui, app_led_state_from_bt_state(bt_state), input->now_ms);
     if (disconnect_event_cue) {
         led_ui_trigger_disconnect_cue(&app->led_ui, input->now_ms);
@@ -424,11 +426,6 @@ void app_tick(
     if (bt_state == BT_MANAGER_STATE_PAIRING) {
         if (pairing_attempt_started) {
             led_ui_set_pairing_attempt_active(&app->led_ui, true, input->now_ms);
-        } else if (pairing_attempt_succeeded) {
-            led_ui_set_pairing_attempt_active(&app->led_ui, false, input->now_ms);
-        } else if (pairing_attempt_error_blinks > 0U) {
-            led_ui_set_pairing_attempt_active(&app->led_ui, false, input->now_ms);
-            led_ui_trigger_error_blink(&app->led_ui, pairing_attempt_error_blinks, input->now_ms);
         }
     }
 

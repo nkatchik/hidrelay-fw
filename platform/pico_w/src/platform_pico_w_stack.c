@@ -244,6 +244,7 @@ static bool g_btstack_available = false;
 static bool g_btstack_hci_ready = false;
 static bool g_btstack_resolving_list_requested = false;
 static bool g_btstack_pairing_active = false;
+static bool g_btstack_pairing_attempt_consumed = false;
 static bool g_btstack_inquiry_active = false;
 static bool g_btstack_scan_active = false;
 static bool g_btstack_connect_pending = false;
@@ -742,6 +743,7 @@ static void pico_w_stack_sync_hci_ready(void) {
 static void pico_w_stack_try_start_inquiry(void) {
     if (!g_btstack_hci_ready
         || !g_btstack_pairing_active
+        || g_btstack_pairing_attempt_consumed
         || (g_btstack_le_session.con_handle != HCI_CON_HANDLE_INVALID)
         || g_btstack_connect_pending
         || g_btstack_inquiry_active) {
@@ -756,6 +758,7 @@ static void pico_w_stack_try_start_inquiry(void) {
 static void pico_w_stack_try_start_scan(void) {
     if (!g_btstack_hci_ready
         || !g_btstack_pairing_active
+        || g_btstack_pairing_attempt_consumed
         || (g_btstack_le_session.con_handle != HCI_CON_HANDLE_INVALID)
         || g_btstack_connect_pending
         || g_btstack_scan_active) {
@@ -777,7 +780,10 @@ static void pico_w_stack_schedule_candidate(
     pico_w_stack_connect_mode_t mode,
     bool reconnect_pending
 ) {
-    if ((addr == NULL) || g_btstack_connect_pending || (mode == PICO_W_STACK_CONNECT_MODE_NONE)) {
+    if ((addr == NULL)
+        || g_btstack_connect_pending
+        || (mode == PICO_W_STACK_CONNECT_MODE_NONE)
+        || (g_btstack_pairing_active && !reconnect_pending && g_btstack_pairing_attempt_consumed)) {
         return;
     }
 
@@ -792,6 +798,7 @@ static void pico_w_stack_schedule_candidate(
     if (!reconnect_pending) {
         pico_w_stack_clear_reconnect_state();
         if (g_btstack_pairing_active) {
+            g_btstack_pairing_attempt_consumed = true;
             pico_w_stack_emit_reconnect_result_for_candidate(
                 HID_TRANSPORT_RECONNECT_RESULT_REQUESTED,
                 ERROR_CODE_SUCCESS
@@ -927,11 +934,6 @@ static void pico_w_stack_handle_connect_success(void) {
             ERROR_CODE_SUCCESS
         );
         pico_w_stack_clear_reconnect_state();
-    } else if (g_btstack_pairing_active) {
-        pico_w_stack_emit_reconnect_result_for_candidate(
-            HID_TRANSPORT_RECONNECT_RESULT_SUCCESS,
-            ERROR_CODE_SUCCESS
-        );
     }
 }
 
@@ -1504,6 +1506,10 @@ static void pico_w_stack_handle_disconnect(uint8_t * packet) {
     }
 
     if (con_handle == g_btstack_le_session.con_handle) {
+        const bool pairing_attempt_failed = g_btstack_pairing_active
+            && !g_btstack_reconnect_pending
+            && !g_btstack_le_session.connected;
+
         le_close_hid_cid = g_btstack_le_session.hids_cid;
 
         if (le_close_hid_cid == 0U) {
@@ -1537,7 +1543,7 @@ static void pico_w_stack_handle_disconnect(uint8_t * packet) {
             (void)hids_client_disconnect(le_close_hid_cid);
         }
 
-        if (g_btstack_reconnect_pending) {
+        if (g_btstack_reconnect_pending || pairing_attempt_failed) {
             pico_w_stack_handle_connect_failure(
                 hci_event_disconnection_complete_get_reason(packet)
             );
@@ -1551,6 +1557,11 @@ static void pico_w_stack_handle_disconnect(uint8_t * packet) {
 
     if (pico_w_stack_find_classic_hid_cid_by_con_handle(con_handle, &classic_hid_cid)) {
         pico_w_stack_emit_classic_close_by_hid_cid(classic_hid_cid);
+        return;
+    }
+
+    if (g_btstack_pairing_active && g_btstack_connect_pending) {
+        pico_w_stack_handle_connect_failure(hci_event_disconnection_complete_get_reason(packet));
     }
 }
 
@@ -1744,6 +1755,7 @@ bool pico_w_stack_init(bool radio_ready) {
     g_btstack_hci_ready = false;
     g_btstack_resolving_list_requested = false;
     g_btstack_pairing_active = false;
+    g_btstack_pairing_attempt_consumed = false;
     g_btstack_inquiry_active = false;
     g_btstack_scan_active = false;
     g_btstack_connect_pending = false;
@@ -1826,7 +1838,7 @@ void pico_w_stack_poll(uint32_t now_ms) {
      * Reconnect attempts can legitimately start at uptime 0. Treat 0ms start
      * timestamps as valid so timeout recovery still triggers.
      */
-    if (g_btstack_reconnect_pending
+    if ((g_btstack_reconnect_pending || g_btstack_pairing_active)
         && g_btstack_connect_pending
         && ((int32_t)(now_ms - g_btstack_connect_pending_since_ms)
             >= (int32_t)pico_w_stack_reconnect_connect_timeout_ms())) {
@@ -1836,7 +1848,7 @@ void pico_w_stack_poll(uint32_t now_ms) {
         pico_w_stack_handle_connect_failure(timeout_status);
     }
 
-    if (g_btstack_reconnect_pending
+    if ((g_btstack_reconnect_pending || g_btstack_pairing_active)
         && (g_btstack_le_session.con_handle != HCI_CON_HANDLE_INVALID)
         && !g_btstack_le_session.connected
         && ((int32_t)(now_ms - g_btstack_le_hids_pending_since_ms)
@@ -1904,6 +1916,7 @@ void pico_w_stack_set_pairing_active(bool pairing_active) {
     g_btstack_pairing_active = pairing_active;
 
     if (!g_btstack_pairing_active) {
+        g_btstack_pairing_attempt_consumed = false;
         pico_w_stack_clear_reconnect_state();
         g_btstack_connect_pending = false;
         g_btstack_connect_command_issued = false;
@@ -1919,6 +1932,7 @@ void pico_w_stack_set_pairing_active(bool pairing_active) {
         return;
     }
 
+    g_btstack_pairing_attempt_consumed = false;
     pico_w_stack_try_start_discovery();
 #else
     (void)pairing_active;

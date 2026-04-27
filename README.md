@@ -134,8 +134,7 @@ With default Pico W stack settings:
 - BTstack HID open/close/report events are bridged into common app transport events
 - BTstack HID descriptor/protocol events are bridged into common app transport events
 - TinyUSB `set_report` callbacks are bridged into common app transport events
-- pair-any state drives BT inquiry/connection attempts with class-of-device filtering
-- pair-any state now also drives BLE scan/connect flow for BLE-only accessories, prioritizing HID UUID hits while allowing connectable+HID-appearance fallback
+- pair-any state drives one BT/BLE candidate attempt per pairing-mode entry, with class-of-device filtering for Classic and HID UUID/appearance filtering for BLE
 - TinyUSB descriptor callbacks build configuration descriptors from the current interface plan
 - TinyUSB runtime now performs controlled re-enumeration on descriptor-generation changes so hosts pick up interface topology updates without manual unplug/replug
 - app reconnect requests now run through per-device backoff windows and timeout tracking
@@ -183,7 +182,7 @@ Current mapping:
 LED behavior:
 
 - startup-complete cue: short pulse once app init completes
-- pairing mode blinks quickly while active (100ms toggle, up to 60s timeout)
+- pairing mode blinks during discovery, turns steady on during the single active connect/pair attempt, exits on terminal attempt failure, then shows connect/auth/stack/unknown failures as 1/2/3/4 counted pulses after a 2s dark gap; each pulse is 1s on with 1s off between pulses
 - connected and bridged state shows LED on for 3 seconds, then turns off
 - disconnect cue: solid on for 1 second
 - remove-last success: one long blink

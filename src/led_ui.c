@@ -3,13 +3,15 @@
 #include <stddef.h>
 
 enum {
+    LED_UI_PAIRING_TOGGLE_MS = 100U,
     LED_UI_CONNECTED_CUE_MS = 3000U,
     LED_UI_DISCONNECT_CUE_MS = 1000U,
     LED_UI_STARTUP_CUE_MS = 200U,
     LED_UI_SIGNAL_PREEMPT_DARK_MS = 80U,
     LED_UI_ERROR_TOGGLE_MS = 120U,
-    LED_UI_ERROR_BLINK_ON_MS = 500U,
-    LED_UI_ERROR_BLINK_OFF_MS = 500U,
+    LED_UI_ERROR_PRE_BLINK_DARK_MS = 2000U,
+    LED_UI_ERROR_BLINK_ON_MS = 1000U,
+    LED_UI_ERROR_BLINK_OFF_MS = 1000U,
     /* Long-blink cues confirm commands (remove-last / remove-all). */
     LED_UI_LONG_BLINK_ON_MS = 900U,
     LED_UI_LONG_BLINK_OFF_MS = 600U
@@ -61,6 +63,7 @@ static void led_ui_start_blink_cue(
     uint8_t blink_count,
     uint32_t on_ms,
     uint32_t off_ms,
+    uint32_t pre_blink_dark_ms,
     uint32_t now_ms
 ) {
     uint32_t cue_start_ms = now_ms;
@@ -71,6 +74,11 @@ static void led_ui_start_blink_cue(
 
     if (led_ui_interrupt_for_new_signal(ui, now_ms)) {
         cue_start_ms = ui->signal_dark_until_ms;
+    }
+
+    if (pre_blink_dark_ms > 0U) {
+        cue_start_ms = now_ms + pre_blink_dark_ms;
+        ui->signal_dark_until_ms = cue_start_ms;
     }
 
     ui->pairing_attempt_active = false;
@@ -159,7 +167,7 @@ void led_ui_set_state(
     }
 
     if (state == LED_UI_STATE_PAIRING) {
-        ui->led_on = ui->pairing_attempt_active;
+        ui->led_on = true;
         return;
     }
 
@@ -176,6 +184,7 @@ void led_ui_trigger_long_blink(
         blink_count,
         LED_UI_LONG_BLINK_ON_MS,
         LED_UI_LONG_BLINK_OFF_MS,
+        0U,
         now_ms
     );
 }
@@ -190,6 +199,7 @@ void led_ui_trigger_error_blink(
         blink_count,
         LED_UI_ERROR_BLINK_ON_MS,
         LED_UI_ERROR_BLINK_OFF_MS,
+        LED_UI_ERROR_PRE_BLINK_DARK_MS,
         now_ms
     );
 }
@@ -349,7 +359,16 @@ bool led_ui_tick(
     }
 
     if (ui->state == LED_UI_STATE_PAIRING) {
-        ui->led_on = ui->pairing_attempt_active;
+        if (ui->pairing_attempt_active) {
+            ui->led_on = true;
+            return ui->led_on;
+        }
+
+        if ((now_ms - ui->last_transition_ms) >= LED_UI_PAIRING_TOGGLE_MS) {
+            ui->led_on = !ui->led_on;
+            ui->last_transition_ms = now_ms;
+        }
+
         return ui->led_on;
     }
 
