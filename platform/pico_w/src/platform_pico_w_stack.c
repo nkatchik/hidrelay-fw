@@ -26,128 +26,20 @@
 #include "pico/cyw43_arch.h"
 #endif
 
-#include "hid_report_policy.h"
-#include "hid_report_remap.h"
+#include "hid_transport_runtime.h"
 #include "platform_pico_w_tinyusb_runtime.h"
 
 enum {
-    PICO_W_STACK_MAX_USB_INTERFACE = 8U,
-    PICO_W_STACK_EVENT_QUEUE_SIZE = 16U,
+    PICO_W_STACK_MAX_USB_INTERFACE = HID_TRANSPORT_MAX_INTERFACE,
     PICO_W_STACK_INQUIRY_DURATION_UNITS = 0x08U,
     PICO_W_STACK_MAJOR_CLASS_PERIPHERAL = 0x05U,
 };
 
-static uint8_t g_usb_interface_count = 1U;
-static uint32_t g_usb_descriptor_generation = 0U;
-static hid_transport_usb_interface_plan_t g_usb_interface_plan[PICO_W_STACK_MAX_USB_INTERFACE] = {
-    0
-};
-static hid_transport_event_t g_event_queue[PICO_W_STACK_EVENT_QUEUE_SIZE] = {0};
-static uint8_t g_event_queue_head = 0U;
-static uint8_t g_event_queue_tail = 0U;
-static uint8_t g_event_queue_count = 0U;
-static uint8_t g_event_queue_high_watermark = 0U;
-static uint32_t g_event_queue_dropped = 0U;
+static hid_transport_runtime_t g_transport_runtime = {0};
 static uint8_t g_stack_last_connect_status = 0U;
 
-static bool pico_w_stack_event_is_report_type(uint8_t event_type) {
-    return (event_type == HID_TRANSPORT_EVENT_BT_HID_REPORT)
-        || (event_type == HID_TRANSPORT_EVENT_USB_HID_REPORT);
-}
-
-static bool pico_w_stack_drop_oldest_report_event(void) {
-    hid_transport_event_t ordered[PICO_W_STACK_EVENT_QUEUE_SIZE] = {0};
-    uint8_t ordered_count = 0U;
-    uint8_t drop_index = 0U;
-    bool found_report = false;
-    uint8_t index = 0U;
-
-    if (g_event_queue_count == 0U) {
-        return false;
-    }
-
-    for (index = 0U; index < g_event_queue_count; index++) {
-        ordered[index] =
-            g_event_queue[(g_event_queue_head + index) % PICO_W_STACK_EVENT_QUEUE_SIZE];
-        ordered_count = (uint8_t)(ordered_count + 1U);
-    }
-
-    for (index = 0U; index < ordered_count; index++) {
-        if (!pico_w_stack_event_is_report_type(ordered[index].type)) {
-            continue;
-        }
-
-        drop_index = index;
-        found_report = true;
-        break;
-    }
-
-    if (!found_report) {
-        return false;
-    }
-
-    (void)memset(g_event_queue, 0, sizeof(g_event_queue));
-    g_event_queue_head = 0U;
-    g_event_queue_tail = 0U;
-    g_event_queue_count = 0U;
-
-    for (index = 0U; index < ordered_count; index++) {
-        if (index == drop_index) {
-            continue;
-        }
-
-        g_event_queue[g_event_queue_tail] = ordered[index];
-        g_event_queue_tail = (uint8_t)((g_event_queue_tail + 1U) % PICO_W_STACK_EVENT_QUEUE_SIZE);
-        g_event_queue_count = (uint8_t)(g_event_queue_count + 1U);
-    }
-
-    return true;
-}
-
 static bool pico_w_stack_push_event(const hid_transport_event_t * event) {
-    if ((event == NULL) || (event->type == HID_TRANSPORT_EVENT_NONE)) {
-        return false;
-    }
-
-    if (g_event_queue_count >= PICO_W_STACK_EVENT_QUEUE_SIZE) {
-        /*
-         * Keep control-path events (open/close/reconnect outcomes) flowing even
-         * when report traffic bursts saturate the queue.
-         */
-        if (!pico_w_stack_event_is_report_type(event->type)
-            && pico_w_stack_drop_oldest_report_event()) {
-            /* fallthrough: queue has space now */
-        } else {
-            g_event_queue_dropped = g_event_queue_dropped + 1U;
-            return false;
-        }
-    }
-
-    if (g_event_queue_count >= PICO_W_STACK_EVENT_QUEUE_SIZE) {
-        g_event_queue_dropped = g_event_queue_dropped + 1U;
-        return false;
-    }
-
-    g_event_queue[g_event_queue_tail] = *event;
-    g_event_queue_tail = (uint8_t)((g_event_queue_tail + 1U) % PICO_W_STACK_EVENT_QUEUE_SIZE);
-    g_event_queue_count = (uint8_t)(g_event_queue_count + 1U);
-
-    if (g_event_queue_count > g_event_queue_high_watermark) {
-        g_event_queue_high_watermark = g_event_queue_count;
-    }
-
-    return true;
-}
-
-static bool pico_w_stack_device_id_equal(
-    const pair_device_id_t * lhs,
-    const pair_device_id_t * rhs
-) {
-    if ((lhs == NULL) || (rhs == NULL)) {
-        return false;
-    }
-
-    return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
+    return hid_transport_runtime_push_event(&g_transport_runtime, event);
 }
 
 static bool pico_w_stack_find_hid_cid_for_device(
@@ -155,24 +47,12 @@ static bool pico_w_stack_find_hid_cid_for_device(
     uint16_t * out_hid_cid,
     uint8_t * out_bt_link_type
 ) {
-    uint8_t index = 0U;
-
-    if ((device_id == NULL) || (out_hid_cid == NULL) || (out_bt_link_type == NULL)) {
-        return false;
-    }
-
-    for (index = 0U; index < g_usb_interface_count; index++) {
-        if (!pico_w_stack_device_id_equal(&g_usb_interface_plan[index].device_id, device_id)
-            || (g_usb_interface_plan[index].hid_cid == 0U)) {
-            continue;
-        }
-
-        *out_hid_cid = g_usb_interface_plan[index].hid_cid;
-        *out_bt_link_type = g_usb_interface_plan[index].bt_link_type;
-        return true;
-    }
-
-    return false;
+    return hid_transport_runtime_find_hid_cid_for_device(
+        &g_transport_runtime,
+        device_id,
+        out_hid_cid,
+        out_bt_link_type
+    );
 }
 
 #ifdef APP_PICO_HAS_BTSTACK
@@ -1981,16 +1861,7 @@ static void pico_w_btstack_packet_handler(
 #endif
 
 bool pico_w_stack_init(bool radio_ready) {
-    g_usb_interface_count = 1U;
-    g_usb_descriptor_generation = 1U;
-    (void)memset(g_usb_interface_plan, 0, sizeof(g_usb_interface_plan));
-
-    (void)memset(g_event_queue, 0, sizeof(g_event_queue));
-    g_event_queue_head = 0U;
-    g_event_queue_tail = 0U;
-    g_event_queue_count = 0U;
-    g_event_queue_high_watermark = 0U;
-    g_event_queue_dropped = 0U;
+    hid_transport_runtime_init(&g_transport_runtime);
     g_stack_last_connect_status = 0U;
 
     (void)pico_w_tinyusb_runtime_init();
@@ -2145,36 +2016,21 @@ void pico_w_stack_set_usb_plan(
     uint32_t descriptor_generation,
     const hid_transport_usb_interface_plan_t * interface_plan
 ) {
-    hid_transport_usb_interface_plan_t next_plan[PICO_W_STACK_MAX_USB_INTERFACE] = {0};
-    size_t copy_len = 0U;
     bool descriptor_changed = false;
-    bool plan_changed = false;
 
-    if (interface_count > PICO_W_STACK_MAX_USB_INTERFACE) {
-        interface_count = PICO_W_STACK_MAX_USB_INTERFACE;
-    }
-
-    copy_len = (size_t)interface_count * sizeof(next_plan[0]);
-    if ((interface_plan != NULL) && (copy_len > 0U)) {
-        (void)memcpy(next_plan, interface_plan, copy_len);
-    }
-
-    descriptor_changed = descriptor_generation != g_usb_descriptor_generation;
-    plan_changed = (interface_count != g_usb_interface_count)
-        || (memcmp(next_plan, g_usb_interface_plan, sizeof(next_plan)) != 0);
-
-    if (!descriptor_changed && !plan_changed) {
+    if (!hid_transport_runtime_set_usb_plan(
+            &g_transport_runtime,
+            interface_count,
+            descriptor_generation,
+            interface_plan,
+            &descriptor_changed
+        )) {
         return;
     }
 
-    g_usb_interface_count = interface_count;
-    (void)memcpy(g_usb_interface_plan, next_plan, sizeof(g_usb_interface_plan));
-
-    if (descriptor_generation == g_usb_descriptor_generation) {
-        return;
+    if (descriptor_changed) {
+        pico_w_tinyusb_runtime_request_reenumeration();
     }
-    g_usb_descriptor_generation = descriptor_generation;
-    pico_w_tinyusb_runtime_request_reenumeration();
 }
 
 void pico_w_stack_set_pairing(
@@ -2482,29 +2338,34 @@ bool pico_w_stack_forget_device(const pair_device_id_t * device_id) {
 }
 
 uint8_t pico_w_stack_usb_interface_count(void) {
-    return g_usb_interface_count;
+    return hid_transport_runtime_usb_interface_count(&g_transport_runtime);
 }
 
 const uint8_t * pico_w_stack_usb_report_descriptor(
     uint8_t interface_number,
     uint16_t * out_len
 ) {
+    hid_transport_usb_interface_plan_t interface_plan = {0};
     uint16_t fallback_len = 0U;
 
     if (out_len != NULL) {
         *out_len = 0U;
     }
 
-    if (interface_number >= g_usb_interface_count) {
+    if (!hid_transport_runtime_usb_interface_plan_get(
+            &g_transport_runtime,
+            interface_number,
+            &interface_plan
+        )) {
         return NULL;
     }
 
-    fallback_len = g_usb_interface_plan[interface_number].report_descriptor_len;
+    fallback_len = interface_plan.report_descriptor_len;
 
 #ifdef APP_PICO_HAS_BTSTACK
     {
-        const uint16_t hid_cid = g_usb_interface_plan[interface_number].hid_cid;
-        const uint8_t bt_link_type = g_usb_interface_plan[interface_number].bt_link_type;
+        const uint16_t hid_cid = interface_plan.hid_cid;
+        const uint8_t bt_link_type = interface_plan.bt_link_type;
 
         if (hid_cid != 0U) {
             const uint8_t * descriptor = NULL;
@@ -2550,40 +2411,20 @@ uint16_t pico_w_stack_usb_report_descriptor_len(uint8_t interface_number) {
 }
 
 uint8_t pico_w_stack_usb_protocol_mode(uint8_t interface_number) {
-    if (interface_number >= g_usb_interface_count) {
-        return HID_TRANSPORT_PROTOCOL_UNKNOWN;
-    }
-
-    return g_usb_interface_plan[interface_number].protocol_mode;
+    return hid_transport_runtime_usb_protocol_mode(&g_transport_runtime, interface_number);
 }
 
-static uint8_t pico_w_stack_report_remap_profile(uint8_t interface_number) {
-    const uint8_t * descriptor = NULL;
-    uint16_t descriptor_len = 0U;
-    const uint8_t protocol_mode = pico_w_stack_usb_protocol_mode(interface_number);
-    hid_report_policy_decision_t decision = {0};
-
-    descriptor = pico_w_stack_usb_report_descriptor(interface_number, &descriptor_len);
-    hid_report_policy_decide(descriptor, descriptor_len, protocol_mode, &decision);
-    return hid_report_remap_profile_from_policy(&decision);
+static const uint8_t * pico_w_stack_runtime_report_descriptor(
+    uint8_t interface_number,
+    uint16_t * out_len,
+    void * context
+) {
+    (void)context;
+    return pico_w_stack_usb_report_descriptor(interface_number, out_len);
 }
 
 bool pico_w_stack_take_event(hid_transport_event_t * out_event) {
-    if (out_event == NULL) {
-        return false;
-    }
-
-    (void)memset(out_event, 0, sizeof(*out_event));
-
-    if (g_event_queue_count == 0U) {
-        return false;
-    }
-
-    *out_event = g_event_queue[g_event_queue_head];
-    (void)memset(&g_event_queue[g_event_queue_head], 0, sizeof(g_event_queue[g_event_queue_head]));
-    g_event_queue_head = (uint8_t)((g_event_queue_head + 1U) % PICO_W_STACK_EVENT_QUEUE_SIZE);
-    g_event_queue_count = (uint8_t)(g_event_queue_count - 1U);
-    return true;
+    return hid_transport_runtime_take_event(&g_transport_runtime, out_event);
 }
 
 void pico_w_stack_ingest_usb_report(
@@ -2591,32 +2432,14 @@ void pico_w_stack_ingest_usb_report(
     const uint8_t * report,
     uint16_t report_len
 ) {
-    hid_transport_event_t event = {0};
-    uint8_t remapped_report[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
-    uint16_t remapped_report_len = 0U;
-    const uint8_t remap_profile = pico_w_stack_report_remap_profile(interface_number);
-    const uint8_t protocol_mode = pico_w_stack_usb_protocol_mode(interface_number);
-
-    if (!hid_report_remap_usb_to_bt(
-            remap_profile,
-            protocol_mode,
-            report,
-            report_len,
-            remapped_report,
-            &remapped_report_len
-        )) {
-        return;
-    }
-
-    event.type = HID_TRANSPORT_EVENT_USB_HID_REPORT;
-    event.interface_number = interface_number;
-    event.report_len = remapped_report_len;
-
-    if (remapped_report_len > 0U) {
-        (void)memcpy(event.report, remapped_report, remapped_report_len);
-    }
-
-    (void)pico_w_stack_push_event(&event);
+    (void)hid_transport_runtime_ingest_usb_report(
+        &g_transport_runtime,
+        interface_number,
+        report,
+        report_len,
+        pico_w_stack_runtime_report_descriptor,
+        NULL
+    );
 }
 
 bool pico_w_stack_send_usb_report(
@@ -2626,12 +2449,14 @@ bool pico_w_stack_send_usb_report(
 ) {
     uint8_t remapped_report[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
     uint16_t remapped_report_len = 0U;
-    const uint8_t remap_profile = pico_w_stack_report_remap_profile(interface_number);
 
-    if (!hid_report_remap_bt_to_usb(
-            remap_profile,
+    if (!hid_transport_runtime_remap_bt_to_usb(
+            &g_transport_runtime,
+            interface_number,
             report,
             report_len,
+            pico_w_stack_runtime_report_descriptor,
+            NULL,
             remapped_report,
             &remapped_report_len
         )) {
@@ -2723,13 +2548,19 @@ bool pico_w_stack_send_bt_report(
 }
 
 bool pico_w_stack_runtime_state_get(pico_w_stack_runtime_state_t * out_state) {
+    hid_transport_runtime_queue_state_t queue_state = {0};
+
     if (out_state == NULL) {
         return false;
     }
 
-    out_state->event_queue_depth = g_event_queue_count;
-    out_state->event_queue_high_watermark = g_event_queue_high_watermark;
-    out_state->event_queue_dropped = g_event_queue_dropped;
+    if (!hid_transport_runtime_queue_state_get(&g_transport_runtime, &queue_state)) {
+        return false;
+    }
+
+    out_state->event_queue_depth = queue_state.event_queue_depth;
+    out_state->event_queue_high_watermark = queue_state.event_queue_high_watermark;
+    out_state->event_queue_dropped = queue_state.event_queue_dropped;
 #ifdef APP_PICO_HAS_BTSTACK
     out_state->connect_pending = g_btstack_connect_pending ? 1U : 0U;
     out_state->reconnect_pending = g_btstack_reconnect_pending ? 1U : 0U;

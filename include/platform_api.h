@@ -8,32 +8,60 @@
 #include "pair_db.h"
 
 typedef struct {
-    bool button_pressed;
-    uint32_t uptime_ms;
-    hid_transport_event_t transport_event;
-} platform_input_t;
-
-typedef struct {
-    bool led_on;
-    bool pairing_active;
-    uint8_t pairing_link_type;
-    uint32_t sleep_us;
-    uint8_t usb_interface_count;
-    uint32_t usb_descriptor_generation;
-    hid_transport_usb_interface_plan_t usb_interface_plan[HID_TRANSPORT_MAX_INTERFACE];
-    hid_transport_reconnect_request_t reconnect_request;
-    hid_transport_forget_request_t forget_request;
-    hid_transport_diag_snapshot_t diag;
-    hid_transport_usb_tx_t usb_tx;
-    hid_transport_bt_tx_t bt_tx;
-    bool factory_reset_requested;
-} platform_output_t;
+    uint8_t event_queue_depth;
+    uint8_t event_queue_high_watermark;
+    uint32_t event_queue_dropped;
+    uint8_t connect_pending;
+    uint8_t reconnect_pending;
+    uint8_t connect_mode;
+    uint8_t reconnect_attempt_index;
+    uint8_t reconnect_attempt_count;
+    uint8_t last_connect_status;
+} platform_transport_state_t;
 
 bool platform_init(void);
-void platform_poll(platform_input_t * input);
-void platform_apply(const platform_output_t * output);
+bool platform_button_pressed(void);
+uint32_t platform_uptime_ms(void);
+void platform_set_led(bool led_on);
+void platform_sleep_us(uint32_t sleep_us);
+void platform_factory_reset(void);
+
+void platform_transport_poll(uint32_t now_ms);
+bool platform_transport_take_event(hid_transport_event_t * out_event);
+void platform_transport_set_usb_plan(
+    uint8_t interface_count,
+    uint32_t descriptor_generation,
+    const hid_transport_usb_interface_plan_t * interface_plan
+);
+void platform_transport_set_pairing(
+    bool pairing_active,
+    uint8_t bt_link_type
+);
+bool platform_transport_request_reconnect(
+    const pair_device_id_t * device_id,
+    uint8_t bt_link_type_hint,
+    uint8_t bt_addr_type_hint
+);
+bool platform_transport_forget_device(const pair_device_id_t * device_id);
+bool platform_transport_send_usb_report(
+    uint8_t interface_number,
+    const uint8_t * report,
+    uint16_t report_len
+);
+bool platform_transport_send_bt_report(
+    uint16_t hid_cid,
+    uint8_t bt_link_type,
+    uint8_t protocol_mode,
+    const uint8_t * report,
+    uint16_t report_len
+);
+bool platform_transport_state_get(platform_transport_state_t * out_state);
+
 bool platform_pair_db_load(pair_db_t * db);
 bool platform_pair_db_save(const pair_db_t * db);
-bool platform_diag_take(hid_transport_diag_snapshot_t * out_diag);
+bool platform_diag_write(
+    const uint8_t * data,
+    uint16_t data_len
+);
 
 #endif

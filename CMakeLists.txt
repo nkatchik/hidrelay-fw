@@ -25,6 +25,7 @@ project(hidrelay_fw VERSION 0.1.0 LANGUAGES C CXX ASM)
 include(CommonOptions)
 
 add_library(hidrelay_core STATIC
+    src/app_diag.c
     src/app.c
     src/button_fsm.c
     src/led_ui.c
@@ -32,6 +33,7 @@ add_library(hidrelay_core STATIC
     src/bt_manager.c
     src/hid_report_policy.c
     src/hid_report_remap.c
+    src/hid_transport_runtime.c
     src/hid_device_map.c
     src/usb_bridge.c
     src/util/cleanup.c

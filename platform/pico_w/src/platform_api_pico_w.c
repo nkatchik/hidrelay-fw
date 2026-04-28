@@ -1,6 +1,4 @@
 #include <stddef.h>
-#include <stdio.h>
-#include <string.h>
 
 #include "hardware/watchdog.h"
 #include "pico/stdlib.h"
@@ -21,177 +19,13 @@ enum {
 };
 #endif
 
-#if defined(APP_PICO_HAS_TELEMETRY)
-enum {
-    PICO_W_DIAG_QUEUE_SIZE = 16U,
-    PICO_W_DIAG_FRAME_VERSION = 1U,
-    PICO_W_DIAG_FRAME_MAGIC_0 = 0x48U,
-    PICO_W_DIAG_FRAME_MAGIC_1 = 0x52U,
-    PICO_W_DIAG_FRAME_PAYLOAD_LEN = 45U,
-    PICO_W_DIAG_FRAME_LEN = 4U + PICO_W_DIAG_FRAME_PAYLOAD_LEN,
-};
-static hid_transport_diag_snapshot_t g_last_diag = {0};
-static bool g_last_diag_valid = false;
-static hid_transport_diag_snapshot_t g_diag_queue[PICO_W_DIAG_QUEUE_SIZE] = {0};
-static uint8_t g_diag_queue_head = 0U;
-static uint8_t g_diag_queue_tail = 0U;
-static uint8_t g_diag_queue_count = 0U;
-static uint32_t g_diag_sequence = 0U;
-#endif
-
-#if defined(APP_PICO_HAS_TELEMETRY)
-static void pico_w_diag_put_u32(
-    uint8_t * frame,
-    uint16_t * offset,
-    uint32_t value
-) {
-    uint16_t write_offset = 0U;
-
-    if ((frame == NULL) || (offset == NULL)) {
-        return;
-    }
-
-    write_offset = *offset;
-    frame[write_offset++] = (uint8_t)(value & 0xFFU);
-    frame[write_offset++] = (uint8_t)((value >> 8U) & 0xFFU);
-    frame[write_offset++] = (uint8_t)((value >> 16U) & 0xFFU);
-    frame[write_offset++] = (uint8_t)((value >> 24U) & 0xFFU);
-    *offset = write_offset;
-}
-
-static uint16_t pico_w_diag_encode_frame(
-    const hid_transport_diag_snapshot_t * diag,
-    uint32_t sequence,
-    uint8_t * frame,
-    uint16_t frame_capacity
-) {
-    uint16_t offset = 0U;
-
-    if ((diag == NULL) || (frame == NULL) || (frame_capacity < PICO_W_DIAG_FRAME_LEN)) {
-        return 0U;
-    }
-
-    frame[offset++] = PICO_W_DIAG_FRAME_MAGIC_0;
-    frame[offset++] = PICO_W_DIAG_FRAME_MAGIC_1;
-    frame[offset++] = PICO_W_DIAG_FRAME_VERSION;
-    frame[offset++] = PICO_W_DIAG_FRAME_PAYLOAD_LEN;
-
-    pico_w_diag_put_u32(frame, &offset, sequence);
-    frame[offset++] = diag->bt_state;
-    frame[offset++] = diag->active_device_count;
-    frame[offset++] = diag->usb_interface_count;
-    frame[offset++] = diag->usb_tx_depth;
-    frame[offset++] = diag->bt_tx_depth;
-    frame[offset++] = diag->usb_tx_high_watermark;
-    frame[offset++] = diag->bt_tx_high_watermark;
-    frame[offset++] = diag->reconnect_last_result;
-    frame[offset++] = diag->reconnect_last_status_code;
-
-    pico_w_diag_put_u32(frame, &offset, diag->usb_tx_dropped);
-    pico_w_diag_put_u32(frame, &offset, diag->bt_tx_dropped);
-    pico_w_diag_put_u32(frame, &offset, diag->reconnect_attempt_count);
-    pico_w_diag_put_u32(frame, &offset, diag->reconnect_success_count);
-    pico_w_diag_put_u32(frame, &offset, diag->reconnect_failure_count);
-    frame[offset++] = diag->stack_event_depth;
-    frame[offset++] = diag->stack_event_high_watermark;
-    pico_w_diag_put_u32(frame, &offset, diag->stack_event_dropped);
-    frame[offset++] = diag->stack_connect_pending;
-    frame[offset++] = diag->stack_reconnect_pending;
-    frame[offset++] = diag->stack_connect_mode;
-    frame[offset++] = diag->stack_reconnect_attempt_index;
-    frame[offset++] = diag->stack_reconnect_attempt_count;
-    frame[offset++] = diag->stack_last_connect_status;
-
-    return offset;
-}
-
-static void pico_w_diag_send_usb(const hid_transport_diag_snapshot_t * diag) {
-#if defined(APP_PICO_HAS_DIAG_CDC)
-    uint8_t frame[PICO_W_DIAG_FRAME_LEN] = {0};
-    uint16_t frame_len = 0U;
-
-    if (diag == NULL) {
-        return;
-    }
-
-    g_diag_sequence = g_diag_sequence + 1U;
-    frame_len = pico_w_diag_encode_frame(diag, g_diag_sequence, frame, sizeof(frame));
-
-    if (frame_len == 0U) {
-        return;
-    }
-
-    (void)pico_w_tinyusb_runtime_diag_write(frame, frame_len);
-#else
-    (void)diag;
-#endif
-}
-
-static void pico_w_diag_queue_reset(void) {
-    (void)memset(g_diag_queue, 0, sizeof(g_diag_queue));
-    g_diag_queue_head = 0U;
-    g_diag_queue_tail = 0U;
-    g_diag_queue_count = 0U;
-    g_diag_sequence = 0U;
-}
-
-static void pico_w_diag_queue_push(const hid_transport_diag_snapshot_t * diag) {
-    if (diag == NULL) {
-        return;
-    }
-
-    if (g_diag_queue_count >= PICO_W_DIAG_QUEUE_SIZE) {
-        g_diag_queue_head = (uint8_t)((g_diag_queue_head + 1U) % PICO_W_DIAG_QUEUE_SIZE);
-        g_diag_queue_count = (uint8_t)(g_diag_queue_count - 1U);
-    }
-
-    g_diag_queue[g_diag_queue_tail] = *diag;
-    g_diag_queue_tail = (uint8_t)((g_diag_queue_tail + 1U) % PICO_W_DIAG_QUEUE_SIZE);
-    g_diag_queue_count = (uint8_t)(g_diag_queue_count + 1U);
-}
-
-static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
-    bool changed = false;
-
-    if (diag == NULL) {
-        return;
-    }
-
-    changed = !g_last_diag_valid || (memcmp(&g_last_diag, diag, sizeof(*diag)) != 0);
-
-    if (changed) {
-        pico_w_diag_queue_push(diag);
-        g_last_diag = *diag;
-        g_last_diag_valid = true;
-    }
-
-    /*
-     * Always attempt USB diagnostics emission so a host that opens CDC after
-     * startup still receives the current snapshot stream.
-     */
-    pico_w_diag_send_usb(diag);
-}
-#else
-static void pico_w_diag_publish(const hid_transport_diag_snapshot_t * diag) {
-    (void)diag;
-}
-#endif
-
-static void pico_w_factory_reset(void) {
-    (void)pico_w_pair_store_factory_reset_all();
-    watchdog_reboot(0U, 0U, 0U);
-
-    for (;;) {
-        tight_loop_contents();
-    }
+static bool platform_ready(void) {
+    return pico_w_state_is_initialized(&g_state);
 }
 
 bool platform_init(void) {
 #if defined(APP_PICO_HAS_TELEMETRY)
     stdio_init_all();
-    pico_w_diag_queue_reset();
-    g_last_diag_valid = false;
-    (void)memset(&g_last_diag, 0, sizeof(g_last_diag));
 #endif
     pico_w_state_reset(&g_state);
 
@@ -207,99 +41,29 @@ bool platform_init(void) {
     return true;
 }
 
-void platform_poll(platform_input_t * input) {
-    if ((input == NULL) || !pico_w_state_is_initialized(&g_state)) {
-        return;
+bool platform_button_pressed(void) {
+    if (!platform_ready()) {
+        return false;
     }
 
-    input->button_pressed = pico_w_hw_bootsel_pressed();
-    input->uptime_ms = pico_w_hw_uptime_ms();
-    input->transport_event.type = HID_TRANSPORT_EVENT_NONE;
-
-    if (!pico_w_stack_take_event(&input->transport_event)) {
-        input->transport_event.type = HID_TRANSPORT_EVENT_NONE;
-    }
-
-    pico_w_stack_poll(input->uptime_ms);
+    return pico_w_hw_bootsel_pressed();
 }
 
-void platform_apply(const platform_output_t * output) {
-    pico_w_stack_runtime_state_t stack_runtime_state = {0};
-    const bool have_stack_runtime_state = pico_w_stack_runtime_state_get(&stack_runtime_state);
-    uint32_t sleep_us = 0U;
-#if defined(APP_PICO_HAS_TELEMETRY)
-    hid_transport_diag_snapshot_t diag = {0};
-#endif
-    if ((output == NULL) || !pico_w_state_is_initialized(&g_state)) {
+uint32_t platform_uptime_ms(void) {
+    return pico_w_hw_uptime_ms();
+}
+
+void platform_set_led(bool led_on) {
+    if (!platform_ready()) {
         return;
     }
 
-    sleep_us = output->sleep_us;
+    pico_w_hw_set_led(led_on);
+}
 
-    if (output->forget_request.valid) {
-        (void)pico_w_stack_forget_device(&output->forget_request.device_id);
-    }
-
-    pico_w_stack_set_usb_plan(
-        output->usb_interface_count,
-        output->usb_descriptor_generation,
-        output->usb_interface_plan
-    );
-    pico_w_stack_set_pairing(output->pairing_active, output->pairing_link_type);
-
-    if (output->reconnect_request.valid) {
-        (void)pico_w_stack_request_reconnect(
-            &output->reconnect_request.device_id,
-            output->reconnect_request.bt_link_type,
-            output->reconnect_request.bt_addr_type
-        );
-    }
-
-    if (output->usb_tx.valid) {
-        (void)pico_w_stack_send_usb_report(
-            output->usb_tx.interface_number,
-            output->usb_tx.report,
-            output->usb_tx.report_len
-        );
-    }
-
-    if (output->bt_tx.valid) {
-        (void)pico_w_stack_send_bt_report(
-            output->bt_tx.hid_cid,
-            output->bt_tx.bt_link_type,
-            output->bt_tx.protocol_mode,
-            output->bt_tx.report,
-            output->bt_tx.report_len
-        );
-    }
-
-    if (output->factory_reset_requested) {
-        pico_w_factory_reset();
+void platform_sleep_us(uint32_t sleep_us) {
+    if (!platform_ready()) {
         return;
-    }
-
-#if defined(APP_PICO_HAS_TELEMETRY)
-    diag = output->diag;
-
-    if (have_stack_runtime_state) {
-        diag.stack_event_depth = stack_runtime_state.event_queue_depth;
-        diag.stack_event_high_watermark = stack_runtime_state.event_queue_high_watermark;
-        diag.stack_event_dropped = stack_runtime_state.event_queue_dropped;
-        diag.stack_connect_pending = stack_runtime_state.connect_pending;
-        diag.stack_reconnect_pending = stack_runtime_state.reconnect_pending;
-        diag.stack_connect_mode = stack_runtime_state.connect_mode;
-        diag.stack_reconnect_attempt_index = stack_runtime_state.reconnect_attempt_index;
-        diag.stack_reconnect_attempt_count = stack_runtime_state.reconnect_attempt_count;
-        diag.stack_last_connect_status = stack_runtime_state.last_connect_status;
-    }
-
-    pico_w_diag_publish(&diag);
-#else
-    pico_w_diag_publish(&output->diag);
-#endif
-
-    if (have_stack_runtime_state && (stack_runtime_state.event_queue_depth > 0U)) {
-        sleep_us = 0U;
     }
 
 #if defined(APP_PICO_HAS_TINYUSB)
@@ -308,8 +72,128 @@ void platform_apply(const platform_output_t * output) {
     }
 #endif
 
-    pico_w_hw_set_led(output->led_on);
     pico_w_hw_sleep_us(sleep_us);
+}
+
+void platform_factory_reset(void) {
+    if (!platform_ready()) {
+        return;
+    }
+
+    (void)pico_w_pair_store_factory_reset_all();
+    watchdog_reboot(0U, 0U, 0U);
+
+    for (;;) {
+        tight_loop_contents();
+    }
+}
+
+void platform_transport_poll(uint32_t now_ms) {
+    if (!platform_ready()) {
+        return;
+    }
+
+    pico_w_stack_poll(now_ms);
+}
+
+bool platform_transport_take_event(hid_transport_event_t * out_event) {
+    if (!platform_ready()) {
+        return false;
+    }
+
+    return pico_w_stack_take_event(out_event);
+}
+
+void platform_transport_set_usb_plan(
+    uint8_t interface_count,
+    uint32_t descriptor_generation,
+    const hid_transport_usb_interface_plan_t * interface_plan
+) {
+    if (!platform_ready()) {
+        return;
+    }
+
+    pico_w_stack_set_usb_plan(interface_count, descriptor_generation, interface_plan);
+}
+
+void platform_transport_set_pairing(
+    bool pairing_active,
+    uint8_t bt_link_type
+) {
+    if (!platform_ready()) {
+        return;
+    }
+
+    pico_w_stack_set_pairing(pairing_active, bt_link_type);
+}
+
+bool platform_transport_request_reconnect(
+    const pair_device_id_t * device_id,
+    uint8_t bt_link_type_hint,
+    uint8_t bt_addr_type_hint
+) {
+    if (!platform_ready()) {
+        return false;
+    }
+
+    return pico_w_stack_request_reconnect(device_id, bt_link_type_hint, bt_addr_type_hint);
+}
+
+bool platform_transport_forget_device(const pair_device_id_t * device_id) {
+    if (!platform_ready()) {
+        return false;
+    }
+
+    return pico_w_stack_forget_device(device_id);
+}
+
+bool platform_transport_send_usb_report(
+    uint8_t interface_number,
+    const uint8_t * report,
+    uint16_t report_len
+) {
+    if (!platform_ready()) {
+        return false;
+    }
+
+    return pico_w_stack_send_usb_report(interface_number, report, report_len);
+}
+
+bool platform_transport_send_bt_report(
+    uint16_t hid_cid,
+    uint8_t bt_link_type,
+    uint8_t protocol_mode,
+    const uint8_t * report,
+    uint16_t report_len
+) {
+    if (!platform_ready()) {
+        return false;
+    }
+
+    return pico_w_stack_send_bt_report(hid_cid, bt_link_type, protocol_mode, report, report_len);
+}
+
+bool platform_transport_state_get(platform_transport_state_t * out_state) {
+    pico_w_stack_runtime_state_t stack_state = {0};
+
+    if ((out_state == NULL) || !platform_ready()) {
+        return false;
+    }
+
+    if (!pico_w_stack_runtime_state_get(&stack_state)) {
+        return false;
+    }
+
+    out_state->event_queue_depth = stack_state.event_queue_depth;
+    out_state->event_queue_high_watermark = stack_state.event_queue_high_watermark;
+    out_state->event_queue_dropped = stack_state.event_queue_dropped;
+    out_state->connect_pending = stack_state.connect_pending;
+    out_state->reconnect_pending = stack_state.reconnect_pending;
+    out_state->connect_mode = stack_state.connect_mode;
+    out_state->reconnect_attempt_index = stack_state.reconnect_attempt_index;
+    out_state->reconnect_attempt_count = stack_state.reconnect_attempt_count;
+    out_state->last_connect_status = stack_state.last_connect_status;
+    return true;
 }
 
 bool platform_pair_db_load(pair_db_t * db) {
@@ -328,21 +212,9 @@ bool platform_pair_db_save(const pair_db_t * db) {
     return pico_w_pair_store_save(db);
 }
 
-bool platform_diag_take(hid_transport_diag_snapshot_t * out_diag) {
-#if defined(APP_PICO_HAS_TELEMETRY)
-    if ((out_diag == NULL)
-        || !pico_w_state_is_initialized(&g_state)
-        || (g_diag_queue_count == 0U)) {
-        return false;
-    }
-
-    *out_diag = g_diag_queue[g_diag_queue_head];
-    (void)memset(&g_diag_queue[g_diag_queue_head], 0, sizeof(g_diag_queue[g_diag_queue_head]));
-    g_diag_queue_head = (uint8_t)((g_diag_queue_head + 1U) % PICO_W_DIAG_QUEUE_SIZE);
-    g_diag_queue_count = (uint8_t)(g_diag_queue_count - 1U);
-    return true;
-#else
-    (void)out_diag;
-    return false;
-#endif
+bool platform_diag_write(
+    const uint8_t * data,
+    uint16_t data_len
+) {
+    return pico_w_tinyusb_runtime_diag_write(data, data_len);
 }

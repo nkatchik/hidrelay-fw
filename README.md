@@ -149,7 +149,7 @@ With default Pico W stack settings:
 - one queued report per tick is forwarded in each direction via `usb_bridge`
 - BT report TX path now selects Classic HID host or BLE HIDS client send APIs by per-interface link type
 - queue saturation drops oldest pending reports and updates telemetry counters
-- when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, diagnostics snapshots are mirrored to stdio and exposed via `platform_diag_take(...)`
+- diagnostics snapshots are queued in common app code via `app_diag_take(...)`
 - when `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, diagnostics snapshots are additionally published over TinyUSB CDC interface `0`
 - diagnostics now include Pico stack event-queue telemetry (depth/high-water/drop counters) for dropped-event visibility
 - Pair DB save path now suppresses no-op writes and alternates flash slots using sequence-based latest selection (schema v5 with v4/v3 migration support)
@@ -198,7 +198,7 @@ When TinyUSB is enabled and both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLA
 - byte `0`: magic `'H'` (`0x48`)
 - byte `1`: magic `'R'` (`0x52`)
 - byte `2`: frame version (`1`)
-- byte `3`: payload length (`39`)
+- byte `3`: payload length (`45`)
 - bytes `4..`: little-endian payload:
   - `u32 sequence`
   - `u8 bt_state`
@@ -218,6 +218,12 @@ When TinyUSB is enabled and both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLA
   - `u8 stack_event_depth`
   - `u8 stack_event_high_watermark`
   - `u32 stack_event_dropped`
+  - `u8 stack_connect_pending`
+  - `u8 stack_reconnect_pending`
+  - `u8 stack_connect_mode`
+  - `u8 stack_reconnect_attempt_index`
+  - `u8 stack_reconnect_attempt_count`
+  - `u8 stack_last_connect_status`
 
 Capture and decode frames to CSV on host:
 

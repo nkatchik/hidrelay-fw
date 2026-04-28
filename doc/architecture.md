@@ -52,10 +52,14 @@ Common logic never imports Pico-specific SDK headers.
 - `hid_device_map`:
   - device-profile detection hooks for mapping behavior by VID/PID
   - currently tracks Apple Magic Keyboard `Fn+Esc` mode toggles as bridge-side state for future remap policy extensions
+- `hid_transport_runtime`:
+  - shared transport-side USB interface plan, event queue, queue telemetry, and report remap selection
+  - keeps Pico stack callbacks focused on SDK I/O instead of generic queue/plan bookkeeping
+- `app_diag`:
+  - shared diagnostics snapshot queue and CDC frame encoder
 - `platform_api`:
-  - platform boundary: init, poll inputs, apply outputs
+  - platform boundary: hardware primitives, transport primitives, diagnostics writes, reset, and sleep
   - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
-  - structured diagnostics dequeue hook: `platform_diag_take`
 
 ## Pico W Platform Glue
 
@@ -71,11 +75,12 @@ Common logic never imports Pico-specific SDK headers.
   - CYW43 status LED
   - BOOTSEL button input
   - tick pacing via `sleep_ms`
+  - thin transport/reset/diagnostics write wrappers
 - split runtime glue modules:
   - `platform_pico_w_state.*`
   - `platform_pico_w_hw.*`
   - `platform_pico_w_pair_store.*` (flash-backed Pair DB load/save)
-  - `platform_pico_w_stack.*` (TinyUSB/BTstack bring-up hooks + USB plan handoff)
+  - `platform_pico_w_stack.*` (TinyUSB/BTstack bring-up hooks backed by shared transport runtime)
   - `platform_pico_w_tinyusb_runtime.*` (TinyUSB runtime calls isolated from BTstack includes)
   - `platform_pico_w_tinyusb_desc.c` (dynamic HID configuration descriptor callbacks)
 - platform-local stack config headers:
@@ -123,7 +128,7 @@ Pico-specific linkage is isolated under this directory.
 - USB bridge now carries per-device mapping profile state; Apple Magic Keyboard profile detection and `Fn+Esc` mode-toggle tracking are wired as a policy scaffold.
 - BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
 - LE pairing/re-encryption completion now gates BLE HID service client bring-up (`hids_client_connect`) before report routing begins.
-- Platform glue records diagnostics in a structured queue (`platform_diag_take`) and mirrors state-change logs to stdio when telemetry is enabled.
+- App diagnostics records snapshots in a structured queue (`app_diag_take`), and the platform writes encoded frames to CDC when that transport is enabled.
 - When both `APP_PLATFORM_ENABLE_TELEMETRY` and `APP_PLATFORM_ENABLE_DIAG_CDC` are enabled, diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
 - BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
 - Pair DB persistence now uses a dual-slot flash journal with sequence-based latest selection and no-op write suppression.
@@ -133,16 +138,16 @@ Pico-specific linkage is isolated under this directory.
 
 ## Diagnostics Transport
 
-- Source: app emits `hid_transport_diag_snapshot_t` each tick through `platform_output_t`.
-- Queue: when `APP_PLATFORM_ENABLE_TELEMETRY=ON`, platform keeps a bounded diagnostics queue for `platform_diag_take(...)`.
-- Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes each changed snapshot as a framed binary record.
+- Source: app emits `hid_transport_diag_snapshot_t` each tick and merges platform transport telemetry before publication.
+- Queue: `app_diag` keeps a bounded diagnostics queue for `app_diag_take(...)`.
+- Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes current snapshots as framed binary records.
 - Host capture helper: `tool/src/diag_capture.c` decodes CDC frames into CSV for offline analysis.
 - Host summary helper: `tool/bin/diag_summary` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
 - Host alert helper: `tool/bin/diag_alert` renders markdown gate reports for CI/inbox notifications and mirrors gate exit status.
 - Framing:
   - `magic`: `0x48 0x52` (`'H' 'R'`)
   - `version`: `1`
-  - `payload_len`: `39`
+  - `payload_len`: `45`
   - payload fields: sequence + bridge queue counters + stack event-queue counters + reconnect counters from `hid_transport_diag_snapshot_t`
 
 ## Build/Bootstrap Model

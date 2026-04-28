@@ -193,7 +193,7 @@ Implemented now:
 - device mapping scaffold for Apple Magic Keyboard profile detection with `Fn+Esc` bridge-side mode toggle tracking
 - explicit BTstack PIN/SSP confirmation handling policy tied to pairing-mode state
 - runtime bridge/pairing diagnostics emitted on state change via stdio log lines when `APP_PLATFORM_ENABLE_TELEMETRY=ON` (including reconnect counters/result + status code)
-- structured diagnostics dequeue API exposed at platform boundary (`platform_diag_take`) when telemetry is enabled
+- structured diagnostics dequeue API exposed from common app code (`app_diag_take`)
 - optional TinyUSB CDC diagnostics function (HID interfaces + CDC control/data pair) gated by `APP_PLATFORM_ENABLE_DIAG_CDC`
 - when telemetry+CDC are enabled, diagnostics snapshots are streamed over TinyUSB CDC as framed binary records (magic/version/payload + sequence) including Pico stack event-queue depth/high-water/drop counters
 - remove-last command now emits a per-device forget request from app to platform, and Pico W stack drops link-key/bonding state for that device

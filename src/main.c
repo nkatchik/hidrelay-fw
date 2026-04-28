@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "app_diag.h"
 #include "platform_api.h"
 
 enum {
@@ -17,6 +18,7 @@ enum {
 static app_t g_app = {0};
 static pair_db_t g_initial_pair_db = {0};
 static pair_db_t g_persisted_pair_db = {0};
+static uint8_t g_diag_frame[APP_DIAG_FRAME_MAX_LEN] = {0};
 static app_output_t g_app_output = {
     .led_on = false,
     .pairing_active = false,
@@ -59,6 +61,107 @@ static bool main_time_elapsed(
     return (int32_t)(now_ms - reference_ms) >= (int32_t)duration_ms;
 }
 
+static void main_merge_transport_diag(
+    hid_transport_diag_snapshot_t * diag,
+    const platform_transport_state_t * transport_state
+) {
+    if ((diag == NULL) || (transport_state == NULL)) {
+        return;
+    }
+
+    diag->stack_event_depth = transport_state->event_queue_depth;
+    diag->stack_event_high_watermark = transport_state->event_queue_high_watermark;
+    diag->stack_event_dropped = transport_state->event_queue_dropped;
+    diag->stack_connect_pending = transport_state->connect_pending;
+    diag->stack_reconnect_pending = transport_state->reconnect_pending;
+    diag->stack_connect_mode = transport_state->connect_mode;
+    diag->stack_reconnect_attempt_index = transport_state->reconnect_attempt_index;
+    diag->stack_reconnect_attempt_count = transport_state->reconnect_attempt_count;
+    diag->stack_last_connect_status = transport_state->last_connect_status;
+}
+
+static void main_publish_diag(const hid_transport_diag_snapshot_t * diag) {
+    uint16_t frame_len = 0U;
+
+    if (diag == NULL) {
+        return;
+    }
+
+    app_diag_publish(diag);
+    frame_len = app_diag_encode_frame(diag, g_diag_frame, sizeof(g_diag_frame));
+    if (frame_len > 0U) {
+        (void)platform_diag_write(g_diag_frame, frame_len);
+    }
+}
+
+static void main_apply_output(const app_output_t * output) {
+    platform_transport_state_t transport_state = {0};
+    bool have_transport_state = false;
+    hid_transport_diag_snapshot_t diag = {0};
+    uint32_t sleep_us = 0U;
+
+    if (output == NULL) {
+        return;
+    }
+
+    have_transport_state = platform_transport_state_get(&transport_state);
+    sleep_us = output->sleep_us;
+
+    if (output->forget_request.valid) {
+        (void)platform_transport_forget_device(&output->forget_request.device_id);
+    }
+
+    platform_transport_set_usb_plan(
+        output->usb_interface_count,
+        output->usb_descriptor_generation,
+        output->usb_interface_plan
+    );
+    platform_transport_set_pairing(output->pairing_active, output->pairing_link_type);
+
+    if (output->reconnect_request.valid) {
+        (void)platform_transport_request_reconnect(
+            &output->reconnect_request.device_id,
+            output->reconnect_request.bt_link_type,
+            output->reconnect_request.bt_addr_type
+        );
+    }
+
+    if (output->usb_tx.valid) {
+        (void)platform_transport_send_usb_report(
+            output->usb_tx.interface_number,
+            output->usb_tx.report,
+            output->usb_tx.report_len
+        );
+    }
+
+    if (output->bt_tx.valid) {
+        (void)platform_transport_send_bt_report(
+            output->bt_tx.hid_cid,
+            output->bt_tx.bt_link_type,
+            output->bt_tx.protocol_mode,
+            output->bt_tx.report,
+            output->bt_tx.report_len
+        );
+    }
+
+    if (output->factory_reset_requested) {
+        platform_factory_reset();
+        return;
+    }
+
+    diag = output->diag;
+    if (have_transport_state) {
+        main_merge_transport_diag(&diag, &transport_state);
+        if (transport_state.event_queue_depth > 0U) {
+            sleep_us = 0U;
+        }
+    }
+    main_publish_diag(&diag);
+
+    platform_set_led(output->led_on);
+    platform_sleep_us(sleep_us);
+}
+
 int main(void) {
     const bool has_initial_pair_db = platform_pair_db_load(&g_initial_pair_db);
     bool pair_db_save_pending = false;
@@ -69,49 +172,34 @@ int main(void) {
         return 1;
     }
 
+    app_diag_init();
     app_init(&g_app, has_initial_pair_db ? &g_initial_pair_db : NULL);
     if (has_initial_pair_db) {
         g_persisted_pair_db = g_initial_pair_db;
     }
 
     for (;;) {
-        platform_input_t platform_input = {0};
-        platform_output_t platform_output = {0};
         app_input_t app_input = {0};
         bool pair_db_changed = false;
 
-        platform_poll(&platform_input);
+        app_input.button_pressed = platform_button_pressed();
+        app_input.now_ms = platform_uptime_ms();
+        app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
 
-        app_input.button_pressed = platform_input.button_pressed;
-        app_input.now_ms = platform_input.uptime_ms;
-        app_input.transport_event = platform_input.transport_event;
+        if (!platform_transport_take_event(&app_input.transport_event)) {
+            app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
+        }
+
+        platform_transport_poll(app_input.now_ms);
 
         app_tick(&g_app, &app_input, &g_app_output);
         pair_db_changed = memcmp(&g_app.pair_db, &g_persisted_pair_db, sizeof(g_app.pair_db)) != 0;
 
-        platform_output.led_on = g_app_output.led_on;
-        platform_output.pairing_active = g_app_output.pairing_active;
-        platform_output.pairing_link_type = g_app_output.pairing_link_type;
-        platform_output.sleep_us = g_app_output.sleep_us;
-        platform_output.usb_interface_count = g_app_output.usb_interface_count;
-        platform_output.usb_descriptor_generation = g_app_output.usb_descriptor_generation;
-        (void)memcpy(
-            platform_output.usb_interface_plan,
-            g_app_output.usb_interface_plan,
-            sizeof(platform_output.usb_interface_plan)
-        );
-        platform_output.reconnect_request = g_app_output.reconnect_request;
-        platform_output.forget_request = g_app_output.forget_request;
-        platform_output.diag = g_app_output.diag;
-        platform_output.usb_tx = g_app_output.usb_tx;
-        platform_output.bt_tx = g_app_output.bt_tx;
-        platform_output.factory_reset_requested = g_app_output.factory_reset_requested;
-
-        platform_apply(&platform_output);
+        main_apply_output(&g_app_output);
 
         if (pair_db_changed && !pair_db_save_pending) {
             pair_db_save_pending = true;
-            pair_db_pending_since_ms = platform_input.uptime_ms;
+            pair_db_pending_since_ms = app_input.now_ms;
         }
 
         if (!pair_db_changed) {
@@ -120,24 +208,24 @@ int main(void) {
 
         if (pair_db_save_pending) {
             const bool debounce_elapsed = main_time_elapsed(
-                platform_input.uptime_ms,
+                app_input.now_ms,
                 pair_db_pending_since_ms,
                 MAIN_PAIR_DB_SAVE_DEBOUNCE_MS
             );
             const bool max_stale_elapsed = main_time_elapsed(
-                platform_input.uptime_ms,
+                app_input.now_ms,
                 pair_db_pending_since_ms,
                 MAIN_PAIR_DB_SAVE_MAX_STALE_MS
             );
             const bool retry_elapsed = main_time_elapsed(
-                                           platform_input.uptime_ms,
+                                           app_input.now_ms,
                                            pair_db_last_save_attempt_ms,
                                            MAIN_PAIR_DB_SAVE_RETRY_MS
                                        )
                 || (pair_db_last_save_attempt_ms == 0U);
 
             if ((debounce_elapsed || max_stale_elapsed) && retry_elapsed) {
-                pair_db_last_save_attempt_ms = platform_input.uptime_ms;
+                pair_db_last_save_attempt_ms = app_input.now_ms;
 
                 if (platform_pair_db_save(&g_app.pair_db)) {
                     g_persisted_pair_db = g_app.pair_db;
