@@ -57,7 +57,6 @@ typedef struct {
     uint8_t reconnect_last_status_code;
     bool factory_reset_armed;
     bool startup_cue_pending;
-    uint32_t factory_reset_due_ms;
 } app_t;
 
 void app_init(

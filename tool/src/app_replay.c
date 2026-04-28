@@ -876,15 +876,45 @@ static bool app_replay_test_remove_all_very_long_press(void) {
 
     if (!app_replay_expect_true(
             !out.factory_reset_requested,
-            "factory reset should be delayed for LED sequence"
+            "factory reset reboot should wait while BOOTSEL remains held"
         )) {
         return false;
     }
 
-    app_replay_tick(&app, 13610U, false, NULL, &out);
+    app_replay_tick(&app, 11010U, false, NULL, &out);
     return app_replay_expect_true(
         out.factory_reset_requested,
-        "factory reset should trigger after delay"
+        "factory reset reboot should trigger after BOOTSEL release"
+    );
+}
+
+static bool app_replay_test_remove_all_waits_across_late_button_release_before_reboot(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x44U);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 10U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    app_replay_tick(&app, 1000U, true, NULL, &out);
+    app_replay_tick(&app, 11001U, true, NULL, &out);
+    app_replay_tick(&app, 13610U, true, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.factory_reset_requested,
+            "factory reset reboot should keep waiting while BOOTSEL remains held"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 13620U, false, NULL, &out);
+    return app_replay_expect_true(
+        out.factory_reset_requested,
+        "factory reset reboot should trigger after BOOTSEL release"
     );
 }
 
@@ -1549,6 +1579,8 @@ int main(void) {
         {.name = "remove_last_ignored_when_not_recent",
             .fn = app_replay_test_remove_last_ignored_when_not_recent},
         {.name = "remove_all_very_long_press", .fn = app_replay_test_remove_all_very_long_press},
+        {.name = "remove_all_waits_across_late_button_release_before_reboot",
+            .fn = app_replay_test_remove_all_waits_across_late_button_release_before_reboot},
         {.name = "reconnect_backoff_schedule", .fn = app_replay_test_reconnect_backoff_schedule},
         {.name = "reconnect_connect_failed_no_lockout",
             .fn = app_replay_test_reconnect_connect_failed_no_lockout},

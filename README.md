@@ -189,7 +189,7 @@ LED behavior:
 - remove-last success: one long blink
 - factory reset: three long blinks
 - if a new cue arrives while another cue is active, the active cue is interrupted, LED goes dark, then the new cue starts
-- after the three blinks complete, firmware erases all persisted pairing/security state and reboots
+- after BOOTSEL is released, firmware erases all persisted pairing/security state and reboots
 
 ## Diagnostics CDC Frame
 

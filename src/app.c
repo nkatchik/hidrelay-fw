@@ -20,8 +20,7 @@ enum {
     APP_PAIRING_ERROR_BLINK_UNKNOWN_COUNT = 4U,
     APP_PAIRING_ERROR_BLINK_CLASSIC_CONNECT_COUNT = 5U,
     APP_PAIRING_ERROR_BLINK_LE_CONNECT_COUNT = 6U,
-    APP_PAIRING_ERROR_BLINK_LE_HIDS_COUNT = 7U,
-    APP_FACTORY_RESET_SEQUENCE_MS = 2600U
+    APP_PAIRING_ERROR_BLINK_LE_HIDS_COUNT = 7U
 };
 
 static led_ui_state_t app_led_state_from_bt_state(bt_manager_state_t bt_state) {
@@ -330,7 +329,6 @@ void app_init(
     app->reconnect_last_status_code = 0U;
     app->factory_reset_armed = false;
     app->startup_cue_pending = true;
-    app->factory_reset_due_ms = 0U;
 }
 
 void app_tick(
@@ -404,7 +402,6 @@ void app_tick(
         (void)bt_manager_remove_all(&app->bt_manager);
         led_ui_trigger_long_blink(&app->led_ui, APP_FACTORY_RESET_BLINK_COUNT, input->now_ms);
         app->factory_reset_armed = true;
-        app->factory_reset_due_ms = input->now_ms + APP_FACTORY_RESET_SEQUENCE_MS;
     }
 
     bt_state_before_event = bt_manager_state(&app->bt_manager);
@@ -584,10 +581,9 @@ void app_tick(
     output->diag.stack_last_connect_status = 0U;
     output->forget_request = forget_request;
 
-    if (app->factory_reset_armed && (input->now_ms >= app->factory_reset_due_ms)) {
+    if (app->factory_reset_armed && !input->button_pressed) {
         output->factory_reset_requested = true;
         app->factory_reset_armed = false;
-        app->factory_reset_due_ms = 0U;
     }
 
     output->pair_db_dirty = memcmp(&pair_db_before, &app->pair_db, sizeof(pair_db_before)) != 0;
