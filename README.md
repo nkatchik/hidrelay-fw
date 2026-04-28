@@ -183,12 +183,12 @@ Current mapping:
 LED behavior:
 
 - startup-complete cue: short pulse once app init completes
-- pairing mode blinks during discovery (100ms BLE cadence, 300ms Classic cadence), turns steady on during the single active connect/pair attempt, exits on terminal attempt failure, then shows connect/auth/stack/unknown failures as 1/2/3/4 counted pulses after a 2s dark gap; pair-any diagnostic connect failures use 5/6/7 pulses for Classic connect/LE connect/LE HIDS discovery; each pulse is 1s on with 1s off between pulses
+- pairing mode blinks during discovery (100ms BLE cadence, 300ms Classic cadence), turns steady on during the single active connect/pair attempt, exits on terminal attempt failure, then shows connect/auth/stack/unknown failures as 1/2/3/4 counted pulses after a 2s dark gap; pair-any diagnostic connect failures use 5/6/7 pulses for Classic connect/LE connect/LE HIDS discovery; pairing success uses the connected cue; each counted pulse is 1s on with 1s off between pulses
 - connected and bridged state shows LED on for 3 seconds, then turns off
 - disconnect cue: solid on for 1 second
 - remove-last success: one long blink
 - factory reset: three long blinks
-- if a new cue arrives while another cue is active, the active cue is interrupted, LED goes dark, then the new cue starts
+- if a new cue arrives while another cue is active, the active cue is interrupted, LED goes dark, then the new cue starts; active pairing mode suppresses ordinary cues until pairing exits
 - after BOOTSEL is released, firmware erases all persisted pairing/security state and reboots
 
 ## Diagnostics CDC Frame

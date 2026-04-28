@@ -40,29 +40,27 @@ static led_ui_state_t app_led_state_from_bt_state(bt_manager_state_t bt_state) {
 }
 
 static uint8_t app_pairing_error_blink_count(uint8_t reconnect_result) {
-    if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_PAIRING_CLASSIC_CONNECT_FAILED) {
-        return APP_PAIRING_ERROR_BLINK_CLASSIC_CONNECT_COUNT;
-    }
+    static const struct {
+        uint8_t reconnect_result;
+        uint8_t blink_count;
+    } error_codes[] = {
+        {HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED, APP_PAIRING_ERROR_BLINK_CONNECT_COUNT},
+        {HID_TRANSPORT_RECONNECT_RESULT_TIMEOUT, APP_PAIRING_ERROR_BLINK_CONNECT_COUNT},
+        {HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED, APP_PAIRING_ERROR_BLINK_AUTH_COUNT},
+        {HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED, APP_PAIRING_ERROR_BLINK_STACK_COUNT},
+        {HID_TRANSPORT_RECONNECT_RESULT_PAIRING_CLASSIC_CONNECT_FAILED,
+            APP_PAIRING_ERROR_BLINK_CLASSIC_CONNECT_COUNT},
+        {HID_TRANSPORT_RECONNECT_RESULT_PAIRING_LE_CONNECT_FAILED,
+            APP_PAIRING_ERROR_BLINK_LE_CONNECT_COUNT},
+        {HID_TRANSPORT_RECONNECT_RESULT_PAIRING_LE_HIDS_FAILED,
+            APP_PAIRING_ERROR_BLINK_LE_HIDS_COUNT},
+    };
+    size_t index = 0U;
 
-    if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_PAIRING_LE_CONNECT_FAILED) {
-        return APP_PAIRING_ERROR_BLINK_LE_CONNECT_COUNT;
-    }
-
-    if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_PAIRING_LE_HIDS_FAILED) {
-        return APP_PAIRING_ERROR_BLINK_LE_HIDS_COUNT;
-    }
-
-    if ((reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_CONNECT_FAILED)
-        || (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_TIMEOUT)) {
-        return APP_PAIRING_ERROR_BLINK_CONNECT_COUNT;
-    }
-
-    if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_AUTH_FAILED) {
-        return APP_PAIRING_ERROR_BLINK_AUTH_COUNT;
-    }
-
-    if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED) {
-        return APP_PAIRING_ERROR_BLINK_STACK_COUNT;
+    for (index = 0U; index < (sizeof(error_codes) / sizeof(error_codes[0])); index++) {
+        if (error_codes[index].reconnect_result == reconnect_result) {
+            return error_codes[index].blink_count;
+        }
     }
 
     if ((reconnect_result != HID_TRANSPORT_RECONNECT_RESULT_NONE)
@@ -400,6 +398,11 @@ void app_tick(
         }
     } else if (command == BUTTON_COMMAND_REMOVE_ALL) {
         (void)bt_manager_remove_all(&app->bt_manager);
+        led_ui_set_state(
+            &app->led_ui,
+            app_led_state_from_bt_state(bt_manager_state(&app->bt_manager)),
+            input->now_ms
+        );
         led_ui_trigger_long_blink(&app->led_ui, APP_FACTORY_RESET_BLINK_COUNT, input->now_ms);
         app->factory_reset_armed = true;
     }
@@ -461,7 +464,9 @@ void app_tick(
         input->now_ms
     );
     led_ui_set_state(&app->led_ui, app_led_state_from_bt_state(bt_state), input->now_ms);
-    if (disconnect_event_cue) {
+    if (disconnect_event_cue
+        && (bt_state_before_event != BT_MANAGER_STATE_PAIRING)
+        && (bt_state != BT_MANAGER_STATE_PAIRING)) {
         led_ui_trigger_disconnect_cue(&app->led_ui, input->now_ms);
     }
     if (bt_state == BT_MANAGER_STATE_PAIRING) {
