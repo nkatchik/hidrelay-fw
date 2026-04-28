@@ -44,6 +44,20 @@
             }
         },
         {
+            "label": "🧪 Test",
+            "type": "shell",
+            "command": "make test-host && echo '✅ Tests clear' || echo '❌ Tests failed'",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "echo": false,
+                "showReuseMessage": false,
+                "clear": true
+            }
+        },
+        {
             "label": "⚡ Flash",
             "type": "shell",
             "command": "flash",
