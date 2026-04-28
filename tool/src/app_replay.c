@@ -1283,6 +1283,157 @@ static bool app_replay_test_reconnect_request_uses_last_link_hint(void) {
     );
 }
 
+static bool app_replay_test_reconnect_fills_spare_active_slot(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t first_device = app_replay_device_id(0x31U);
+    const pair_device_id_t second_device = app_replay_device_id(0x32U);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &first_device, 10U)) {
+        return false;
+    }
+    if (!pair_db_add(&initial_pair_db, &second_device, 20U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+    app_replay_tick(&app, 100U, false, NULL, &out);
+
+    if (!app_replay_expect_true(
+            out.reconnect_request.valid,
+            "boot should request reconnect for newest paired device"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            app_replay_device_id_equal(&out.reconnect_request.device_id, &second_device),
+            "first reconnect should target most recently seen device"
+        )) {
+        return false;
+    }
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = second_device;
+    event.hid_cid = 0x32U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    app_replay_tick(&app, 110U, false, &event, &out);
+
+    if (!app_replay_expect_u32_eq(
+            out.active_device_count,
+            1U,
+            "first reconnect open should leave one active device"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            out.reconnect_request.valid,
+            "spare active slot should trigger reconnect for another paired device"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            app_replay_device_id_equal(&out.reconnect_request.device_id, &first_device),
+            "second reconnect should skip the already active device"
+        )) {
+        return false;
+    }
+
+    (void)memset(&event, 0, sizeof(event));
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = first_device;
+    event.hid_cid = 0x31U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    app_replay_tick(&app, 120U, false, &event, &out);
+
+    if (!app_replay_expect_u32_eq(
+            out.active_device_count,
+            2U,
+            "second reconnect open should produce two active devices"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            out.usb_interface_count,
+            2U,
+            "two active devices should publish two USB interfaces"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        !out.reconnect_request.valid,
+        "all paired active devices should stop reconnect scheduling"
+    );
+}
+
+static bool app_replay_test_reconnect_success_waits_for_hid_open(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x33U);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 10U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+    app_replay_tick(&app, 100U, false, NULL, &out);
+    if (!app_replay_expect_true(out.reconnect_request.valid, "initial reconnect expected")) {
+        return false;
+    }
+
+    event.type = HID_TRANSPORT_EVENT_RECONNECT_RESULT;
+    event.device_id = device_id;
+    event.reconnect_result = HID_TRANSPORT_RECONNECT_RESULT_SUCCESS;
+    app_replay_tick(&app, 110U, false, &event, &out);
+    if (!app_replay_expect_true(
+            !out.reconnect_request.valid,
+            "success result should not reschedule before HID open"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 120U, false, NULL, &out);
+    if (!app_replay_expect_true(
+            !out.reconnect_request.valid,
+            "pending successful reconnect should remain in flight until open"
+        )) {
+        return false;
+    }
+
+    (void)memset(&event, 0, sizeof(event));
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x33U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    app_replay_tick(&app, 130U, false, &event, &out);
+
+    if (!app_replay_expect_u32_eq(
+            out.active_device_count,
+            1U,
+            "HID open should complete successful reconnect"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        !out.reconnect_request.valid,
+        "active reconnected device should not be requested again"
+    );
+}
+
 static bool app_replay_test_reconnect_close_stale_hid_cid_falls_back_to_device(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -1685,6 +1836,10 @@ int main(void) {
             .fn = app_replay_test_reconnect_auth_failure_no_lockout},
         {.name = "reconnect_request_uses_last_link_hint",
             .fn = app_replay_test_reconnect_request_uses_last_link_hint},
+        {.name = "reconnect_fills_spare_active_slot",
+            .fn = app_replay_test_reconnect_fills_spare_active_slot},
+        {.name = "reconnect_success_waits_for_hid_open",
+            .fn = app_replay_test_reconnect_success_waits_for_hid_open},
         {.name = "reconnect_close_stale_hid_cid_falls_back_to_device",
             .fn = app_replay_test_reconnect_close_stale_hid_cid_falls_back_to_device},
         {.name = "reconnect_close_mismatched_link_falls_back_to_device",

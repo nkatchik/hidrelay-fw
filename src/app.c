@@ -98,6 +98,73 @@ static bool app_device_id_equal(
     return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
 }
 
+static bool app_device_active(
+    const bt_manager_t * manager,
+    const pair_device_id_t * device_id
+) {
+    uint8_t index = 0U;
+
+    if ((manager == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < bt_manager_active_count(manager); index++) {
+        bt_hid_device_t active_device = {0};
+
+        if (!bt_manager_active_get(manager, index, &active_device)) {
+            continue;
+        }
+
+        if (app_device_id_equal(&active_device.device_id, device_id)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool app_get_reconnect_candidate(
+    const app_t * app,
+    uint32_t now_ms,
+    pair_db_entry_t * out_entry
+) {
+    uint8_t index = 0U;
+    bool found = false;
+    pair_db_entry_t best = {0};
+
+    if ((app == NULL) || (out_entry == NULL)) {
+        return false;
+    }
+
+    for (index = 0U; index < app->pair_db.count; index++) {
+        const pair_db_entry_t * entry = &app->pair_db.entries[index];
+
+        if (app_device_active(&app->bt_manager, &entry->device_id)) {
+            continue;
+        }
+
+        if ((entry->reconnect_allowed == 0U)
+            || ((int32_t)(now_ms - entry->reconnect_retry_after_ms) < 0)) {
+            continue;
+        }
+
+        if (!found
+            || (entry->reconnect_fail_count < best.reconnect_fail_count)
+            || ((entry->reconnect_fail_count == best.reconnect_fail_count)
+                && (entry->last_seen_ms > best.last_seen_ms))) {
+            best = *entry;
+            found = true;
+        }
+    }
+
+    if (!found) {
+        return false;
+    }
+
+    *out_entry = best;
+    return true;
+}
+
 static uint32_t app_reconnect_backoff_ms(uint8_t fail_count) {
     uint8_t shift = 0U;
 
@@ -144,6 +211,15 @@ static void app_reconnect_mark_success(
     app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_SUCCESS;
     app->reconnect_last_status_code = 0U;
     app_reconnect_clear_inflight(app);
+}
+
+static void app_reconnect_note_success_pending_open(app_t * app) {
+    if (app == NULL) {
+        return;
+    }
+
+    app->reconnect_last_result = HID_TRANSPORT_RECONNECT_RESULT_SUCCESS;
+    app->reconnect_last_status_code = 0U;
 }
 
 static void app_reconnect_mark_failure(
@@ -434,7 +510,11 @@ void app_tick(
         && (input->transport_event.type == HID_TRANSPORT_EVENT_RECONNECT_RESULT)
         && app_device_id_equal(&input->transport_event.device_id, &app->reconnect_device_id)) {
         if (input->transport_event.reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_SUCCESS) {
-            app_reconnect_mark_success(app, &input->transport_event.device_id, input->now_ms);
+            if (app_device_active(&app->bt_manager, &input->transport_event.device_id)) {
+                app_reconnect_mark_success(app, &input->transport_event.device_id, input->now_ms);
+            } else {
+                app_reconnect_note_success_pending_open(app);
+            }
         } else {
             app_reconnect_mark_failure(
                 app,
@@ -519,7 +599,7 @@ void app_tick(
         app_reconnect_clear_inflight(app);
     }
 
-    if ((bt_state == BT_MANAGER_STATE_IDLE) && (output->active_device_count == 0U)) {
+    if (bt_state != BT_MANAGER_STATE_PAIRING) {
         if (app->reconnect_inflight
             && ((input->now_ms - app->reconnect_started_ms) >= APP_RECONNECT_TIMEOUT_MS)) {
             app_reconnect_mark_failure(
@@ -530,12 +610,9 @@ void app_tick(
             );
         }
 
-        if (!app->reconnect_inflight
-            && pair_db_get_reconnect_candidate(
-                &app->pair_db,
-                input->now_ms,
-                &reconnect_candidate
-            )) {
+        if ((output->active_device_count < BT_MANAGER_MAX_ACTIVE_DEVICE)
+            && !app->reconnect_inflight
+            && app_get_reconnect_candidate(app, input->now_ms, &reconnect_candidate)) {
             output->reconnect_request.valid = true;
             output->reconnect_request.device_id = reconnect_candidate.device_id;
             output->reconnect_request.bt_link_type = reconnect_candidate.last_bt_link_type;
