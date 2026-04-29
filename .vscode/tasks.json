@@ -1,89 +1,90 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "🗑️ Clean (Full)",
-            "type": "shell",
-            "command": "make distclean && make distclean && echo '✅ Full clean completed' || echo '❌ Clean failed'",
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            },
-            "presentation": {
-                "echo": false,
-                "showReuseMessage": false,
-                "clear": true
-            }
-        },
-        {
-            "label": "🗑️ Clean",
-            "type": "shell",
-            "command": "make clean && echo '✅ Cleaned build artifacts' || echo '❌ Clean failed'",
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            },
-            "presentation": {
-                "echo": false,
-                "showReuseMessage": false,
-                "clear": true
-            }
-        },
-        {
-            "label": "🛠️ Build",
-            "type": "shell",
-            "command": "make build APP_PLATFORM=${input:appPlatform} tool-cache-probe tool-diag-capture && echo '✅ Build successful' || echo '❌ Build failed'",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "presentation": {
-                "echo": false,
-                "showReuseMessage": false,
-                "clear": true
-            }
-        },
-        {
-            "label": "🧪 Test",
-            "type": "shell",
-            "command": "make test-host && echo '✅ Tests clear' || echo '❌ Tests failed'",
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            },
-            "presentation": {
-                "echo": false,
-                "showReuseMessage": false,
-                "clear": true
-            }
-        },
-        {
-            "label": "⚡ Flash",
-            "type": "shell",
-            "command": "flash",
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            },
-            "presentation": {
-                "echo": false,
-                "showReuseMessage": false,
-                "clear": true
-            }
-        }
-    ],
     "inputs": [
         {
-            "id": "appPlatform",
-            "type": "command",
-            "command": "shellCommand.execute",
             "args": {
                 "command": "find \"${workspaceFolder}/platform\" -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; | LC_ALL=C sort",
                 "description": "Select target platform",
-                "taskId": "appPlatform",
                 "rememberPrevious": true,
+                "taskId": "appPlatform",
                 "useSingleResult": true
-            }
+            },
+            "command": "shellCommand.execute",
+            "id": "appPlatform",
+            "type": "command"
         }
-    ]
+    ],
+    "tasks": [
+        {
+            "command": "make distclean && make distclean && echo '✅ Full clean completed' || echo '❌ Clean failed'",
+            "group": {
+                "isDefault": false,
+                "kind": "build"
+            },
+            "label": "🗑️ Clean (Full)",
+            "presentation": {
+                "clear": true,
+                "echo": false,
+                "showReuseMessage": false
+            },
+            "type": "shell"
+        },
+        {
+            "command": "make clean && echo '✅ Cleaned build artifacts' || echo '❌ Clean failed'",
+            "group": {
+                "isDefault": false,
+                "kind": "build"
+            },
+            "label": "🗑️ Clean",
+            "presentation": {
+                "clear": true,
+                "echo": false,
+                "showReuseMessage": false
+            },
+            "type": "shell"
+        },
+        {
+            "command": "make build APP_PLATFORM=${input:appPlatform} tool-cache-probe tool-diag-capture && echo '✅ Build successful' || echo '❌ Build failed'",
+            "group": {
+                "isDefault": true,
+                "kind": "build"
+            },
+            "label": "🛠️ Build",
+            "presentation": {
+                "clear": true,
+                "echo": false,
+                "showReuseMessage": false
+            },
+            "type": "shell"
+        },
+        {
+            "command": "make test-host && echo '✅ Tests clear' || echo '❌ Tests failed'",
+            "group": {
+                "isDefault": false,
+                "kind": "test"
+            },
+            "label": "🧪 Test",
+            "presentation": {
+                "clear": true,
+                "echo": false,
+                "showReuseMessage": false
+            },
+            "type": "shell"
+        },
+        {
+            "command": "flash",
+            "group": {
+                "isDefault": false,
+                "kind": "none"
+            },
+            "label": "⚡ Flash",
+            "presentation": {
+                "clear": true,
+                "echo": false,
+                "panel": "dedicated",
+                "showReuseMessage": false
+            },
+            "type": "shell"
+        }
+    ],
+    "version": "2.0.0"
 }
