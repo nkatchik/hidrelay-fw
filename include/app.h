@@ -15,6 +15,8 @@ typedef struct {
     bool button_pressed;
     uint32_t now_ms;
     hid_transport_event_t transport_event;
+    bool usb_tx_blocked;
+    bool bt_tx_blocked;
 } app_input_t;
 
 typedef struct {

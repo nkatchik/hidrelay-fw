@@ -65,6 +65,7 @@ add_library(app_replay_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_device_map.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_report_policy.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_report_remap.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_transport_runtime.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/led_ui.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/pair_db.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/usb_bridge.c

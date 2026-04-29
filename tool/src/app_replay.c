@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "hid_device_map.h"
+#include "hid_transport_runtime.h"
 
 typedef bool (*app_replay_test_fn_t)(void);
 
@@ -1642,6 +1643,182 @@ static bool app_replay_test_known_open_preserves_stored_hid_metadata(void) {
     );
 }
 
+static bool app_replay_test_runtime_report_queue_preserves_unforwarded_on_overflow(void) {
+    hid_transport_runtime_t runtime = {0};
+    hid_transport_event_t event = {0};
+    hid_transport_event_t out_event = {0};
+    hid_transport_event_t last_event = {0};
+    hid_transport_runtime_queue_state_t queue_state = {0};
+    uint8_t index = 0U;
+    uint8_t taken_count = 0U;
+
+    hid_transport_runtime_init(&runtime);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_REPORT;
+    event.hid_cid = 0x44U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.report_len = 1U;
+
+    for (index = 0U; index < HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE; index++) {
+        event.report[0] = (uint8_t)(index + 1U);
+        if (!app_replay_expect_true(
+                hid_transport_runtime_push_event(&runtime, &event),
+                "initial report event should enqueue"
+            )) {
+            return false;
+        }
+    }
+
+    event.report[0] = 0U;
+    if (!app_replay_expect_true(
+            !hid_transport_runtime_push_event(&runtime, &event),
+            "newest report should be refused when queue is full"
+        )) {
+        return false;
+    }
+
+    if (!hid_transport_runtime_queue_state_get(&runtime, &queue_state)) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            queue_state.event_queue_depth,
+            HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE,
+            "overflow should keep queue at capacity"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            queue_state.event_queue_dropped,
+            1U,
+            "overflow should count the refused ingress report"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            hid_transport_runtime_take_event(&runtime, &out_event),
+            "queue should have a first event after overflow"
+        )) {
+        return false;
+    }
+
+    taken_count = 1U;
+    last_event = out_event;
+
+    if (!app_replay_expect_u32_eq(
+            out_event.report[0],
+            1U,
+            "overflow should preserve the oldest unforwarded report"
+        )) {
+        return false;
+    }
+
+    while (hid_transport_runtime_take_event(&runtime, &out_event)) {
+        taken_count = (uint8_t)(taken_count + 1U);
+        last_event = out_event;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            taken_count,
+            HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE,
+            "overflow should leave the expected number of events"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        last_event.report[0],
+        HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE,
+        "overflow should preserve queued reports in FIFO order"
+    );
+}
+
+static bool app_replay_test_usb_bridge_tx_queue_buffers_report_burst(void) {
+    usb_bridge_t bridge = {0};
+    usb_bridge_telemetry_t telemetry = {0};
+    hid_transport_usb_tx_t tx = {0};
+    uint8_t report[1] = {0U};
+    uint8_t index = 0U;
+    uint8_t taken_count = 0U;
+
+    usb_bridge_init(&bridge);
+    bridge.exported_interface_count = 1U;
+    bridge.interface_slot[0].used = true;
+    bridge.interface_slot[0].interface_number = 0U;
+    bridge.interface_slot[0].hid_cid = 0x44U;
+    bridge.interface_slot[0].bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+
+    for (index = 0U; index < USB_BRIDGE_TX_QUEUE_SIZE; index++) {
+        report[0] = (uint8_t)(index + 1U);
+        if (!app_replay_expect_true(
+                usb_bridge_ingest_bt_report(
+                    &bridge,
+                    0x44U,
+                    HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
+                    report,
+                    sizeof(report)
+                ),
+                "USB bridge should buffer a full report burst"
+            )) {
+            return false;
+        }
+    }
+
+    report[0] = 0U;
+    if (!app_replay_expect_true(
+            !usb_bridge_ingest_bt_report(
+                &bridge,
+                0x44U,
+                HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
+                report,
+                sizeof(report)
+            ),
+            "USB bridge should refuse a report when the burst queue is full"
+        )) {
+        return false;
+    }
+
+    if (!usb_bridge_telemetry_get(&bridge, &telemetry)) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            telemetry.usb_tx_depth,
+            USB_BRIDGE_TX_QUEUE_SIZE,
+            "USB bridge burst queue depth should reach configured capacity"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            telemetry.usb_tx_dropped,
+            1U,
+            "USB bridge should count refused reports at capacity"
+        )) {
+        return false;
+    }
+
+    while (usb_bridge_take_usb_tx(&bridge, &tx)) {
+        if (!app_replay_expect_u32_eq(
+                tx.report[0],
+                (uint32_t)(taken_count + 1U),
+                "USB bridge burst queue should preserve FIFO report order"
+            )) {
+            return false;
+        }
+
+        taken_count = (uint8_t)(taken_count + 1U);
+    }
+
+    return app_replay_expect_u32_eq(
+        taken_count,
+        USB_BRIDGE_TX_QUEUE_SIZE,
+        "USB bridge should drain the configured burst queue size"
+    );
+}
+
 static bool app_replay_test_bt_report_routed_to_usb(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -1696,6 +1873,63 @@ static bool app_replay_test_bt_report_routed_to_usb(void) {
     return app_replay_expect_true(
         memcmp(out.usb_tx.report, sample_report, sizeof(sample_report)) == 0,
         "USB report bytes should match source report"
+    );
+}
+
+static bool app_replay_test_usb_tx_blocked_defers_bridge_dequeue(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    app_input_t input = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x47U);
+    const uint8_t sample_report[] = {0x11U, 0x22U, 0x33U};
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x47U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.report_descriptor_len = 63U;
+    app_replay_tick(&app, 1000U, false, &event, &out);
+
+    input.now_ms = 1010U;
+    input.transport_event.type = HID_TRANSPORT_EVENT_BT_HID_REPORT;
+    input.transport_event.hid_cid = 0x47U;
+    input.transport_event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    input.transport_event.report_len = (uint16_t)sizeof(sample_report);
+    input.usb_tx_blocked = true;
+    (void)memcpy(input.transport_event.report, sample_report, sizeof(sample_report));
+
+    (void)memset(&out, 0, sizeof(out));
+    app_tick(&app, &input, &out);
+
+    if (!app_replay_expect_true(!out.usb_tx.valid, "blocked USB tx should not be popped")) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            out.usb_tx_queue_depth,
+            1U,
+            "blocked USB tx should remain queued in the bridge"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 1020U, false, NULL, &out);
+    if (!app_replay_expect_true(out.usb_tx.valid, "unblocked USB tx should pop queued report")) {
+        return false;
+    }
+
+    return app_replay_expect_true(
+        memcmp(out.usb_tx.report, sample_report, sizeof(sample_report)) == 0,
+        "deferred USB tx report bytes should be preserved"
     );
 }
 
@@ -1899,7 +2133,13 @@ int main(void) {
             .fn = app_replay_test_reconnect_close_mismatched_link_falls_back_to_device},
         {.name = "known_open_preserves_stored_hid_metadata",
             .fn = app_replay_test_known_open_preserves_stored_hid_metadata},
+        {.name = "runtime_report_queue_preserves_unforwarded_on_overflow",
+            .fn = app_replay_test_runtime_report_queue_preserves_unforwarded_on_overflow},
+        {.name = "usb_bridge_tx_queue_buffers_report_burst",
+            .fn = app_replay_test_usb_bridge_tx_queue_buffers_report_burst},
         {.name = "bt_report_routed_to_usb", .fn = app_replay_test_bt_report_routed_to_usb},
+        {.name = "usb_tx_blocked_defers_bridge_dequeue",
+            .fn = app_replay_test_usb_tx_blocked_defers_bridge_dequeue},
         {.name = "usb_report_routed_to_bt", .fn = app_replay_test_usb_report_routed_to_bt},
         {.name = "hid_device_map_profile_detection",
             .fn = app_replay_test_hid_device_map_profile_detection},

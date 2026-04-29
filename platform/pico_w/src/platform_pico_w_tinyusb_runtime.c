@@ -1,6 +1,9 @@
 #include "platform_pico_w_tinyusb_runtime.h"
 
 #include <stddef.h>
+#include <string.h>
+
+#include "hid_transport.h"
 
 #ifdef APP_PICO_HAS_TINYUSB
 #include "pico/time.h"
@@ -18,13 +21,43 @@
 #ifdef APP_PICO_HAS_TINYUSB
 enum {
     PICO_W_TINYUSB_REENUM_DISCONNECT_MS = 120U,
+    PICO_W_TINYUSB_IN_REPORT_QUEUE_SIZE = 32U,
 };
+
+typedef struct {
+    uint8_t interface_number;
+    uint16_t report_len;
+    uint8_t report[HID_TRANSPORT_REPORT_MAX_LEN];
+} pico_w_tinyusb_in_report_t;
 
 static bool g_pico_w_tinyusb_initialized = false;
 static bool g_pico_w_tinyusb_reenum_pending = false;
 static bool g_pico_w_tinyusb_reenum_disconnected = false;
 static uint32_t g_pico_w_tinyusb_reenum_resume_ms = 0U;
 static uint32_t g_pico_w_tinyusb_descriptor_activity_count = 0U;
+static pico_w_tinyusb_in_report_t
+    g_pico_w_tinyusb_in_report_queue[PICO_W_TINYUSB_IN_REPORT_QUEUE_SIZE] = {0};
+static uint8_t g_pico_w_tinyusb_in_report_queue_head = 0U;
+static uint8_t g_pico_w_tinyusb_in_report_queue_tail = 0U;
+static uint8_t g_pico_w_tinyusb_in_report_queue_count = 0U;
+
+static void pico_w_tinyusb_runtime_clear_in_report_queue(void) {
+    (void)memset(g_pico_w_tinyusb_in_report_queue, 0, sizeof(g_pico_w_tinyusb_in_report_queue));
+    g_pico_w_tinyusb_in_report_queue_head = 0U;
+    g_pico_w_tinyusb_in_report_queue_tail = 0U;
+    g_pico_w_tinyusb_in_report_queue_count = 0U;
+}
+
+static void pico_w_tinyusb_runtime_pop_in_report_queue(void) {
+    (void)memset(
+        &g_pico_w_tinyusb_in_report_queue[g_pico_w_tinyusb_in_report_queue_head],
+        0,
+        sizeof(g_pico_w_tinyusb_in_report_queue[g_pico_w_tinyusb_in_report_queue_head])
+    );
+    g_pico_w_tinyusb_in_report_queue_head = (uint8_t)((g_pico_w_tinyusb_in_report_queue_head + 1U)
+        % PICO_W_TINYUSB_IN_REPORT_QUEUE_SIZE);
+    g_pico_w_tinyusb_in_report_queue_count = (uint8_t)(g_pico_w_tinyusb_in_report_queue_count - 1U);
+}
 
 static bool pico_w_tinyusb_runtime_time_reached(
     uint32_t now_ms,
@@ -61,6 +94,80 @@ static void pico_w_tinyusb_runtime_reenumeration_tick(void) {
     g_pico_w_tinyusb_reenum_disconnected = false;
     g_pico_w_tinyusb_reenum_resume_ms = 0U;
 }
+
+static bool pico_w_tinyusb_runtime_try_send_in_report(
+    uint8_t interface_number,
+    const uint8_t * report,
+    uint16_t report_len
+) {
+    if (!g_pico_w_tinyusb_initialized || !tud_mounted() || !tud_ready()) {
+        return false;
+    }
+
+    if (!tud_hid_n_ready(interface_number)) {
+        return false;
+    }
+
+    return tud_hid_n_report(interface_number, 0U, report, report_len);
+}
+
+static bool pico_w_tinyusb_runtime_queue_in_report(
+    uint8_t interface_number,
+    const uint8_t * report,
+    uint16_t report_len
+) {
+    pico_w_tinyusb_in_report_t * queued_report = NULL;
+
+    if ((report_len > 0U) && (report == NULL)) {
+        return false;
+    }
+
+    if (report_len > HID_TRANSPORT_REPORT_MAX_LEN) {
+        return false;
+    }
+
+    if (g_pico_w_tinyusb_in_report_queue_count >= PICO_W_TINYUSB_IN_REPORT_QUEUE_SIZE) {
+        return false;
+    }
+
+    queued_report = &g_pico_w_tinyusb_in_report_queue[g_pico_w_tinyusb_in_report_queue_tail];
+    (void)memset(queued_report, 0, sizeof(*queued_report));
+    queued_report->interface_number = interface_number;
+    queued_report->report_len = report_len;
+    if (report_len > 0U) {
+        (void)memcpy(queued_report->report, report, report_len);
+    }
+
+    g_pico_w_tinyusb_in_report_queue_tail = (uint8_t)((g_pico_w_tinyusb_in_report_queue_tail + 1U)
+        % PICO_W_TINYUSB_IN_REPORT_QUEUE_SIZE);
+    g_pico_w_tinyusb_in_report_queue_count = (uint8_t)(g_pico_w_tinyusb_in_report_queue_count + 1U);
+    return true;
+}
+
+static void pico_w_tinyusb_runtime_drain_in_report_queue(void) {
+    if (!g_pico_w_tinyusb_initialized || !tud_mounted()) {
+        return;
+    }
+
+    if (!tud_ready()) {
+        return;
+    }
+
+    while (g_pico_w_tinyusb_in_report_queue_count > 0U) {
+        pico_w_tinyusb_in_report_t * queued_report =
+            &g_pico_w_tinyusb_in_report_queue[g_pico_w_tinyusb_in_report_queue_head];
+
+        if (!pico_w_tinyusb_runtime_try_send_in_report(
+                queued_report->interface_number,
+                queued_report->report,
+                queued_report->report_len
+            )) {
+            return;
+        }
+
+        pico_w_tinyusb_runtime_pop_in_report_queue();
+    }
+}
 #endif
 
 bool pico_w_tinyusb_runtime_init(void) {
@@ -70,6 +177,7 @@ bool pico_w_tinyusb_runtime_init(void) {
     g_pico_w_tinyusb_reenum_disconnected = false;
     g_pico_w_tinyusb_reenum_resume_ms = 0U;
     g_pico_w_tinyusb_descriptor_activity_count = 0U;
+    pico_w_tinyusb_runtime_clear_in_report_queue();
     g_pico_w_tinyusb_initialized = tusb_init();
     return g_pico_w_tinyusb_initialized;
 #else
@@ -110,6 +218,7 @@ void pico_w_tinyusb_runtime_poll(void) {
 
     tud_task();
     pico_w_tinyusb_runtime_reenumeration_tick();
+    pico_w_tinyusb_runtime_drain_in_report_queue();
 #endif
 }
 
@@ -123,15 +232,20 @@ bool pico_w_tinyusb_runtime_send_in_report(
         return false;
     }
 
-    if (report_len > UINT8_MAX) {
+    if (report_len > HID_TRANSPORT_REPORT_MAX_LEN) {
         return false;
     }
 
-    if (!tud_hid_n_ready(interface_number)) {
+    if (!g_pico_w_tinyusb_initialized || !tud_mounted() || !tud_ready()) {
         return false;
     }
 
-    return tud_hid_n_report(interface_number, 0U, report, report_len);
+    if ((g_pico_w_tinyusb_in_report_queue_count == 0U)
+        && pico_w_tinyusb_runtime_try_send_in_report(interface_number, report, report_len)) {
+        return true;
+    }
+
+    return pico_w_tinyusb_runtime_queue_in_report(interface_number, report, report_len);
 #else
     (void)interface_number;
     (void)report;
@@ -146,6 +260,7 @@ void pico_w_tinyusb_runtime_request_reenumeration(void) {
         return;
     }
 
+    pico_w_tinyusb_runtime_clear_in_report_queue();
     g_pico_w_tinyusb_reenum_pending = true;
     g_pico_w_tinyusb_reenum_disconnected = false;
     g_pico_w_tinyusb_reenum_resume_ms = 0U;

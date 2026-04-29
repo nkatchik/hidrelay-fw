@@ -6,11 +6,6 @@
 #include "hid_report_policy.h"
 #include "hid_report_remap.h"
 
-static bool hid_transport_runtime_event_is_report_type(uint8_t event_type) {
-    return (event_type == HID_TRANSPORT_EVENT_BT_HID_REPORT)
-        || (event_type == HID_TRANSPORT_EVENT_USB_HID_REPORT);
-}
-
 static bool hid_transport_runtime_device_id_equal(
     const pair_device_id_t * lhs,
     const pair_device_id_t * rhs
@@ -20,57 +15,6 @@ static bool hid_transport_runtime_device_id_equal(
     }
 
     return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
-}
-
-static bool hid_transport_runtime_drop_oldest_report_event(hid_transport_runtime_t * runtime) {
-    hid_transport_event_t ordered[HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE] = {0};
-    uint8_t ordered_count = 0U;
-    uint8_t drop_index = 0U;
-    bool found_report = false;
-    uint8_t index = 0U;
-
-    if ((runtime == NULL) || (runtime->event_queue_count == 0U)) {
-        return false;
-    }
-
-    for (index = 0U; index < runtime->event_queue_count; index++) {
-        ordered[index] =
-            runtime->event_queue
-                [(runtime->event_queue_head + index) % HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE];
-        ordered_count = (uint8_t)(ordered_count + 1U);
-    }
-
-    for (index = 0U; index < ordered_count; index++) {
-        if (!hid_transport_runtime_event_is_report_type(ordered[index].type)) {
-            continue;
-        }
-
-        drop_index = index;
-        found_report = true;
-        break;
-    }
-
-    if (!found_report) {
-        return false;
-    }
-
-    (void)memset(runtime->event_queue, 0, sizeof(runtime->event_queue));
-    runtime->event_queue_head = 0U;
-    runtime->event_queue_tail = 0U;
-    runtime->event_queue_count = 0U;
-
-    for (index = 0U; index < ordered_count; index++) {
-        if (index == drop_index) {
-            continue;
-        }
-
-        runtime->event_queue[runtime->event_queue_tail] = ordered[index];
-        runtime->event_queue_tail =
-            (uint8_t)((runtime->event_queue_tail + 1U) % HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE);
-        runtime->event_queue_count = (uint8_t)(runtime->event_queue_count + 1U);
-    }
-
-    return true;
 }
 
 static uint8_t hid_transport_runtime_report_remap_profile(
@@ -228,16 +172,11 @@ bool hid_transport_runtime_push_event(
     }
 
     if (runtime->event_queue_count >= HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE) {
-        if (!hid_transport_runtime_event_is_report_type(event->type)
-            && hid_transport_runtime_drop_oldest_report_event(runtime)) {
-            /* queue space was reclaimed */
-        } else {
-            runtime->event_queue_dropped = runtime->event_queue_dropped + 1U;
-            return false;
-        }
-    }
-
-    if (runtime->event_queue_count >= HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE) {
+        /*
+         * Do not evict queued reports here: anything already accepted by this
+         * queue has not yet been forwarded to app code. A full queue is
+         * surfaced as ingress saturation instead.
+         */
         runtime->event_queue_dropped = runtime->event_queue_dropped + 1U;
         return false;
     }

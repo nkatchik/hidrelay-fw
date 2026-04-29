@@ -20,6 +20,10 @@ static bool usb_bridge_device_id_equal(
     return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
 }
 
+static uint8_t usb_bridge_next_tx_queue_index(uint8_t index) {
+    return (uint8_t)((index + 1U) % USB_BRIDGE_TX_QUEUE_SIZE);
+}
+
 static void usb_bridge_clear(usb_bridge_t * bridge) {
     if (bridge == NULL) {
         return;
@@ -246,17 +250,13 @@ static bool usb_bridge_push_usb_tx(
         return false;
     }
 
-    if (bridge->usb_tx_queue_count >= USB_BRIDGE_MAX_INTERFACE) {
-        bridge->usb_tx_queue[bridge->usb_tx_queue_head].valid = false;
-        bridge->usb_tx_queue_head =
-            (uint8_t)((bridge->usb_tx_queue_head + 1U) % USB_BRIDGE_MAX_INTERFACE);
-        bridge->usb_tx_queue_count = (uint8_t)(bridge->usb_tx_queue_count - 1U);
+    if (bridge->usb_tx_queue_count >= USB_BRIDGE_TX_QUEUE_SIZE) {
         bridge->telemetry.usb_tx_dropped = bridge->telemetry.usb_tx_dropped + 1U;
+        return false;
     }
 
     bridge->usb_tx_queue[bridge->usb_tx_queue_tail] = *tx;
-    bridge->usb_tx_queue_tail =
-        (uint8_t)((bridge->usb_tx_queue_tail + 1U) % USB_BRIDGE_MAX_INTERFACE);
+    bridge->usb_tx_queue_tail = usb_bridge_next_tx_queue_index(bridge->usb_tx_queue_tail);
     bridge->usb_tx_queue_count = (uint8_t)(bridge->usb_tx_queue_count + 1U);
     bridge->telemetry.usb_tx_depth = bridge->usb_tx_queue_count;
     bridge->telemetry.usb_tx_enqueued = bridge->telemetry.usb_tx_enqueued + 1U;
@@ -276,17 +276,13 @@ static bool usb_bridge_push_bt_tx(
         return false;
     }
 
-    if (bridge->bt_tx_queue_count >= USB_BRIDGE_MAX_INTERFACE) {
-        bridge->bt_tx_queue[bridge->bt_tx_queue_head].valid = false;
-        bridge->bt_tx_queue_head =
-            (uint8_t)((bridge->bt_tx_queue_head + 1U) % USB_BRIDGE_MAX_INTERFACE);
-        bridge->bt_tx_queue_count = (uint8_t)(bridge->bt_tx_queue_count - 1U);
+    if (bridge->bt_tx_queue_count >= USB_BRIDGE_TX_QUEUE_SIZE) {
         bridge->telemetry.bt_tx_dropped = bridge->telemetry.bt_tx_dropped + 1U;
+        return false;
     }
 
     bridge->bt_tx_queue[bridge->bt_tx_queue_tail] = *tx;
-    bridge->bt_tx_queue_tail =
-        (uint8_t)((bridge->bt_tx_queue_tail + 1U) % USB_BRIDGE_MAX_INTERFACE);
+    bridge->bt_tx_queue_tail = usb_bridge_next_tx_queue_index(bridge->bt_tx_queue_tail);
     bridge->bt_tx_queue_count = (uint8_t)(bridge->bt_tx_queue_count + 1U);
     bridge->telemetry.bt_tx_depth = bridge->bt_tx_queue_count;
     bridge->telemetry.bt_tx_enqueued = bridge->telemetry.bt_tx_enqueued + 1U;
@@ -308,8 +304,7 @@ static bool usb_bridge_pop_usb_tx(
 
     *out_tx = bridge->usb_tx_queue[bridge->usb_tx_queue_head];
     bridge->usb_tx_queue[bridge->usb_tx_queue_head].valid = false;
-    bridge->usb_tx_queue_head =
-        (uint8_t)((bridge->usb_tx_queue_head + 1U) % USB_BRIDGE_MAX_INTERFACE);
+    bridge->usb_tx_queue_head = usb_bridge_next_tx_queue_index(bridge->usb_tx_queue_head);
     bridge->usb_tx_queue_count = (uint8_t)(bridge->usb_tx_queue_count - 1U);
     bridge->telemetry.usb_tx_depth = bridge->usb_tx_queue_count;
     bridge->telemetry.usb_tx_dequeued = bridge->telemetry.usb_tx_dequeued + 1U;
@@ -326,8 +321,7 @@ static bool usb_bridge_pop_bt_tx(
 
     *out_tx = bridge->bt_tx_queue[bridge->bt_tx_queue_head];
     bridge->bt_tx_queue[bridge->bt_tx_queue_head].valid = false;
-    bridge->bt_tx_queue_head =
-        (uint8_t)((bridge->bt_tx_queue_head + 1U) % USB_BRIDGE_MAX_INTERFACE);
+    bridge->bt_tx_queue_head = usb_bridge_next_tx_queue_index(bridge->bt_tx_queue_head);
     bridge->bt_tx_queue_count = (uint8_t)(bridge->bt_tx_queue_count - 1U);
     bridge->telemetry.bt_tx_depth = bridge->bt_tx_queue_count;
     bridge->telemetry.bt_tx_dequeued = bridge->telemetry.bt_tx_dequeued + 1U;

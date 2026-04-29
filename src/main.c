@@ -19,6 +19,16 @@ static app_t g_app = {0};
 static pair_db_t g_initial_pair_db = {0};
 static pair_db_t g_persisted_pair_db = {0};
 static uint8_t g_diag_frame[APP_DIAG_FRAME_MAX_LEN] = {0};
+static hid_transport_usb_tx_t g_pending_usb_tx =
+    {.valid = false, .interface_number = 0U, .report_len = 0U, .report = {0}};
+static hid_transport_bt_tx_t g_pending_bt_tx = {
+    .valid = false,
+    .hid_cid = 0U,
+    .bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN,
+    .protocol_mode = 0U,
+    .report_len = 0U,
+    .report = {0}
+};
 static app_output_t g_app_output = {
     .led_on = false,
     .pairing_active = false,
@@ -52,6 +62,7 @@ static app_output_t g_app_output = {
     .pair_db_dirty = false,
     .factory_reset_requested = false,
 };
+static uint32_t g_applied_usb_descriptor_generation = 0U;
 
 static bool main_time_elapsed(
     uint32_t now_ms,
@@ -94,6 +105,73 @@ static void main_publish_diag(const hid_transport_diag_snapshot_t * diag) {
     }
 }
 
+static bool main_send_usb_tx(const hid_transport_usb_tx_t * tx) {
+    if ((tx == NULL) || !tx->valid) {
+        return true;
+    }
+
+    return platform_transport_send_usb_report(tx->interface_number, tx->report, tx->report_len);
+}
+
+static bool main_send_bt_tx(const hid_transport_bt_tx_t * tx) {
+    if ((tx == NULL) || !tx->valid) {
+        return true;
+    }
+
+    return platform_transport_send_bt_report(
+        tx->hid_cid,
+        tx->bt_link_type,
+        tx->protocol_mode,
+        tx->report,
+        tx->report_len
+    );
+}
+
+static void main_clear_pending_usb_tx(void) {
+    (void)memset(&g_pending_usb_tx, 0, sizeof(g_pending_usb_tx));
+}
+
+static void main_clear_pending_bt_tx(void) {
+    (void)memset(&g_pending_bt_tx, 0, sizeof(g_pending_bt_tx));
+}
+
+static void main_clear_pending_transport_tx(void) {
+    main_clear_pending_usb_tx();
+    main_clear_pending_bt_tx();
+}
+
+static void main_flush_pending_transport_tx(void) {
+    if (g_pending_usb_tx.valid && main_send_usb_tx(&g_pending_usb_tx)) {
+        main_clear_pending_usb_tx();
+    }
+
+    if (g_pending_bt_tx.valid && main_send_bt_tx(&g_pending_bt_tx)) {
+        main_clear_pending_bt_tx();
+    }
+}
+
+static bool main_transport_tx_blocked(void) {
+    return g_pending_usb_tx.valid || g_pending_bt_tx.valid;
+}
+
+static void main_accept_output_transport_tx(const app_output_t * output) {
+    if (output == NULL) {
+        return;
+    }
+
+    if (output->usb_tx.valid) {
+        if (!g_pending_usb_tx.valid && !main_send_usb_tx(&output->usb_tx)) {
+            g_pending_usb_tx = output->usb_tx;
+        }
+    }
+
+    if (output->bt_tx.valid) {
+        if (!g_pending_bt_tx.valid && !main_send_bt_tx(&output->bt_tx)) {
+            g_pending_bt_tx = output->bt_tx;
+        }
+    }
+}
+
 static void main_apply_output(const app_output_t * output) {
     platform_transport_state_t transport_state = {0};
     bool have_transport_state = false;
@@ -111,6 +189,11 @@ static void main_apply_output(const app_output_t * output) {
         (void)platform_transport_forget_device(&output->forget_request.device_id);
     }
 
+    if (output->usb_descriptor_generation != g_applied_usb_descriptor_generation) {
+        main_clear_pending_transport_tx();
+        g_applied_usb_descriptor_generation = output->usb_descriptor_generation;
+    }
+
     platform_transport_set_usb_plan(
         output->usb_interface_count,
         output->usb_descriptor_generation,
@@ -126,23 +209,7 @@ static void main_apply_output(const app_output_t * output) {
         );
     }
 
-    if (output->usb_tx.valid) {
-        (void)platform_transport_send_usb_report(
-            output->usb_tx.interface_number,
-            output->usb_tx.report,
-            output->usb_tx.report_len
-        );
-    }
-
-    if (output->bt_tx.valid) {
-        (void)platform_transport_send_bt_report(
-            output->bt_tx.hid_cid,
-            output->bt_tx.bt_link_type,
-            output->bt_tx.protocol_mode,
-            output->bt_tx.report,
-            output->bt_tx.report_len
-        );
-    }
+    main_accept_output_transport_tx(output);
 
     if (output->factory_reset_requested) {
         platform_factory_reset();
@@ -155,6 +222,9 @@ static void main_apply_output(const app_output_t * output) {
         if (transport_state.event_queue_depth > 0U) {
             sleep_us = 0U;
         }
+    }
+    if (main_transport_tx_blocked()) {
+        sleep_us = 0U;
     }
     main_publish_diag(&diag);
 
@@ -185,12 +255,14 @@ int main(void) {
         app_input.button_pressed = platform_button_pressed();
         app_input.now_ms = platform_uptime_ms();
         app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
+        platform_transport_poll(app_input.now_ms);
+        main_flush_pending_transport_tx();
+        app_input.usb_tx_blocked = g_pending_usb_tx.valid;
+        app_input.bt_tx_blocked = g_pending_bt_tx.valid;
 
         if (!platform_transport_take_event(&app_input.transport_event)) {
             app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
         }
-
-        platform_transport_poll(app_input.now_ms);
 
         app_tick(&g_app, &app_input, &g_app_output);
         pair_db_changed = memcmp(&g_app.pair_db, &g_persisted_pair_db, sizeof(g_app.pair_db)) != 0;

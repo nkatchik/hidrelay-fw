@@ -10,6 +10,7 @@
 #include "pair_db.h"
 
 #define USB_BRIDGE_MAX_INTERFACE BT_MANAGER_MAX_ACTIVE_DEVICE
+#define USB_BRIDGE_TX_QUEUE_SIZE 32U
 
 typedef struct {
     bool used;
@@ -42,8 +43,8 @@ typedef struct {
     usb_bridge_interface_t interface_slot[USB_BRIDGE_MAX_INTERFACE];
     uint8_t exported_interface_count;
     uint32_t descriptor_generation;
-    hid_transport_usb_tx_t usb_tx_queue[USB_BRIDGE_MAX_INTERFACE];
-    hid_transport_bt_tx_t bt_tx_queue[USB_BRIDGE_MAX_INTERFACE];
+    hid_transport_usb_tx_t usb_tx_queue[USB_BRIDGE_TX_QUEUE_SIZE];
+    hid_transport_bt_tx_t bt_tx_queue[USB_BRIDGE_TX_QUEUE_SIZE];
     uint8_t usb_tx_queue_head;
     uint8_t usb_tx_queue_tail;
     uint8_t usb_tx_queue_count;

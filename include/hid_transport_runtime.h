@@ -6,7 +6,7 @@
 
 #include "hid_transport.h"
 
-#define HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE 16U
+#define HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE 64U
 
 typedef const uint8_t * (*hid_transport_runtime_descriptor_fn_t)(
     uint8_t interface_number,

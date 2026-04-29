@@ -637,8 +637,17 @@ void app_tick(
         }
     }
 
-    output->usb_tx.valid = usb_bridge_take_usb_tx(&app->usb_bridge, &output->usb_tx);
-    output->bt_tx.valid = usb_bridge_take_bt_tx(&app->usb_bridge, &output->bt_tx);
+    if (input->usb_tx_blocked) {
+        (void)memset(&output->usb_tx, 0, sizeof(output->usb_tx));
+    } else {
+        output->usb_tx.valid = usb_bridge_take_usb_tx(&app->usb_bridge, &output->usb_tx);
+    }
+
+    if (input->bt_tx_blocked) {
+        (void)memset(&output->bt_tx, 0, sizeof(output->bt_tx));
+    } else {
+        output->bt_tx.valid = usb_bridge_take_bt_tx(&app->usb_bridge, &output->bt_tx);
+    }
     (void)usb_bridge_telemetry_get(&app->usb_bridge, &bridge_telemetry);
     output->usb_tx_queue_depth = bridge_telemetry.usb_tx_depth;
     output->bt_tx_queue_depth = bridge_telemetry.bt_tx_depth;
