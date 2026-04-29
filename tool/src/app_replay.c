@@ -1095,7 +1095,7 @@ static bool app_replay_test_reconnect_backoff_schedule(void) {
         return false;
     }
 
-    app_replay_tick(&app, 2200U, false, NULL, &out);
+    app_replay_tick(&app, 700U, false, NULL, &out);
     return app_replay_expect_true(
         out.reconnect_request.valid,
         "reconnect should retry after first backoff window"
@@ -1110,14 +1110,14 @@ static bool app_replay_test_reconnect_connect_failed_no_lockout(void) {
     const pair_device_id_t device_id = app_replay_device_id(0x0CU);
     const uint32_t attempt_times_ms[] = {
         0U,
-        2100U,
-        6200U,
-        14300U,
-        22400U,
-        30500U,
-        38600U,
-        46700U,
-        54800U,
+        700U,
+        1800U,
+        3900U,
+        6000U,
+        8100U,
+        10200U,
+        12300U,
+        14400U,
     };
     size_t index = 0U;
 
@@ -1161,7 +1161,7 @@ static bool app_replay_test_reconnect_connect_failed_no_lockout(void) {
         return false;
     }
 
-    app_replay_tick(&app, 62900U, false, NULL, &out);
+    app_replay_tick(&app, 16600U, false, NULL, &out);
     return app_replay_expect_true(
         out.reconnect_request.valid,
         "connect failure retries should continue at capped backoff interval"
@@ -1231,7 +1231,7 @@ static bool app_replay_test_reconnect_auth_failure_no_lockout(void) {
         return false;
     }
 
-    app_replay_tick(&app, 2200U, false, NULL, &out);
+    app_replay_tick(&app, 700U, false, NULL, &out);
     if (!app_replay_expect_true(
             out.reconnect_request.valid,
             "first auth failure should back off, not lock out"
@@ -1239,8 +1239,8 @@ static bool app_replay_test_reconnect_auth_failure_no_lockout(void) {
         return false;
     }
 
-    app_replay_tick(&app, 2300U, false, &event, &out);
-    app_replay_tick(&app, 6300U, false, NULL, &out);
+    app_replay_tick(&app, 800U, false, &event, &out);
+    app_replay_tick(&app, 1900U, false, NULL, &out);
     if (!app_replay_expect_true(
             out.reconnect_request.valid,
             "second auth failure should still retry after backoff"
@@ -1248,8 +1248,8 @@ static bool app_replay_test_reconnect_auth_failure_no_lockout(void) {
         return false;
     }
 
-    app_replay_tick(&app, 6400U, false, &event, &out);
-    app_replay_tick(&app, 14500U, false, NULL, &out);
+    app_replay_tick(&app, 2000U, false, &event, &out);
+    app_replay_tick(&app, 4100U, false, NULL, &out);
     if (!app_replay_expect_true(
             out.reconnect_request.valid,
             "third auth failure should keep retrying with backoff"
@@ -1273,7 +1273,7 @@ static bool app_replay_test_reconnect_auth_failure_no_lockout(void) {
         return false;
     }
 
-    app_replay_tick(&app, (10U * 60U * 1000U) + 8100U, false, NULL, &out);
+    app_replay_tick(&app, (10U * 60U * 1000U) + 2100U, false, NULL, &out);
     return app_replay_expect_true(
         out.reconnect_request.valid,
         "auth failure path should keep reconnecting after long idle intervals"
