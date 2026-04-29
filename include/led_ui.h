@@ -49,6 +49,10 @@ void led_ui_trigger_disconnect_cue(
     led_ui_t * ui,
     uint32_t now_ms
 );
+void led_ui_trigger_connected_cue(
+    led_ui_t * ui,
+    uint32_t now_ms
+);
 void led_ui_trigger_startup_cue(
     led_ui_t * ui,
     uint32_t now_ms

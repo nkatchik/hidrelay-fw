@@ -175,6 +175,12 @@ void led_ui_set_state(
     }
 
     if (state == LED_UI_STATE_CONNECTED) {
+        if (prev_state == LED_UI_STATE_PAIRING) {
+            led_ui_clear_transient_signals(ui);
+            ui->led_on = false;
+            return;
+        }
+
         ui->connected_cue_until_ms = connected_cue_start_ms + LED_UI_CONNECTED_CUE_MS;
         ui->led_on = true;
         return;
@@ -213,6 +219,36 @@ void led_ui_trigger_error_blink(
         now_ms,
         true
     );
+}
+
+void led_ui_trigger_connected_cue(
+    led_ui_t * ui,
+    uint32_t now_ms
+) {
+    uint32_t cue_start_ms = now_ms;
+
+    if (ui == NULL) {
+        return;
+    }
+
+    if (ui->state == LED_UI_STATE_PAIRING) {
+        return;
+    }
+
+    if (led_ui_interrupt_for_new_signal(ui, now_ms)) {
+        cue_start_ms = ui->signal_dark_until_ms;
+    }
+
+    ui->pairing_attempt_active = false;
+    ui->cue_active = false;
+    ui->cue_led_on = false;
+    ui->cue_remaining_blink = 0U;
+    ui->cue_on_ms = LED_UI_LONG_BLINK_ON_MS;
+    ui->cue_off_ms = LED_UI_LONG_BLINK_OFF_MS;
+    ui->connected_cue_until_ms = cue_start_ms + LED_UI_CONNECTED_CUE_MS;
+    ui->disconnect_cue_until_ms = 0U;
+    ui->startup_cue_until_ms = 0U;
+    ui->led_on = false;
 }
 
 void led_ui_trigger_disconnect_cue(

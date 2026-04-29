@@ -423,6 +423,7 @@ void app_tick(
     bool disconnect_event_cue = false;
     bool pairing_attempt_started = false;
     bool pairing_mode_command = false;
+    bool pairing_success_cue = false;
     uint8_t pairing_attempt_error_blinks = 0U;
 
     if ((app == NULL) || (input == NULL) || (output == NULL)) {
@@ -531,6 +532,10 @@ void app_tick(
 
     bt_state = bt_manager_state(&app->bt_manager);
     pairing_link_type = bt_manager_pairing_link_type(&app->bt_manager);
+    pairing_success_cue = (bt_state_before_event == BT_MANAGER_STATE_PAIRING)
+        && (bt_state == BT_MANAGER_STATE_ACTIVE)
+        && (input->transport_event.type == HID_TRANSPORT_EVENT_BT_HID_OPEN)
+        && app->led_ui.pairing_attempt_active;
     if (pairing_attempt_error_blinks > 0U) {
         led_ui_trigger_error_blink(&app->led_ui, pairing_attempt_error_blinks, input->now_ms);
     }
@@ -544,6 +549,9 @@ void app_tick(
         input->now_ms
     );
     led_ui_set_state(&app->led_ui, app_led_state_from_bt_state(bt_state), input->now_ms);
+    if (pairing_success_cue) {
+        led_ui_trigger_connected_cue(&app->led_ui, input->now_ms);
+    }
     if (disconnect_event_cue
         && (bt_state_before_event != BT_MANAGER_STATE_PAIRING)
         && (bt_state != BT_MANAGER_STATE_PAIRING)) {

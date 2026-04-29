@@ -411,6 +411,57 @@ static bool app_replay_test_pair_any_cancelled_by_single_click(void) {
     );
 }
 
+static bool app_replay_test_pairing_cancel_while_connected_has_no_success_cue(void) {
+    app_t app = {0};
+    app_output_t out = {0};
+    hid_transport_event_t event = {0};
+    pair_db_t initial_pair_db = {0};
+    const pair_device_id_t device_id = app_replay_device_id(0x35U);
+
+    pair_db_init(&initial_pair_db);
+    if (!pair_db_add(&initial_pair_db, &device_id, 0U)) {
+        return false;
+    }
+
+    app_init(&app, &initial_pair_db);
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id;
+    event.hid_cid = 0x35U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    app_replay_tick(&app, 1000U, false, &event, &out);
+    if (!app_replay_expect_true(out.active_device_count == 1U, "device should be connected")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 5000U, true, NULL, &out);
+    app_replay_tick(&app, 6000U, true, NULL, &out);
+    app_replay_tick(&app, 6100U, false, NULL, &out);
+    if (!app_replay_expect_true(out.pairing_active, "pairing should be active before cancel")) {
+        return false;
+    }
+
+    app_replay_tick(&app, 6200U, true, NULL, &out);
+    app_replay_tick(&app, 6300U, false, NULL, &out);
+    if (!app_replay_expect_true(!out.pairing_active, "single click should cancel pairing")) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            !out.led_on,
+            "pairing cancel over connected device should not start success cue"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 9299U, false, NULL, &out);
+    return app_replay_expect_true(
+        !out.led_on,
+        "pairing cancel should stay quiet instead of holding connected cue"
+    );
+}
+
 static bool app_replay_test_pairing_attempt_led_lifecycle(void) {
     app_t app = {0};
     app_output_t out = {0};
@@ -1808,6 +1859,8 @@ int main(void) {
         {.name = "pair_any_timeout_after_60s", .fn = app_replay_test_pair_any_timeout_after_60s},
         {.name = "pair_any_cancelled_by_single_click",
             .fn = app_replay_test_pair_any_cancelled_by_single_click},
+        {.name = "pairing_cancel_while_connected_has_no_success_cue",
+            .fn = app_replay_test_pairing_cancel_while_connected_has_no_success_cue},
         {.name = "pairing_attempt_led_lifecycle",
             .fn = app_replay_test_pairing_attempt_led_lifecycle},
         {.name = "pairing_auth_failure_uses_double_blink",
