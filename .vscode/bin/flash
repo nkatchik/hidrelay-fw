@@ -9,6 +9,44 @@ if [[ $# -gt 1 ]]; then
     exit 2
 fi
 
+infer_platform_from_uf2() {
+    local uf2_path="$1"
+    local rel_from_build="${uf2_path#${repo_root}/build/}"
+    local after_platform
+    local build_tree
+    local cache_path
+    local cache_platform=""
+    local line
+
+    if [[ "${rel_from_build}" == */platform/*/*.uf2 ]]; then
+        after_platform="${rel_from_build#*/platform/}"
+        if [[ "${after_platform}" == */* ]]; then
+            printf '%s\n' "${after_platform%%/*}"
+            return 0
+        fi
+    fi
+
+    build_tree="${rel_from_build%%/*}"
+    cache_path="${repo_root}/build/${build_tree}/CMakeCache.txt"
+    if [[ -f "${cache_path}" ]]; then
+        while IFS= read -r line; do
+            case "${line}" in
+                APP_PLATFORM:*=*)
+                    cache_platform="${line#*=}"
+                    ;;
+            esac
+        done < "${cache_path}"
+    fi
+
+    if [[ -n "${cache_platform}" ]]; then
+        printf '%s\n' "${cache_platform}"
+        return 0
+    fi
+
+    return 1
+}
+
+selected_uf2=""
 if [[ $# -eq 1 ]]; then
     app_platform="$1"
     selected_target="requested platform: ${app_platform}"
@@ -25,10 +63,11 @@ else
         exit 1
     fi
 
-    rel_from_build="${latest_uf2#${repo_root}/build/}"
-    app_platform="${rel_from_build%%/*}"
+    selected_uf2="${latest_uf2}"
+    rel_from_build="${selected_uf2#${repo_root}/build/}"
+    app_platform="$(infer_platform_from_uf2 "${selected_uf2}" || true)"
 
-    if [[ -z "${app_platform}" || "${app_platform}" == "${rel_from_build}" ]]; then
+    if [[ -z "${app_platform}" ]]; then
         echo "❌ Could not infer platform from latest UF2 path: ${latest_uf2}" >&2
         exit 1
     fi
@@ -43,4 +82,8 @@ if [[ ! -x "${platform_flash_script}" ]]; then
 fi
 
 echo "Using ${selected_target}"
-"${platform_flash_script}" "${repo_root}" "${app_platform}"
+if [[ -n "${selected_uf2}" ]]; then
+    "${platform_flash_script}" "${repo_root}" "${app_platform}" "${selected_uf2}"
+else
+    "${platform_flash_script}" "${repo_root}" "${app_platform}"
+fi

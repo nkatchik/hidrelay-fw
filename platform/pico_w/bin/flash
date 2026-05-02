@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ $# -gt 3 ]]; then
+    echo "Usage: flash [repo-root] [platform] [uf2-path]" >&2
+    exit 2
+fi
+
 repo_root="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 app_platform="${2:-pico_w}"
 
-uf2_path="${repo_root}/build/${app_platform}/platform/${app_platform}/hidrelay_fw.uf2"
+uf2_path="${3:-${repo_root}/build/${app_platform}/platform/${app_platform}/hidrelay_fw.uf2}"
 if [[ ! -f "${uf2_path}" ]]; then
-    echo "❌ UF2 artifact not found at expected path: build/${app_platform}/platform/${app_platform}/hidrelay_fw.uf2" >&2
+    if [[ $# -ge 3 ]]; then
+        echo "❌ UF2 artifact not found: ${uf2_path}" >&2
+    else
+        echo "❌ UF2 artifact not found at expected path: build/${app_platform}/platform/${app_platform}/hidrelay_fw.uf2" >&2
+    fi
     exit 1
 fi
 
@@ -88,4 +97,4 @@ else
     cp -f "${uf2_path}" "${pico_mount}/"
 fi
 sync
-echo "✅ Flashed $(basename "${uf2_path}") to ${pico_mount}"
+echo "✅ Flashed ${uf2_path#${repo_root}/} to ${pico_mount}"
