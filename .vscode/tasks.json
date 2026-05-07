@@ -43,12 +43,26 @@
             "type": "shell"
         },
         {
-            "command": "make build APP_PLATFORM=${input:appPlatform} tool-cache-probe tool-diag-capture && echo '✅ Build successful' || echo '❌ Build failed'",
+            "command": "make build APP_PLATFORM=${input:appPlatform} && echo '✅ Build successful' || echo '❌ Build failed'",
             "group": {
                 "isDefault": true,
                 "kind": "build"
             },
             "label": "🛠️ Build",
+            "presentation": {
+                "clear": true,
+                "echo": false,
+                "showReuseMessage": false
+            },
+            "type": "shell"
+        },
+        {
+            "command": "make build APP_PLATFORM=${input:appPlatform} APP_DEBUG_WIPE_ALL_ON_BOOT=1 tool-cache-probe tool-diag-capture && echo '✅ Build successful' || echo '❌ Build failed'",
+            "group": {
+                "isDefault": true,
+                "kind": "build"
+            },
+            "label": "🛠️🐞 Build",
             "presentation": {
                 "clear": true,
                 "echo": false,

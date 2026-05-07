@@ -20,6 +20,7 @@ CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
 
 CMAKE ?= cmake
 HOST_CC ?= gcc
+APP_DEBUG_WIPE_ALL_ON_BOOT ?=
 
 .PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host
 
@@ -70,6 +71,7 @@ configure: require-platform bootstrap
 		-DAPP_PLATFORM=$(APP_PLATFORM) \
 		-DAPP_CACHE_DIR=$(APP_CACHE_DIR) \
 		-DCMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE) \
+		$(if $(APP_DEBUG_WIPE_ALL_ON_BOOT),-DAPP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT=$(APP_DEBUG_WIPE_ALL_ON_BOOT),) \
 		-C $(BOOTSTRAP_CACHE)
 	@$(MAKE) --no-print-directory sync-compile-commands APP_PLATFORM=$(APP_PLATFORM)
 

@@ -112,6 +112,12 @@ cmake -S . -B build/pico_w_debug_wipe \
 cmake --build build/pico_w_debug_wipe --parallel
 ```
 
+Equivalent `make` invocation:
+
+```sh
+make build APP_PLATFORM=pico_w APP_DEBUG_WIPE_ALL_ON_BOOT=ON
+```
+
 Release builds keep telemetry disabled by default:
 
 ```sh
