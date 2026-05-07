@@ -16,7 +16,7 @@ function(pico_w_configure_target target_name)
     endif()
 
     if(APP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT)
-        target_compile_definitions(${target_name} PRIVATE APP_PICO_DEBUG_WIPE_ALL_ON_BOOT=1)
+        target_compile_definitions(${target_name} PRIVATE APP_DEBUG_WIPE_ALL_ON_BOOT=1)
     endif()
 
     target_link_libraries(${target_name}

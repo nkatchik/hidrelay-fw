@@ -239,7 +239,7 @@ static void main_apply_output(const app_output_t * output) {
 }
 
 int main(void) {
-#if defined(APP_PICO_DEBUG_WIPE_ALL_ON_BOOT) && APP_PICO_DEBUG_WIPE_ALL_ON_BOOT
+#if defined(APP_DEBUG_WIPE_ALL_ON_BOOT) && APP_DEBUG_WIPE_ALL_ON_BOOT
     /*
      * Debug-only hard wipe: erase all persisted Pair DB + BTstack security
      * material on every boot before attempting any load.

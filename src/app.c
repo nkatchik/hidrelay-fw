@@ -266,7 +266,7 @@ static void app_reconnect_mark_failure(
         /*
          * Some keyboards can surface transient auth/key-missing statuses after
          * long idle windows. Keep retrying with bounded backoff so reconnect
-         * recovers without requiring a Pico reboot.
+         * recovers without requiring a device reboot.
          */
         retry_after_ms = now_ms + app_reconnect_backoff_ms(fail_count);
     } else if (reconnect_result == HID_TRANSPORT_RECONNECT_RESULT_STACK_REJECTED) {
