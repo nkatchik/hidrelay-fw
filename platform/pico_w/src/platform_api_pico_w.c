@@ -75,12 +75,11 @@ void platform_sleep_us(uint32_t sleep_us) {
     pico_w_hw_sleep_us(sleep_us);
 }
 
-void platform_factory_reset(void) {
-    if (!platform_ready()) {
-        return;
-    }
+bool platform_factory_reset_erase_persistent_data(void) {
+    return pico_w_pair_store_factory_reset_all();
+}
 
-    (void)pico_w_pair_store_factory_reset_all();
+void platform_reboot(void) {
     watchdog_reboot(0U, 0U, 0U);
 
     for (;;) {

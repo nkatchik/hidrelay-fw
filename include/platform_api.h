@@ -24,7 +24,8 @@ bool platform_button_pressed(void);
 uint32_t platform_uptime_ms(void);
 void platform_set_led(bool led_on);
 void platform_sleep_us(uint32_t sleep_us);
-void platform_factory_reset(void);
+bool platform_factory_reset_erase_persistent_data(void);
+void platform_reboot(void);
 
 void platform_transport_poll(uint32_t now_ms);
 bool platform_transport_take_event(hid_transport_event_t * out_event);

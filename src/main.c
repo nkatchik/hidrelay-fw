@@ -172,6 +172,12 @@ static void main_accept_output_transport_tx(const app_output_t * output) {
     }
 }
 
+static void main_run_factory_reset_sequence(void) {
+    /* Keep reset ordering in app/main so reboot can be instrumented centrally. */
+    (void)platform_factory_reset_erase_persistent_data();
+    platform_reboot();
+}
+
 static void main_apply_output(const app_output_t * output) {
     platform_transport_state_t transport_state = {0};
     bool have_transport_state = false;
@@ -212,7 +218,7 @@ static void main_apply_output(const app_output_t * output) {
     main_accept_output_transport_tx(output);
 
     if (output->factory_reset_requested) {
-        platform_factory_reset();
+        main_run_factory_reset_sequence();
         return;
     }
 
@@ -233,6 +239,13 @@ static void main_apply_output(const app_output_t * output) {
 }
 
 int main(void) {
+#if defined(APP_PICO_DEBUG_WIPE_ALL_ON_BOOT) && APP_PICO_DEBUG_WIPE_ALL_ON_BOOT
+    /*
+     * Debug-only hard wipe: erase all persisted Pair DB + BTstack security
+     * material on every boot before attempting any load.
+     */
+    (void)platform_factory_reset_erase_persistent_data();
+#endif
     const bool has_initial_pair_db = platform_pair_db_load(&g_initial_pair_db);
     bool pair_db_save_pending = false;
     uint32_t pair_db_pending_since_ms = 0U;

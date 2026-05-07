@@ -102,6 +102,16 @@ cmake -S . -B build/pico_w_debug \
 cmake --build build/pico_w_debug --parallel
 ```
 
+Force a clean persisted state on every boot (debug only; erases Pair DB + BTstack bonding/security flash on each startup):
+
+```sh
+cmake -S . -B build/pico_w_debug_wipe \
+  -DAPP_PLATFORM=pico_w \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DAPP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT=ON
+cmake --build build/pico_w_debug_wipe --parallel
+```
+
 Release builds keep telemetry disabled by default:
 
 ```sh

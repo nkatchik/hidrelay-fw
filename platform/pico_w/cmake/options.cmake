@@ -21,6 +21,8 @@ option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK
 option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." ON)
 option(APP_PLATFORM_ALLOW_RELEASE_TELEMETRY
     "Allow telemetry/diagnostics options in Release builds (development use only)." OFF)
+option(APP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT
+    "Debug only: erase all persisted Pair DB + BTstack bonding/security data on every boot." OFF)
 
 if(NOT DEFINED APP_PLATFORM_ENABLE_TELEMETRY)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
