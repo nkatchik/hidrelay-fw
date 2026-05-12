@@ -25,10 +25,10 @@ picotool_revision="hidrelay-upstream-v1"
 picotool_revision_file="${picotool_install_dir}/picotool/.hidrelay_revision"
 legacy_patch_revision_file="${picotool_install_dir}/picotool/.hidrelay_patch_revision"
 picotool_git_url="${PICOTOOL_GIT_URL:-https://github.com/raspberrypi/picotool.git}"
-picotool_git_tag="${PICOTOOL_GIT_TAG:-2.1.1}"
+picotool_git_tag="${PICOTOOL_GIT_TAG:-2.2.0}"
 cmake_policy_minimum="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
 cmake_bin="${CMAKE:-cmake}"
-pico_sdk_path="${PICO_SDK_PATH:-${cache_dir}/sdk/pico-sdk-2.1.1}"
+pico_sdk_path="${PICO_SDK_PATH:-${cache_dir}/sdk/pico-sdk-2.2.0}"
 
 run_picotool() {
     LD_LIBRARY_PATH="${libusb_lib_dir}:${LD_LIBRARY_PATH:-}" \
