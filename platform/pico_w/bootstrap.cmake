@@ -5,7 +5,7 @@ include(CMakeParseArguments)
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/ToolchainBootstrap.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DependencyBootstrap.cmake")
 
-set(PICO_W_SDK_GIT_TAG "2.0.0" CACHE STRING "Pinned Pico SDK git tag for platform/pico_w.")
+set(PICO_W_SDK_GIT_TAG "2.1.1" CACHE STRING "Pinned Pico SDK git tag for platform/pico_w.")
 set(PICO_W_SDK_GIT_URL "https://github.com/raspberrypi/pico-sdk.git" CACHE STRING "Pico SDK git URL for platform/pico_w.")
 set(PICO_W_ARM_GCC_VERSION "13.2.Rel1" CACHE STRING "Pinned Arm GNU embedded toolchain version for platform/pico_w.")
 set(PICO_W_ARM_GCC_BASE_URL "https://developer.arm.com/-/media/Files/downloads/gnu/${PICO_W_ARM_GCC_VERSION}/binrel"

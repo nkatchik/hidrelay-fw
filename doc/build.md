@@ -61,7 +61,7 @@ For default Pico W builds, outputs are generated under `build/pico_w/platform/pi
 Current pinned versions for the Pico W platform:
 
 - Arm GNU toolchain: `13.2.Rel1`
-- Pico SDK git tag: `2.0.0`
+- Pico SDK git tag: `2.1.1`
 
 Update these in:
 

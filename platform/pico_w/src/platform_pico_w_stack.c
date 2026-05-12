@@ -1588,11 +1588,21 @@ static void pico_w_stack_handle_sm_event(uint8_t * packet) {
             }
 
             if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS) {
+                /*
+                 * Only (re)start hids discovery when *we* initiated the SM flow.
+                 * With gatt_client_set_required_security_level(LEVEL_2) the
+                 * gatt_client can drive pairing/reencryption from inside an
+                 * in-flight hids_client_connect; a second hids_client_connect
+                 * would then fail with COMMAND_DISALLOWED.
+                 */
+                const bool self_initiated = session->security_pending;
                 session->security_pending = false;
                 session->security_pending_since_ms = 0U;
-                session->hids_connect_pending = true;
-                session->hids_pending_since_ms = g_btstack_now_ms;
-                pico_w_stack_start_le_hids_client(session);
+                if (self_initiated) {
+                    session->hids_connect_pending = true;
+                    session->hids_pending_since_ms = g_btstack_now_ms;
+                    pico_w_stack_start_le_hids_client(session);
+                }
             } else {
                 const uint8_t status = sm_event_pairing_complete_get_status(packet);
                 const uint8_t reason = sm_event_pairing_complete_get_reason(packet);
@@ -1616,11 +1626,14 @@ static void pico_w_stack_handle_sm_event(uint8_t * packet) {
             }
 
             if (sm_event_reencryption_complete_get_status(packet) == ERROR_CODE_SUCCESS) {
+                const bool self_initiated = session->security_pending;
                 session->security_pending = false;
                 session->security_pending_since_ms = 0U;
-                session->hids_connect_pending = true;
-                session->hids_pending_since_ms = g_btstack_now_ms;
-                pico_w_stack_start_le_hids_client(session);
+                if (self_initiated) {
+                    session->hids_connect_pending = true;
+                    session->hids_pending_since_ms = g_btstack_now_ms;
+                    pico_w_stack_start_le_hids_client(session);
+                }
             } else {
                 if (g_btstack_reconnect_pending) {
                     g_btstack_reconnect_auth_attempted = true;
@@ -2091,6 +2104,15 @@ bool pico_w_stack_init(bool radio_ready) {
     l2cap_init();
     sm_init();
     gatt_client_init();
+    /*
+     * Force the GATT client to encrypt before issuing any ATT requests, using
+     * the stored LTK. BTstack defaults gatt_client_required_security_level to
+     * LEVEL_0, in which case service discovery starts cleartext and only falls
+     * back to reencryption after the peripheral rejects a read with
+     * ATT_ERROR_INSUFFICIENT_AUTHENTICATION. Some HID peripherals tear the link
+     * down before that recovery path can complete on reconnect.
+     */
+    gatt_client_set_required_security_level(LEVEL_2);
     tlv_impl =
         btstack_tlv_flash_bank_init_instance(&g_btstack_tlv_flash_bank_context, flash_bank, NULL);
     btstack_tlv_set_instance(tlv_impl, &g_btstack_tlv_flash_bank_context);
