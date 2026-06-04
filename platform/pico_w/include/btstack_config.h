@@ -15,6 +15,17 @@
 #define ENABLE_MICRO_ECC_FOR_LE_SECURE_CONNECTIONS
 #define ENABLE_SOFTWARE_AES128
 
+/*
+ * Keep the ACL up after dedicated bonding instead of letting BTstack tear it
+ * down. Classic HID pairing here is two-phase: gap_dedicated_bonding() first
+ * (pages, runs SSP, stores the link key), then hid_host_connect() opens SDP and
+ * the HID L2CAP channels. With the default behaviour BTstack drops the ACL when
+ * bonding completes, forcing the follow-up hid_host_connect() to re-page and do
+ * a cold SDP -- which the Apple Magic Keyboard stalls on. Holding the bonded,
+ * encrypted ACL lets the second phase reuse it and connect immediately.
+ */
+#define ENABLE_EXPLICIT_DEDICATED_BONDING_DISCONNECT
+
 /* Controller/host transport sizing */
 #define HCI_OUTGOING_PRE_BUFFER_SIZE 4
 #define HCI_ACL_PAYLOAD_SIZE (1691 + 4)

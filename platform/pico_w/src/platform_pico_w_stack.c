@@ -85,6 +85,21 @@ enum {
 
 typedef enum {
     PICO_W_STACK_CONNECT_MODE_NONE = 0,
+    /*
+     * Apple Magic Keyboard (and other peers that advertise
+     * SSP_IO_AUTHREQ_..._DEDICATED_BONDING in their IO Capability response)
+     * gate HID on first completing a dedicated bond. A cold hid_host_connect
+     * runs its SDP query before the link is encrypted, which this peripheral
+     * ignores -- it stays silent until our connect-pending timer fires.
+     *
+     * CLASSIC_DEDICATED_BONDING runs gap_dedicated_bonding() to page the peer
+     * and complete SSP / link-key generation. ENABLE_EXPLICIT_DEDICATED_-
+     * BONDING_DISCONNECT keeps that ACL up; on a successful
+     * GAP_EVENT_DEDICATED_BONDING_COMPLETED we re-schedule the same candidate
+     * as plain CLASSIC, whose hid_host_connect then runs SDP + HID L2CAP over
+     * the already-bonded, encrypted ACL.
+     */
+    PICO_W_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING,
     PICO_W_STACK_CONNECT_MODE_CLASSIC,
     PICO_W_STACK_CONNECT_MODE_LE,
     PICO_W_STACK_CONNECT_MODE_LE_WHITELIST
@@ -104,6 +119,8 @@ static uint8_t pico_w_stack_diag_connect_mode(pico_w_stack_connect_mode_t mode) 
         case PICO_W_STACK_CONNECT_MODE_LE_WHITELIST:
         case PICO_W_STACK_CONNECT_MODE_LE:
             return 2U;
+        case PICO_W_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING:
+            return 3U;
         case PICO_W_STACK_CONNECT_MODE_NONE:
         default:
             return 0U;
@@ -155,6 +172,20 @@ static uint32_t g_btstack_now_ms = 0U;
 static uint32_t g_btstack_connect_pending_since_ms = 0U;
 static bd_addr_t g_btstack_candidate_addr = {0};
 static bd_addr_type_t g_btstack_candidate_addr_type = BD_ADDR_TYPE_UNKNOWN;
+/*
+ * Classic ACL handle for the in-flight pairing/connect candidate. The Classic
+ * flow bonds via gap_dedicated_bonding and -- through ENABLE_EXPLICIT_DEDICATED_-
+ * BONDING_DISCONNECT -- holds that ACL open so the follow-up hid_host_connect
+ * (SDP + HID L2CAP) reuses it. If that connect attempt fails or times out, the
+ * ACL and any half-open hid_host session must be torn down explicitly: BTstack's
+ * hid_host_disconnect is a no-op while a connection is still in its SDP-query
+ * phase (no L2CAP channels yet), and a lingering connection makes the next
+ * hid_host_connect return COMMAND_DISALLOWED -- which is exactly the cascading
+ * SDP stall seen on repeat attempts. Dropping the ACL errors the pending SDP
+ * client query, letting BTstack finalize the hid_host connection. Captured from
+ * HCI_EVENT_CONNECTION_COMPLETE; invalid when no Classic ACL is in flight.
+ */
+static hci_con_handle_t g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
 static pico_w_stack_connect_mode_t g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
 static pico_w_stack_pairing_failure_phase_t g_btstack_pairing_failure_phase =
     PICO_W_STACK_PAIRING_FAILURE_PHASE_NONE;
@@ -994,7 +1025,8 @@ static void pico_w_stack_schedule_candidate(
         if (g_btstack_pairing_active) {
             g_btstack_pairing_attempt_consumed = true;
             g_btstack_pairing_auth_attempted = false;
-            if (mode == PICO_W_STACK_CONNECT_MODE_CLASSIC) {
+            if ((mode == PICO_W_STACK_CONNECT_MODE_CLASSIC)
+                || (mode == PICO_W_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING)) {
                 pico_w_stack_set_pairing_failure_phase(
                     PICO_W_STACK_PAIRING_FAILURE_PHASE_CLASSIC_CONNECT
                 );
@@ -1104,6 +1136,18 @@ static void pico_w_stack_handle_connect_failure(uint8_t status_code) {
         (void)gap_connect_cancel();
     }
 
+    /*
+     * Drop the Classic candidate ACL so a failed/timed-out attempt does not
+     * leave a held ACL and a half-open hid_host SDP session behind -- those
+     * make the next hid_host_connect return COMMAND_DISALLOWED and cascade
+     * into repeated SDP stalls. The disconnect errors the pending SDP query,
+     * which lets BTstack finalize the hid_host connection.
+     */
+    if (g_btstack_classic_candidate_con_handle != HCI_CON_HANDLE_INVALID) {
+        (void)gap_disconnect(g_btstack_classic_candidate_con_handle);
+        g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
+    }
+
     g_stack_last_connect_status = status_code;
     g_btstack_connect_pending = false;
     g_btstack_connect_command_issued = false;
@@ -1149,6 +1193,12 @@ static void pico_w_stack_handle_connect_success(void) {
     g_btstack_connect_command_issued = false;
     g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
     g_btstack_connect_pending_since_ms = 0U;
+    /*
+     * The candidate ACL is now a live HID session; stop tracking it as a
+     * teardown target so a later unrelated connect failure cannot disconnect
+     * the working keyboard.
+     */
+    g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
     pico_w_stack_clear_unconnected_le_pending();
     g_btstack_pairing_auth_attempted = false;
     pico_w_stack_clear_pairing_failure_phase();
@@ -1256,6 +1306,24 @@ static void pico_w_stack_emit_classic_report_event(uint8_t * packet) {
 
     report = hid_subevent_report_get_report(packet);
     report_len = hid_subevent_report_get_report_len(packet);
+
+    /*
+     * BTstack delivers the raw Classic HID interrupt-channel payload, which
+     * begins with the Bluetooth HID transaction header (high nibble 0xA =
+     * HID_MESSAGE_TYPE_DATA; 0xA1 for a DATA/Input report). That byte is
+     * Bluetooth transport framing, not part of a USB HID report -- USB reports
+     * start with the report ID (or the data itself for report-ID-less
+     * descriptors). Forwarding it verbatim makes the USB host read 0xA1 as the
+     * report ID, find no matching report, and silently drop every keystroke
+     * (the device still enumerates as a keyboard, which is why pairing looked
+     * fine but nothing typed). Strip the DATA transaction header so the relayed
+     * report matches the passed-through report descriptor. LE/HOGP reports have
+     * no such header and are emitted separately, so this is Classic-only.
+     */
+    if ((report != NULL) && (report_len > 0U) && ((report[0] >> 4U) == 0x0AU)) {
+        report++;
+        report_len = (uint16_t)(report_len - 1U);
+    }
 
     if (report_len > HID_TRANSPORT_REPORT_MAX_LEN) {
         report_len = HID_TRANSPORT_REPORT_MAX_LEN;
@@ -1376,11 +1444,29 @@ static void pico_w_stack_try_connect_candidate(void) {
     }
 
     if (g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_CLASSIC) {
-        connect_status = hid_host_connect(
-            g_btstack_candidate_addr,
-            HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT,
-            &hid_cid
-        );
+        /*
+         * Plain REPORT mode: SDP query, then open L2CAP HID-Control and
+         * HID-Interrupt back-to-back, and stop -- no SET_PROTOCOL. A BT HID
+         * device defaults to Report Protocol, so SET_PROTOCOL is unnecessary,
+         * and the packet trace proved Apple Magic Keyboard tears the link down
+         * (L2CAP Disconnection Request -> ACL disconnect, reason 0x13) the
+         * instant it receives SET_PROTOCOL on the control channel. BOOT and
+         * REPORT_WITH_FALLBACK_TO_BOOT both emit that SET_PROTOCOL; REPORT does
+         * not, matching how Android (which pairs this keyboard in ~1s) drives
+         * the connection. By this second phase the ACL is already bonded and
+         * encrypted, so SDP completes normally.
+         */
+        connect_status =
+            hid_host_connect(g_btstack_candidate_addr, HID_PROTOCOL_MODE_REPORT, &hid_cid);
+    } else if (g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING) {
+        /*
+         * gap_dedicated_bonding pages the peer, drives SSP, generates and
+         * stores the link key, and then tears down the ACL. Completion is
+         * reported via GAP_EVENT_DEDICATED_BONDING_COMPLETED -- on success
+         * we re-schedule the same candidate as plain CLASSIC so
+         * hid_host_connect runs against a now-bonded peer.
+         */
+        connect_status = (uint8_t)gap_dedicated_bonding(g_btstack_candidate_addr, 1);
     } else if (g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_LE) {
         connect_status = gap_connect(g_btstack_candidate_addr, g_btstack_candidate_addr_type);
     } else if (g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_LE_WHITELIST) {
@@ -1506,10 +1592,19 @@ static void pico_w_stack_handle_hci_inquiry_result(
         return;
     }
 
+    /*
+     * Apple Magic Keyboard (Classic HID) does not answer SDP on an unencrypted
+     * link, so a cold hid_host_connect -- which runs the SDP query first --
+     * stalls. Pair in two phases instead: CLASSIC_DEDICATED_BONDING pages and
+     * bonds first; on success the ACL is held open (via
+     * ENABLE_EXPLICIT_DEDICATED_BONDING_DISCONNECT) and the bonding-complete
+     * handler runs hid_host_connect against that now-encrypted ACL, where SDP
+     * and the HID L2CAP channels come up immediately.
+     */
     pico_w_stack_schedule_candidate(
         addr,
         BD_ADDR_TYPE_ACL,
-        PICO_W_STACK_CONNECT_MODE_CLASSIC,
+        PICO_W_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING,
         false
     );
 }
@@ -1820,6 +1915,10 @@ static void pico_w_stack_handle_disconnect(uint8_t * packet) {
         return;
     }
 
+    if (con_handle == g_btstack_classic_candidate_con_handle) {
+        g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
+    }
+
     le_session = pico_w_stack_find_le_session_by_con_handle(con_handle);
 
     if (le_session != NULL) {
@@ -1931,6 +2030,54 @@ static void pico_w_btstack_packet_handler(
                 (void)gap_ssp_confirmation_negative(address);
             }
         } break;
+        case HCI_EVENT_USER_PASSKEY_REQUEST: {
+            /*
+             * Defensive: with our DisplayYesNo IO capability the SSP matrix
+             * never asks us to enter a passkey, but a peer with KeyboardOnly
+             * IO would cause Passkey Entry where we (initiator) display a
+             * value. Some controllers nevertheless deliver this event during
+             * legacy/edge cases; respond with 000000 so SSP can't stall.
+             */
+            bd_addr_t address = {0};
+            const bool security_accept = pico_w_stack_security_accept();
+
+            hci_event_user_passkey_request_get_bd_addr(packet, address);
+            if (security_accept) {
+                pico_w_stack_mark_pairing_auth_attempted();
+                (void)gap_ssp_passkey_response(address, 0U);
+            } else {
+                (void)gap_ssp_passkey_negative(address);
+            }
+        } break;
+        case HCI_EVENT_USER_PASSKEY_NOTIFICATION:
+            /*
+             * Informational only: the peer asked us to display a passkey for
+             * the user to type on the peer. We have no display and the peer
+             * drives its own keyboard, so no response is needed; just record
+             * that an authentication attempt is in flight so a later failure is
+             * classified correctly.
+             */
+            if (pico_w_stack_security_accept()) {
+                pico_w_stack_mark_pairing_auth_attempted();
+            }
+            break;
+        case HCI_EVENT_CONNECTION_COMPLETE: {
+            /*
+             * Remember the Classic ACL handle for the in-flight candidate so a
+             * failed/timed-out connect can drop it (and the half-open hid_host
+             * SDP session that rides on it). Only the candidate's own ACL is
+             * tracked; unrelated inbound ACLs are ignored.
+             */
+            bd_addr_t connected_addr = {0};
+
+            hci_event_connection_complete_get_bd_addr(packet, connected_addr);
+            if ((hci_event_connection_complete_get_status(packet) == ERROR_CODE_SUCCESS)
+                && (memcmp(connected_addr, g_btstack_candidate_addr, sizeof(connected_addr))
+                    == 0)) {
+                g_btstack_classic_candidate_con_handle =
+                    hci_event_connection_complete_get_connection_handle(packet);
+            }
+        } break;
         case BTSTACK_EVENT_STATE:
             if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
                 g_btstack_hci_ready = true;
@@ -1959,6 +2106,49 @@ static void pico_w_btstack_packet_handler(
                 pico_w_stack_handle_le_connection_complete(packet);
             }
             break;
+        case GAP_EVENT_DEDICATED_BONDING_COMPLETED: {
+            const uint8_t bonding_status = gap_event_dedicated_bonding_completed_get_status(packet);
+            bd_addr_t bonded_addr = {0};
+
+            gap_event_dedicated_bonding_completed_get_address(packet, bonded_addr);
+
+            g_btstack_connect_pending = false;
+            g_btstack_connect_command_issued = false;
+            g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
+            g_btstack_connect_pending_since_ms = 0U;
+
+            if ((bonding_status == ERROR_CODE_SUCCESS)
+                && g_btstack_pairing_active
+                && (g_btstack_pairing_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC)) {
+                /*
+                 * Bond established and -- via ENABLE_EXPLICIT_DEDICATED_-
+                 * BONDING_DISCONNECT -- the ACL is still up and already
+                 * encrypted with the stored authenticated link key. Magic
+                 * Keyboard does not open HID itself (confirmed by trace: no
+                 * inbound HID and no re-page in any configuration), so we
+                 * open it. hid_host_connect here reuses the existing ACL
+                 * (l2cap_create_channel finds the live connection) and opens
+                 * HID-Control immediately without re-paging or re-running
+                 * SSP -- unlike a cold hid_host_connect, which triggers SSP
+                 * from inside L2CAP channel setup and stalls on this peer.
+                 *
+                 * Clear pairing_attempt_consumed just long enough for the
+                 * schedule to take (it is re-set immediately) so we don't loop
+                 * into a second inquiry pass.
+                 */
+                g_btstack_pairing_auth_attempted = false;
+                pico_w_stack_clear_pairing_failure_phase();
+                g_btstack_pairing_attempt_consumed = false;
+                pico_w_stack_schedule_candidate(
+                    bonded_addr,
+                    BD_ADDR_TYPE_ACL,
+                    PICO_W_STACK_CONNECT_MODE_CLASSIC,
+                    false
+                );
+            } else {
+                pico_w_stack_handle_connect_failure(bonding_status);
+            }
+        } break;
         case HCI_EVENT_DISCONNECTION_COMPLETE:
             pico_w_stack_handle_disconnect(packet);
             break;
@@ -1973,7 +2163,7 @@ static void pico_w_btstack_packet_handler(
                         && pico_w_stack_connection_capacity_available()) {
                         (void)hid_host_accept_connection(
                             hid_subevent_incoming_connection_get_hid_cid(packet),
-                            HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT
+                            HID_PROTOCOL_MODE_REPORT
                         );
                     } else {
                         bd_addr_t incoming_addr = {0};
@@ -1994,7 +2184,7 @@ static void pico_w_btstack_packet_handler(
                              */
                             (void)hid_host_accept_connection(
                                 hid_subevent_incoming_connection_get_hid_cid(packet),
-                                HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT
+                                HID_PROTOCOL_MODE_REPORT
                             );
                         } else {
                             (void)hid_host_decline_connection(
@@ -2055,6 +2245,7 @@ static void pico_w_btstack_packet_handler(
             break;
     }
 }
+
 #endif
 
 bool pico_w_stack_init(bool radio_ready) {
@@ -2074,6 +2265,7 @@ bool pico_w_stack_init(bool radio_ready) {
     g_btstack_pairing_active = false;
     g_btstack_pairing_attempt_consumed = false;
     g_btstack_pairing_auth_attempted = false;
+    g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
     g_btstack_pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     g_btstack_inquiry_active = false;
     g_btstack_scan_active = false;
@@ -2124,10 +2316,25 @@ bool pico_w_stack_init(bool radio_ready) {
     (void)gap_set_security_mode(GAP_SECURITY_MODE_4);
     gap_set_security_level(LEVEL_2);
     gap_ssp_set_enable(1);
-    gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    gap_ssp_set_authentication_requirement(
-        SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING
-    );
+    /*
+     * Classic SSP IO capability is DisplayYesNo and MITM Protection is
+     * declared as required so peers that gate pairing on MITM-protected
+     * bonding (e.g. Apple Magic Keyboard) negotiate the Numeric Comparison
+     * association model instead of Just Works.
+     *
+     * Per Core Spec Vol 3 Part C 5.2.2.6, if either device declares MITM
+     * Protection Not Required the SSP flow always degrades to Just Works
+     * regardless of IO capability. Magic Keyboard rejects the resulting
+     * unauthenticated link key with authentication-failure, which our
+     * pairing attempt then surfaces as an AUTH_FAILED two-blink error.
+     *
+     * The Numeric Comparison 6-digit code is silently auto-accepted from
+     * HCI_EVENT_USER_CONFIRMATION_REQUEST below, so no UI is needed -- the
+     * resulting bond is authenticated even though we never display the
+     * value to a human.
+     */
+    gap_ssp_set_io_capability(SSP_IO_CAPABILITY_DISPLAY_YES_NO);
+    gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_REQUIRED_GENERAL_BONDING);
     gap_ssp_set_auto_accept(0);
     sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
     sm_set_authentication_requirements(SM_AUTHREQ_BONDING);
@@ -2159,9 +2366,45 @@ bool pico_w_stack_init(bool radio_ready) {
     hci_add_event_handler(&g_btstack_hci_event_callback_registration);
     g_btstack_sm_event_callback_registration.callback = &pico_w_btstack_packet_handler;
     sm_add_event_handler(&g_btstack_sm_event_callback_registration);
-    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH);
+    /*
+     * Match BTstack hid_host_demo defaults: also allow sniff mode (peripherals
+     * such as Magic Keyboard expect to be able to enter sniff for power
+     * management) in addition to role-switch.
+     */
+    gap_set_default_link_policy_settings(
+        LM_LINK_POLICY_ENABLE_SNIFF_MODE | LM_LINK_POLICY_ENABLE_ROLE_SWITCH
+    );
+    /*
+     * Identify the host with a stable local name and a Computer/Desktop Class
+     * of Device. Apple HID peripherals (and other peers) read these during
+     * SSP/connection setup to decide whether to bond -- an unset CoD (0x000000)
+     * and the BTstack default name appear to be enough to make some
+     * peripherals reject pairing post-IO-capability-exchange.
+     *
+     * "00:00:00:00:00:00" in the local name is rewritten by BTstack with the
+     * local BD_ADDR.
+     */
+    static const char hidrelay_local_name[] = "HID Relay 00:00:00:00:00:00";
+    gap_set_local_name(hidrelay_local_name);
+    gap_set_class_of_device(0x000104U);
     hci_set_master_slave_policy(HCI_ROLE_MASTER);
     (void)hci_power_control(HCI_POWER_ON);
+    /*
+     * Mirror hid_host_demo: become discoverable. The HID peripheral can then
+     * read our EIR (Extended Inquiry Response, which uses the local name above)
+     * during the connection handshake -- some keyboards drop the link if the
+     * host's EIR is missing.
+     */
+    gap_discoverable_control(1);
+    /*
+     * Enable page scan (connectable). BTstack defaults connectable=0, which
+     * only lets peers FIND us via inquiry, not PAGE us to open a connection.
+     * Per the HID profile the HID Device drives reconnection: a bonded Classic
+     * keyboard (the Magic Keyboard included) pages the host on its own
+     * initiative when it is powered back on. Without page scan that incoming
+     * page has nowhere to land and the keyboard can never reconnect.
+     */
+    gap_connectable_control(1);
     g_btstack_available = true;
 #else
     (void)radio_ready;
@@ -2287,6 +2530,7 @@ void pico_w_stack_set_pairing(
     if (!g_btstack_pairing_active) {
         g_btstack_pairing_attempt_consumed = false;
         g_btstack_pairing_auth_attempted = false;
+        g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
         g_btstack_pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         pico_w_stack_clear_pairing_failure_phase();
         pico_w_stack_clear_reconnect_state();
@@ -2486,20 +2730,14 @@ bool pico_w_stack_request_reconnect(
             );
         }
     } else {
+        /*
+         * Classic-paired devices (e.g. Magic Keyboard in its Classic HID
+         * profile) reconnect over Classic only. LE attempts here would
+         * route a Classic bond through the BLE path against intent, and
+         * would always fail since no LE bond exists for these devices.
+         */
         (void)
             pico_w_stack_reconnect_add_attempt(PICO_W_STACK_CONNECT_MODE_CLASSIC, BD_ADDR_TYPE_ACL);
-        (void)pico_w_stack_reconnect_add_attempt(
-            PICO_W_STACK_CONNECT_MODE_LE_WHITELIST,
-            BD_ADDR_TYPE_UNKNOWN
-        );
-        (void)pico_w_stack_reconnect_add_attempt(
-            PICO_W_STACK_CONNECT_MODE_LE,
-            BD_ADDR_TYPE_LE_PUBLIC
-        );
-        (void)pico_w_stack_reconnect_add_attempt(
-            PICO_W_STACK_CONNECT_MODE_LE,
-            BD_ADDR_TYPE_LE_RANDOM
-        );
     }
 
     g_btstack_reconnect_pending = true;

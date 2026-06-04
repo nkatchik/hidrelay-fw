@@ -9,6 +9,7 @@ enum {
     MAIN_PAIR_DB_SAVE_DEBOUNCE_MS = 2000U,
     MAIN_PAIR_DB_SAVE_MAX_STALE_MS = 15000U,
     MAIN_PAIR_DB_SAVE_RETRY_MS = 5000U,
+    MAIN_DIAG_EMIT_INTERVAL_MS = 50U,
 };
 
 /*
@@ -92,13 +93,31 @@ static void main_merge_transport_diag(
 }
 
 static void main_publish_diag(const hid_transport_diag_snapshot_t * diag) {
+    /*
+     * Emitting a diag frame every main-loop iteration (~kHz) floods the CDC and
+     * starves tud_task() during the USB re-enumeration that runs when a HID
+     * device attaches -- enough to wedge enumeration on this hardware. Throttle
+     * the encode+write to a modest rate; the snapshot is still published to the
+     * app every loop so no state transition is missed.
+     */
+    static uint32_t last_emit_ms = 0U;
+    static bool last_emit_valid = false;
     uint16_t frame_len = 0U;
+    uint32_t now_ms = 0U;
 
     if (diag == NULL) {
         return;
     }
 
     app_diag_publish(diag);
+
+    now_ms = platform_uptime_ms();
+    if (last_emit_valid && ((uint32_t)(now_ms - last_emit_ms) < MAIN_DIAG_EMIT_INTERVAL_MS)) {
+        return;
+    }
+    last_emit_ms = now_ms;
+    last_emit_valid = true;
+
     frame_len = app_diag_encode_frame(diag, g_diag_frame, sizeof(g_diag_frame));
     if (frame_len > 0U) {
         (void)platform_diag_write(g_diag_frame, frame_len);
