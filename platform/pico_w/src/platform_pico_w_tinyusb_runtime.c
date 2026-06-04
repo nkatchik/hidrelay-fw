@@ -32,6 +32,7 @@ typedef struct {
 
 static bool g_pico_w_tinyusb_initialized = false;
 static bool g_pico_w_tinyusb_reenum_pending = false;
+static bool g_pico_w_tinyusb_reenum_again = false;
 static bool g_pico_w_tinyusb_reenum_disconnected = false;
 static uint32_t g_pico_w_tinyusb_reenum_resume_ms = 0U;
 static uint32_t g_pico_w_tinyusb_descriptor_activity_count = 0U;
@@ -76,6 +77,7 @@ static void pico_w_tinyusb_runtime_reenumeration_tick(void) {
     if (!g_pico_w_tinyusb_reenum_disconnected) {
         if (!tud_connected() && !tud_mounted()) {
             g_pico_w_tinyusb_reenum_pending = false;
+            g_pico_w_tinyusb_reenum_again = false;
             return;
         }
 
@@ -93,6 +95,17 @@ static void pico_w_tinyusb_runtime_reenumeration_tick(void) {
     g_pico_w_tinyusb_reenum_pending = false;
     g_pico_w_tinyusb_reenum_disconnected = false;
     g_pico_w_tinyusb_reenum_resume_ms = 0U;
+
+    if (g_pico_w_tinyusb_reenum_again) {
+        /*
+         * A re-enumeration was requested while this one was in flight (e.g. the
+         * cloned USB identity resolved mid-cycle, after the host had already
+         * read the device descriptor). Run another so the host re-reads the
+         * descriptors with the latest state.
+         */
+        g_pico_w_tinyusb_reenum_again = false;
+        pico_w_tinyusb_runtime_request_reenumeration();
+    }
 }
 
 static bool pico_w_tinyusb_runtime_try_send_in_report(
@@ -257,6 +270,12 @@ bool pico_w_tinyusb_runtime_send_in_report(
 void pico_w_tinyusb_runtime_request_reenumeration(void) {
 #ifdef APP_PICO_HAS_TINYUSB
     if (g_pico_w_tinyusb_reenum_pending) {
+        /*
+         * A re-enumeration is already running; record that another is needed so
+         * a state change landing mid-cycle (e.g. the cloned USB identity) is
+         * not lost to the in-progress cycle.
+         */
+        g_pico_w_tinyusb_reenum_again = true;
         return;
     }
 

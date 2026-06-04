@@ -33,6 +33,7 @@ add_library(hidrelay_core STATIC
     src/bt_manager.c
     src/hid_report_policy.c
     src/hid_report_remap.c
+    src/apple_keyboard.c
     src/hid_transport_runtime.c
     src/hid_device_map.c
     src/usb_bridge.c

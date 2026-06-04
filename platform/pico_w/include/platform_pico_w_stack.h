@@ -36,6 +36,18 @@ bool pico_w_stack_request_reconnect(
 );
 bool pico_w_stack_forget_device(const pair_device_id_t * device_id);
 uint8_t pico_w_stack_usb_interface_count(void);
+/*
+ * When a single Classic HID device is relayed and its USB VID/PID has been read
+ * from the peer's SDP Device ID record, returns true and fills the cloned
+ * identity so the USB device descriptor can impersonate the real device (lets
+ * macOS apply Apple-keyboard handling). Returns false otherwise -- present the
+ * relay's own identity.
+ */
+bool pico_w_stack_usb_cloned_device_identity(
+    uint16_t * out_vendor_id,
+    uint16_t * out_product_id,
+    uint16_t * out_version
+);
 const uint8_t * pico_w_stack_usb_report_descriptor(
     uint8_t interface_number,
     uint16_t * out_len

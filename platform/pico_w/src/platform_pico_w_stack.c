@@ -13,11 +13,14 @@
 #include "bluetooth.h"
 #include "bluetooth_data_types.h"
 #include "bluetooth_gatt.h"
+#include "bluetooth_sdp.h"
 #include "btstack_event.h"
 #include "btstack_tlv.h"
 #include "btstack_tlv_flash_bank.h"
 #include "classic/btstack_link_key_db_tlv.h"
 #include "classic/hid_host.h"
+#include "classic/sdp_client.h"
+#include "classic/sdp_util.h"
 #include "gap.h"
 #include "hci.h"
 #include "l2cap.h"
@@ -26,6 +29,7 @@
 #include "pico/cyw43_arch.h"
 #endif
 
+#include "apple_keyboard.h"
 #include "hid_transport_runtime.h"
 #include "platform_pico_w_tinyusb_runtime.h"
 
@@ -186,6 +190,41 @@ static bd_addr_type_t g_btstack_candidate_addr_type = BD_ADDR_TYPE_UNKNOWN;
  * HCI_EVENT_CONNECTION_COMPLETE; invalid when no Classic ACL is in flight.
  */
 static hci_con_handle_t g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
+enum {
+    /*
+     * Apple reports its Device ID over Bluetooth with VendorIDSource =
+     * Bluetooth-SIG and VendorID = its Bluetooth company identifier (0x004C),
+     * not its USB vendor ID. macOS keys full Apple-keyboard handling (the
+     * top-row function/media mapping, keyboard-model/layout recognition) off the
+     * USB vendor ID 0x05AC, so the Bluetooth company ID is mapped to it.
+     */
+    PICO_W_STACK_APPLE_BLUETOOTH_COMPANY_ID = 0x004CU,
+    PICO_W_STACK_APPLE_USB_VENDOR_ID = 0x05ACU,
+};
+
+/*
+ * Cloned USB identity of the connected Classic HID device, read from its SDP
+ * Device ID (PnP Information) record after the HID connection opens. macOS only
+ * applies Apple-keyboard handling -- Fn-key awareness, the top-row function/
+ * media mapping, the globe/language key -- when the USB device reports an Apple
+ * vendor ID, so the relay presents the keyboard's real VID/PID (see
+ * pico_w_stack_usb_cloned_device_identity / tud_descriptor_device_cb). Cloned
+ * only when a USB vendor ID can be presented (USB-sourced, or Apple's mapped
+ * Bluetooth company ID); valid is cleared on disconnect so the relay reverts to
+ * its own identity. Single-device scope (the USB device descriptor carries one
+ * VID/PID).
+ */
+static bool g_btstack_clone_identity_valid = false;
+static uint16_t g_btstack_clone_vendor_id = 0U;
+static uint16_t g_btstack_clone_product_id = 0U;
+static uint16_t g_btstack_clone_version = 0U;
+static bd_addr_t g_btstack_device_id_query_addr = {0};
+static uint16_t g_btstack_device_id_vendor_source = 0U;
+static uint16_t g_btstack_device_id_vendor_id = 0U;
+static uint16_t g_btstack_device_id_product_id = 0U;
+static uint16_t g_btstack_device_id_version = 0U;
+static uint8_t g_btstack_device_id_attribute[16] = {0};
+static btstack_context_callback_registration_t g_btstack_device_id_sdp_request;
 static pico_w_stack_connect_mode_t g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
 static pico_w_stack_pairing_failure_phase_t g_btstack_pairing_failure_phase =
     PICO_W_STACK_PAIRING_FAILURE_PHASE_NONE;
@@ -1199,6 +1238,12 @@ static void pico_w_stack_handle_connect_success(void) {
      * the working keyboard.
      */
     g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
+    /*
+     * New HID session: drop any previously cloned USB identity until this
+     * device's SDP Device ID query (kicked off on CONNECTION_OPENED) resolves,
+     * so the descriptor never presents a stale device's VID/PID.
+     */
+    g_btstack_clone_identity_valid = false;
     pico_w_stack_clear_unconnected_le_pending();
     g_btstack_pairing_auth_attempted = false;
     pico_w_stack_clear_pairing_failure_phase();
@@ -1283,6 +1328,8 @@ static void pico_w_stack_emit_classic_close_by_hid_cid(uint16_t hid_cid) {
     event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
     event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
     event.hid_cid = hid_cid;
+    /* The cloned device is gone; revert the USB identity to the relay's own. */
+    g_btstack_clone_identity_valid = false;
     pico_w_stack_forget_classic_session_by_hid_cid(hid_cid);
     (void)pico_w_stack_push_event(&event);
 }
@@ -1295,10 +1342,36 @@ static void pico_w_stack_emit_classic_close_event(uint8_t * packet) {
     pico_w_stack_emit_classic_close_by_hid_cid(hid_subevent_connection_closed_get_hid_cid(packet));
 }
 
+/* Remap state for the connected Apple keyboard (single-device scope). */
+static apple_keyboard_state_t g_apple_keyboard_state = {0};
+
+static void pico_w_stack_push_classic_report(
+    uint16_t hid_cid,
+    const uint8_t * bytes,
+    uint16_t len
+) {
+    hid_transport_event_t event = {0};
+
+    if (len > HID_TRANSPORT_REPORT_MAX_LEN) {
+        len = HID_TRANSPORT_REPORT_MAX_LEN;
+    }
+
+    event.type = HID_TRANSPORT_EVENT_BT_HID_REPORT;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.hid_cid = hid_cid;
+    event.report_len = len;
+
+    if ((bytes != NULL) && (len > 0U)) {
+        (void)memcpy(event.report, bytes, len);
+    }
+
+    (void)pico_w_stack_push_event(&event);
+}
+
 static void pico_w_stack_emit_classic_report_event(uint8_t * packet) {
     const uint8_t * report = NULL;
     uint16_t report_len = 0U;
-    hid_transport_event_t event = {0};
+    uint16_t hid_cid = 0U;
 
     if (packet == NULL) {
         return;
@@ -1329,16 +1402,44 @@ static void pico_w_stack_emit_classic_report_event(uint8_t * packet) {
         report_len = HID_TRANSPORT_REPORT_MAX_LEN;
     }
 
-    event.type = HID_TRANSPORT_EVENT_BT_HID_REPORT;
-    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
-    event.hid_cid = hid_subevent_report_get_hid_cid(packet);
-    event.report_len = report_len;
+    hid_cid = hid_subevent_report_get_hid_cid(packet);
 
-    if ((report != NULL) && (report_len > 0U)) {
-        (void)memcpy(event.report, report, report_len);
+    /*
+     * Recognized Apple keyboards: rewrite the top row onto the augmented
+     * Apple-vendor/consumer collection (see pico_w_stack_usb_report_descriptor).
+     * The transform may also emit a second aux report on press/release, so both
+     * are pushed as separate USB reports on the same interface.
+     */
+    if (g_btstack_clone_identity_valid
+        && apple_keyboard_is_supported(g_btstack_clone_vendor_id, g_btstack_clone_product_id)) {
+        uint8_t kbd[HID_TRANSPORT_REPORT_MAX_LEN];
+        uint8_t aux[APPLE_KEYBOARD_AUX_REPORT_LEN];
+        uint16_t kbd_len = 0U;
+        uint16_t aux_len = 0U;
+
+        if (!g_apple_keyboard_state.initialized
+            || (g_apple_keyboard_state.product_id != g_btstack_clone_product_id)) {
+            apple_keyboard_state_init(&g_apple_keyboard_state, g_btstack_clone_product_id);
+        }
+
+        if (apple_keyboard_process_report(
+                &g_apple_keyboard_state,
+                report,
+                report_len,
+                kbd,
+                &kbd_len,
+                aux,
+                &aux_len
+            )) {
+            pico_w_stack_push_classic_report(hid_cid, kbd, kbd_len);
+            if (aux_len > 0U) {
+                pico_w_stack_push_classic_report(hid_cid, aux, aux_len);
+            }
+            return;
+        }
     }
 
-    (void)pico_w_stack_push_event(&event);
+    pico_w_stack_push_classic_report(hid_cid, report, report_len);
 }
 
 static void pico_w_stack_emit_le_open_event(
@@ -1976,6 +2077,134 @@ static void pico_w_stack_handle_disconnect(uint8_t * packet) {
     }
 }
 
+/*
+ * SDP "Device ID" (PnP Information, UUID 0x1200) query result handler. The four
+ * attributes we care about (VendorIDSource/VendorID/ProductID/Version) are each
+ * a single UINT16 data element; accumulate the bytes of one attribute, then
+ * decode with de_element_get_uint16. On query completion, if the device reports
+ * a USB-sourced vendor ID, adopt it as the cloned USB identity and re-enumerate
+ * so the host re-reads the device descriptor.
+ */
+static void pico_w_stack_device_id_sdp_handler(
+    uint8_t packet_type,
+    uint16_t channel,
+    uint8_t * packet,
+    uint16_t size
+) {
+    uint16_t attribute_id = 0U;
+    uint16_t attribute_len = 0U;
+    uint16_t attribute_offset = 0U;
+    uint16_t value = 0U;
+
+    (void)channel;
+    (void)size;
+
+    if (packet_type != HCI_EVENT_PACKET) {
+        return;
+    }
+
+    switch (hci_event_packet_get_type(packet)) {
+        case SDP_EVENT_QUERY_ATTRIBUTE_VALUE:
+            attribute_id = sdp_event_query_attribute_byte_get_attribute_id(packet);
+            attribute_len = sdp_event_query_attribute_byte_get_attribute_length(packet);
+            attribute_offset = sdp_event_query_attribute_byte_get_data_offset(packet);
+
+            /*
+             * The data-element header byte arrives first while attribute_length
+             * is still 0 (BTstack hasn't parsed the element size yet). Store it
+             * too -- skipping it would leave the accumulated buffer without its
+             * DE header and de_element_get_uint16 would reject the value. Store
+             * every in-range byte, then decode once the full value is in.
+             */
+            if ((attribute_len > sizeof(g_btstack_device_id_attribute))
+                || (attribute_offset >= sizeof(g_btstack_device_id_attribute))) {
+                break;
+            }
+            g_btstack_device_id_attribute[attribute_offset] =
+                sdp_event_query_attribute_byte_get_data(packet);
+
+            if ((attribute_len == 0U) || ((uint16_t)(attribute_offset + 1U) != attribute_len)) {
+                break;
+            }
+            if (!de_element_get_uint16(g_btstack_device_id_attribute, &value)) {
+                break;
+            }
+            switch (attribute_id) {
+                case BLUETOOTH_ATTRIBUTE_VENDOR_ID_SOURCE:
+                    g_btstack_device_id_vendor_source = value;
+                    break;
+                case BLUETOOTH_ATTRIBUTE_VENDOR_ID:
+                    g_btstack_device_id_vendor_id = value;
+                    break;
+                case BLUETOOTH_ATTRIBUTE_PRODUCT_ID:
+                    g_btstack_device_id_product_id = value;
+                    break;
+                case BLUETOOTH_ATTRIBUTE_VERSION:
+                    g_btstack_device_id_version = value;
+                    break;
+                default:
+                    break;
+            }
+            break;
+        case SDP_EVENT_QUERY_COMPLETE: {
+            uint16_t usb_vendor_id = 0U;
+
+            if (g_btstack_device_id_vendor_id == 0U) {
+                break;
+            }
+            if (g_btstack_device_id_vendor_source == DEVICE_ID_VENDOR_ID_SOURCE_USB) {
+                /* Already a USB vendor ID; present it directly. */
+                usb_vendor_id = g_btstack_device_id_vendor_id;
+            } else if ((g_btstack_device_id_vendor_source == DEVICE_ID_VENDOR_ID_SOURCE_BLUETOOTH)
+                && (g_btstack_device_id_vendor_id == PICO_W_STACK_APPLE_BLUETOOTH_COMPANY_ID)) {
+                /* Apple over Bluetooth: map the company ID to the USB vendor ID. */
+                usb_vendor_id = PICO_W_STACK_APPLE_USB_VENDOR_ID;
+            } else {
+                /*
+                 * Bluetooth-SIG-sourced ID with no known USB mapping -- present
+                 * the relay's own identity rather than a wrong USB vendor.
+                 */
+                break;
+            }
+            g_btstack_clone_vendor_id = usb_vendor_id;
+            g_btstack_clone_product_id = g_btstack_device_id_product_id;
+            g_btstack_clone_version = g_btstack_device_id_version;
+            g_btstack_clone_identity_valid = true;
+            pico_w_tinyusb_runtime_request_reenumeration();
+        } break;
+        default:
+            break;
+    }
+}
+
+static void pico_w_stack_device_id_start_query(void * context) {
+    (void)context;
+    (void)sdp_client_query_uuid16(
+        &pico_w_stack_device_id_sdp_handler,
+        g_btstack_device_id_query_addr,
+        BLUETOOTH_SERVICE_CLASS_PNP_INFORMATION
+    );
+}
+
+/*
+ * Queue an SDP Device ID query against the connected keyboard. Run after the
+ * HID connection opens (the SDP client is free again by then). Resets the
+ * partial-result fields; registering the callback is a no-op if a query is
+ * already queued.
+ */
+static void pico_w_stack_request_device_id(const uint8_t * addr) {
+    if (addr == NULL) {
+        return;
+    }
+    (void)memcpy(g_btstack_device_id_query_addr, addr, sizeof(g_btstack_device_id_query_addr));
+    g_btstack_device_id_vendor_source = 0U;
+    g_btstack_device_id_vendor_id = 0U;
+    g_btstack_device_id_product_id = 0U;
+    g_btstack_device_id_version = 0U;
+    g_btstack_device_id_sdp_request.callback = &pico_w_stack_device_id_start_query;
+    (void)sdp_client_register_query_callback(&g_btstack_device_id_sdp_request);
+}
+
 static void pico_w_btstack_packet_handler(
     uint8_t packet_type,
     uint16_t channel,
@@ -2197,11 +2426,21 @@ static void pico_w_btstack_packet_handler(
                     const uint8_t status = hid_subevent_connection_opened_get_status(packet);
 
                     if (status == ERROR_CODE_SUCCESS) {
+                        bd_addr_t opened_addr = {0};
+
                         pico_w_stack_handle_connect_success();
                         pico_w_stack_emit_classic_open_event(packet);
                         (void)hid_host_send_get_protocol(
                             hid_subevent_connection_opened_get_hid_cid(packet)
                         );
+                        /*
+                         * Read the keyboard's USB VID/PID so the relay can
+                         * present its real identity (see the cloned-identity
+                         * globals). The SDP client is free now that the HID
+                         * connection is up.
+                         */
+                        hid_subevent_connection_opened_get_bd_addr(packet, opened_addr);
+                        pico_w_stack_request_device_id(opened_addr);
                     } else {
                         pico_w_stack_handle_connect_failure(status);
                     }
@@ -2266,6 +2505,7 @@ bool pico_w_stack_init(bool radio_ready) {
     g_btstack_pairing_attempt_consumed = false;
     g_btstack_pairing_auth_attempted = false;
     g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
+    g_btstack_clone_identity_valid = false;
     g_btstack_pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     g_btstack_inquiry_active = false;
     g_btstack_scan_active = false;
@@ -2531,6 +2771,7 @@ void pico_w_stack_set_pairing(
         g_btstack_pairing_attempt_consumed = false;
         g_btstack_pairing_auth_attempted = false;
         g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
+        g_btstack_clone_identity_valid = false;
         g_btstack_pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         pico_w_stack_clear_pairing_failure_phase();
         pico_w_stack_clear_reconnect_state();
@@ -2815,6 +3056,38 @@ uint8_t pico_w_stack_usb_interface_count(void) {
     return hid_transport_runtime_usb_interface_count(&g_transport_runtime);
 }
 
+bool pico_w_stack_usb_cloned_device_identity(
+    uint16_t * out_vendor_id,
+    uint16_t * out_product_id,
+    uint16_t * out_version
+) {
+#ifdef APP_PICO_HAS_BTSTACK
+    /*
+     * Present the connected keyboard's real USB VID/PID only for a single
+     * exported HID interface -- the USB device descriptor carries one identity,
+     * so cloning is meaningful only when exactly one device is relayed.
+     */
+    if (g_btstack_clone_identity_valid
+        && (hid_transport_runtime_usb_interface_count(&g_transport_runtime) == 1U)) {
+        if (out_vendor_id != NULL) {
+            *out_vendor_id = g_btstack_clone_vendor_id;
+        }
+        if (out_product_id != NULL) {
+            *out_product_id = g_btstack_clone_product_id;
+        }
+        if (out_version != NULL) {
+            *out_version = g_btstack_clone_version;
+        }
+        return true;
+    }
+#else
+    (void)out_vendor_id;
+    (void)out_product_id;
+    (void)out_version;
+#endif
+    return false;
+}
+
 const uint8_t * pico_w_stack_usb_report_descriptor(
     uint8_t interface_number,
     uint16_t * out_len
@@ -2860,6 +3133,35 @@ const uint8_t * pico_w_stack_usb_report_descriptor(
             }
 
             if ((descriptor != NULL) && (descriptor_len > 0U)) {
+                /*
+                 * For recognized Apple keyboards, present the keyboard's own
+                 * descriptor augmented with an Apple-vendor/consumer collection
+                 * so the relay-side top-row remap can emit usages macOS honors
+                 * (the keyboard's native BT descriptor declares none of them).
+                 */
+                if ((bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC)
+                    && g_btstack_clone_identity_valid
+                    && apple_keyboard_is_supported(
+                        g_btstack_clone_vendor_id,
+                        g_btstack_clone_product_id
+                    )) {
+                    static uint8_t aug_descriptor[1024];
+                    const uint16_t aug_len = apple_keyboard_augment_descriptor(
+                        g_btstack_clone_product_id,
+                        descriptor,
+                        descriptor_len,
+                        aug_descriptor,
+                        (uint16_t)sizeof(aug_descriptor)
+                    );
+
+                    if (aug_len > 0U) {
+                        if (out_len != NULL) {
+                            *out_len = aug_len;
+                        }
+                        return aug_descriptor;
+                    }
+                }
+
                 if (out_len != NULL) {
                     *out_len = descriptor_len;
                 }
