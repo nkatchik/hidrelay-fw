@@ -21,6 +21,7 @@ enum {
     APPLE_KEYBOARD_KEYCODE_FIRST = 3U,
     APPLE_KEYBOARD_KEYCODE_LAST = 8U,
     APPLE_KEYBOARD_STATUS_BYTE = 9U,
+    APPLE_KEYBOARD_EJECT_BIT_MASK = 0x01U, /* status byte bit 0 = Eject (Consumer 0xB8) */
     APPLE_KEYBOARD_FN_BIT_MASK = 0x02U
 };
 
@@ -50,6 +51,7 @@ enum {
     AUX_BIT_VOL_DOWN = 11,
     AUX_BIT_VOICE = 12,
     AUX_BIT_DND = 13,
+    AUX_BIT_LOCK = 14, /* top-right Eject key remapped to lock screen */
     AUX_BIT_NONE = 0xFFU
 };
 
@@ -191,8 +193,17 @@ static const uint8_t k_apple_keyboard_aux_descriptor[] = {
     0x01, /*   Report Count (1)                         */
     0x81,
     0x02, /*   Input (Data,Var,Abs)                     */
+    0x05,
+    0x0C, /*   Usage Page (Consumer)                    */
+    0x0A,
+    0x9E,
+    0x01, /*   Usage (AL Terminal Lock)     bit 14      */
     0x95,
-    0x02, /*   Report Count (2)             pad bits    */
+    0x01, /*   Report Count (1)                         */
+    0x81,
+    0x02, /*   Input (Data,Var,Abs)                     */
+    0x95,
+    0x01, /*   Report Count (1)             pad bit     */
     0x81,
     0x03, /*   Input (Const,Var,Abs)                    */
     0xC0 /* End Collection                             */
@@ -321,6 +332,15 @@ bool apple_keyboard_process_report(
             }
             apple_keyboard_set_aux_bit(aux, bit);
             out_kbd[i] = 0U; /* remove from the keyboard report */
+        }
+    }
+
+    /* Top-right Eject key acts as the lock screen key (Fn+Eject = real Eject). */
+    if ((report[APPLE_KEYBOARD_STATUS_BYTE] & APPLE_KEYBOARD_EJECT_BIT_MASK) != 0U) {
+        if (media_action) {
+            apple_keyboard_set_aux_bit(aux, AUX_BIT_LOCK);
+            out_kbd[APPLE_KEYBOARD_STATUS_BYTE] =
+                (uint8_t)(out_kbd[APPLE_KEYBOARD_STATUS_BYTE] & ~APPLE_KEYBOARD_EJECT_BIT_MASK);
         }
     }
 
