@@ -99,9 +99,9 @@ static void pico_w_tinyusb_runtime_reenumeration_tick(void) {
     if (g_pico_w_tinyusb_reenum_again) {
         /*
          * A re-enumeration was requested while this one was in flight (e.g. the
-         * cloned USB identity resolved mid-cycle, after the host had already
-         * read the device descriptor). Run another so the host re-reads the
-         * descriptors with the latest state.
+         * report descriptor was augmented mid-cycle, after the host had already
+         * read it). Run another so the host re-reads the descriptors with the
+         * latest state.
          */
         g_pico_w_tinyusb_reenum_again = false;
         pico_w_tinyusb_runtime_request_reenumeration();
@@ -272,8 +272,8 @@ void pico_w_tinyusb_runtime_request_reenumeration(void) {
     if (g_pico_w_tinyusb_reenum_pending) {
         /*
          * A re-enumeration is already running; record that another is needed so
-         * a state change landing mid-cycle (e.g. the cloned USB identity) is
-         * not lost to the in-progress cycle.
+         * a state change landing mid-cycle (e.g. a newly augmented descriptor)
+         * is not lost to the in-progress cycle.
          */
         g_pico_w_tinyusb_reenum_again = true;
         return;

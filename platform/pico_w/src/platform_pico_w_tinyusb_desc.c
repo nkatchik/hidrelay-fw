@@ -459,30 +459,8 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
 }
 
 uint8_t const * tud_descriptor_device_cb(void) {
-    /*
-     * Default to the relay's own identity, but when exactly one Classic HID
-     * device is relayed and we have read its USB VID/PID from the peer's SDP
-     * Device ID record, impersonate the real device. macOS gates its
-     * Apple-keyboard handling (Fn-key awareness, top-row function/media
-     * mapping, the globe/language key) on an Apple vendor ID, so presenting the
-     * keyboard's true VID/PID is what makes the relayed keyboard behave like a
-     * directly-attached one. The connect-time re-enumeration carries the change.
-     */
-    static tusb_desc_device_t device_desc;
-    uint16_t vendor_id = 0U;
-    uint16_t product_id = 0U;
-    uint16_t version = 0U;
-
-    device_desc = g_device_desc;
-    if (pico_w_stack_usb_cloned_device_identity(&vendor_id, &product_id, &version)) {
-        device_desc.idVendor = vendor_id;
-        device_desc.idProduct = product_id;
-        if (version != 0U) {
-            device_desc.bcdDevice = version;
-        }
-    }
-
-    return (const uint8_t *)&device_desc;
+    /* The relay always presents its own identity. */
+    return (const uint8_t *)&g_device_desc;
 }
 
 uint8_t const * tud_hid_descriptor_report_cb(uint8_t instance) {

@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
-/* USB-form Apple vendor ID that the relay clones for Apple keyboards. */
+/* USB-form Apple vendor ID used to recognize Apple keyboards. */
 #define APPLE_KEYBOARD_USB_VENDOR_ID 0x05ACU
 
 /*
@@ -25,24 +25,38 @@ enum {
     APPLE_KEYBOARD_FN_BIT_MASK = 0x02U
 };
 
-/* HID keyboard usage IDs for the top row and the mode-toggle key. */
+/*
+ * HID keyboard usage IDs for the top row and the mode-toggle key, plus the
+ * keys/modifiers synthesized for top-row functions that have no usage macOS
+ * honors from a non-Apple device (see k_apple_keyboard_chords below).
+ */
 enum {
     APPLE_KEYBOARD_KEY_F1 = 0x3AU,
     APPLE_KEYBOARD_KEY_F12 = 0x45U,
-    APPLE_KEYBOARD_KEY_ESC = 0x29U
+    APPLE_KEYBOARD_KEY_ESC = 0x29U,
+    APPLE_KEYBOARD_KEY_UP_ARROW = 0x52U, /* Mission Control chord key   */
+    APPLE_KEYBOARD_KEY_L = 0x0FU, /* Launchpad chord key         */
+    APPLE_KEYBOARD_MOD_LEFT_CTRL = 0x01U, /* report byte 1, bit 0        */
+    APPLE_KEYBOARD_MOD_LEFT_ALT = 0x04U, /* Option, bit 2               */
+    APPLE_KEYBOARD_MOD_LEFT_GUI = 0x08U /* Command, bit 3              */
 };
 
 /*
  * Bit positions in the 2-byte aux payload. The order here must match the field
- * declaration order in the augmentation descriptor below.
+ * declaration order in the augmentation descriptor below. macOS ignores the
+ * Apple-vendor page (bits 0-3) from a non-Apple device, so brightness uses the
+ * standard Consumer page (bits 4-5), and Mission Control/Expose (bit 3) and
+ * Launchpad (bit 2) are synthesized as keyboard chords instead of emitted as aux
+ * usages (see k_apple_keyboard_chords). Spotlight/Dashboard (bits 0-1, other
+ * layouts' F4) have no generic equivalent and stay inert.
  */
 enum {
-    AUX_BIT_SPOTLIGHT = 0,
-    AUX_BIT_DASHBOARD = 1,
-    AUX_BIT_LAUNCHPAD = 2,
-    AUX_BIT_EXPOSE = 3,
-    AUX_BIT_BRIGHT_UP = 4,
-    AUX_BIT_BRIGHT_DOWN = 5,
+    AUX_BIT_SPOTLIGHT = 0, /* inert: Apple-vendor page, ignored by macOS */
+    AUX_BIT_DASHBOARD = 1, /* inert */
+    AUX_BIT_LAUNCHPAD = 2, /* chord: Ctrl+Opt+Cmd+L (user-bound) */
+    AUX_BIT_EXPOSE = 3, /* chord: Ctrl+Up (Mission Control) */
+    AUX_BIT_BRIGHT_UP = 4, /* Consumer 0x6F */
+    AUX_BIT_BRIGHT_DOWN = 5, /* Consumer 0x70 */
     AUX_BIT_SCAN_PREV = 6,
     AUX_BIT_PLAY_PAUSE = 7,
     AUX_BIT_SCAN_NEXT = 8,
@@ -126,6 +140,39 @@ static uint8_t apple_keyboard_f4_aux(uint8_t layout) {
 }
 
 /*
+ * Top-row functions with no usage macOS honors from a non-Apple device are
+ * emitted as keyboard chords (modifiers + key) instead of aux usages. Mission
+ * Control uses its built-in Ctrl+Up shortcut; Launchpad has no default shortcut,
+ * so it sends Ctrl+Opt+Cmd+L for the user to bind to "Show Launchpad" in System
+ * Settings. Any aux bit not listed here is emitted as a normal aux usage.
+ */
+typedef struct {
+    uint8_t aux_bit;
+    uint8_t modifiers;
+    uint8_t keycode;
+} apple_keyboard_chord_t;
+
+static const apple_keyboard_chord_t k_apple_keyboard_chords[] = {
+    {AUX_BIT_EXPOSE, APPLE_KEYBOARD_MOD_LEFT_CTRL, APPLE_KEYBOARD_KEY_UP_ARROW},
+    {AUX_BIT_LAUNCHPAD,
+        (uint8_t)(APPLE_KEYBOARD_MOD_LEFT_CTRL
+            | APPLE_KEYBOARD_MOD_LEFT_ALT
+            | APPLE_KEYBOARD_MOD_LEFT_GUI),
+        APPLE_KEYBOARD_KEY_L}
+};
+
+static const apple_keyboard_chord_t * apple_keyboard_chord_for_bit(uint8_t bit) {
+    size_t n = 0U;
+
+    for (n = 0U; n < (sizeof(k_apple_keyboard_chords) / sizeof(k_apple_keyboard_chords[0])); n++) {
+        if (k_apple_keyboard_chords[n].aux_bit == bit) {
+            return &k_apple_keyboard_chords[n];
+        }
+    }
+    return NULL;
+}
+
+/*
  * Aux collection appended to the keyboard's report descriptor. Declares every
  * usage the remap may emit; macOS rejects input reports carrying usages not
  * present in the descriptor, so each must be listed even if a given layout
@@ -157,16 +204,16 @@ static const uint8_t k_apple_keyboard_aux_descriptor[] = {
     0x04, /*   Usage (Launchpad)            bit 2       */
     0x09,
     0x10, /*   Usage (Expose All)           bit 3       */
-    0x09,
-    0x20, /*   Usage (Brightness Up)        bit 4       */
-    0x09,
-    0x21, /*   Usage (Brightness Down)      bit 5       */
     0x95,
-    0x06, /*   Report Count (6)                         */
+    0x04, /*   Report Count (4)                         */
     0x81,
     0x02, /*   Input (Data,Var,Abs)                     */
     0x05,
     0x0C, /*   Usage Page (Consumer)                    */
+    0x09,
+    0x6F, /*   Usage (Brightness Increment) bit 4       */
+    0x09,
+    0x70, /*   Usage (Brightness Decrement) bit 5       */
     0x09,
     0xB6, /*   Usage (Scan Previous Track)  bit 6       */
     0x09,
@@ -182,7 +229,7 @@ static const uint8_t k_apple_keyboard_aux_descriptor[] = {
     0x09,
     0xCF, /*   Usage (Voice Command)        bit 12      */
     0x95,
-    0x07, /*   Report Count (7)                         */
+    0x09, /*   Report Count (9)                         */
     0x81,
     0x02, /*   Input (Data,Var,Abs)                     */
     0x05,
@@ -285,6 +332,7 @@ bool apple_keyboard_process_report(
     bool esc_held = false;
     bool media_action = false;
     uint8_t i = 0U;
+    const apple_keyboard_chord_t * chord = NULL;
 
     if ((state == NULL)
         || !state->initialized
@@ -329,6 +377,17 @@ bool apple_keyboard_process_report(
             }
             if (idx == 3U) { /* F4 is layout-specific */
                 bit = apple_keyboard_f4_aux(state->layout);
+            }
+            /*
+             * Functions with no usage macOS honors from a non-Apple device are
+             * synthesized as keyboard chords (modifiers + key) in the keyboard
+             * report rather than emitted as aux usages.
+             */
+            chord = apple_keyboard_chord_for_bit(bit);
+            if (chord != NULL) {
+                out_kbd[1] = (uint8_t)(out_kbd[1] | chord->modifiers);
+                out_kbd[i] = chord->keycode;
+                continue;
             }
             apple_keyboard_set_aux_bit(aux, bit);
             out_kbd[i] = 0U; /* remove from the keyboard report */

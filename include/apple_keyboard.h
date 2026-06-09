@@ -29,8 +29,8 @@
 
 /*
  * True when (vendor_id, product_id) is a recognized Apple keyboard we have a
- * top-row layout for. vendor_id is the USB-form Apple vendor ID (0x05AC) that
- * the relay clones; product_id is the keyboard's Bluetooth product ID.
+ * top-row layout for. vendor_id is the USB-form Apple vendor ID (0x05AC);
+ * product_id is the keyboard's Bluetooth product ID.
  */
 bool apple_keyboard_is_supported(
     uint16_t vendor_id,
