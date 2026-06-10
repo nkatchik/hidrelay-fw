@@ -28,6 +28,18 @@ enum {
      * the device; the timeout is the escape hatch when the host never mounts.
      */
     USB_RUNTIME_ENUM_GRACE_MS = 2000U,
+    /*
+     * Quiesce window between a re-enumeration request and the actual
+     * detach: new IN reports are refused from the moment of the request,
+     * and this delay lets transfers already submitted to the device
+     * controller retire first. Detaching with an IN transfer in flight
+     * corrupts the RP2040 endpoint buffer-control state, and the next
+     * submission after re-attach dies in the SDK's
+     * panic("ep %02X was already available") -- the freeze hit whenever a
+     * streaming device (the trackpad) was recognized and its descriptor
+     * swap re-enumerated mid-stream.
+     */
+    USB_RUNTIME_REENUM_QUIESCE_MS = 30U,
     USB_RUNTIME_IN_REPORT_QUEUE_SIZE = 32U,
 };
 
@@ -41,6 +53,7 @@ static bool g_usb_runtime_initialized = false;
 static bool g_usb_runtime_reenum_pending = false;
 static bool g_usb_runtime_reenum_disconnected = false;
 static uint32_t g_usb_runtime_reenum_resume_ms = 0U;
+static uint32_t g_usb_runtime_reenum_quiesce_until_ms = 0U;
 static uint32_t g_usb_runtime_attach_ms = 0U;
 static uint32_t g_usb_runtime_descriptor_activity_count = 0U;
 static usb_runtime_in_report_t g_usb_runtime_in_report_queue[USB_RUNTIME_IN_REPORT_QUEUE_SIZE] = {
@@ -100,6 +113,11 @@ static void usb_runtime_reenumeration_tick(void) {
                 now_ms,
                 g_usb_runtime_attach_ms + USB_RUNTIME_ENUM_GRACE_MS
             )) {
+            return;
+        }
+
+        /* Let in-flight IN transfers retire before pulling the plug. */
+        if (!usb_runtime_time_reached(now_ms, g_usb_runtime_reenum_quiesce_until_ms)) {
             return;
         }
 
@@ -170,7 +188,7 @@ static bool usb_runtime_queue_in_report(
 }
 
 static void usb_runtime_drain_in_report_queue(void) {
-    if (!g_usb_runtime_initialized || !tud_mounted()) {
+    if (!g_usb_runtime_initialized || !tud_mounted() || g_usb_runtime_reenum_pending) {
         return;
     }
 
@@ -201,6 +219,7 @@ bool usb_runtime_init(void) {
     g_usb_runtime_reenum_pending = false;
     g_usb_runtime_reenum_disconnected = false;
     g_usb_runtime_reenum_resume_ms = 0U;
+    g_usb_runtime_reenum_quiesce_until_ms = 0U;
     g_usb_runtime_descriptor_activity_count = 0U;
     usb_runtime_clear_in_report_queue();
     g_usb_runtime_initialized = tusb_init();
@@ -267,6 +286,16 @@ bool usb_runtime_send_in_report(
         return false;
     }
 
+    /*
+     * A re-enumeration is on its way: nothing may be submitted to the
+     * device controller between the request and the re-attach (see
+     * USB_RUNTIME_REENUM_QUIESCE_MS). Dropped input during the cycle is
+     * expected -- the host detaches momentarily anyway.
+     */
+    if (g_usb_runtime_reenum_pending) {
+        return false;
+    }
+
     if ((g_usb_runtime_in_report_queue_count == 0U)
         && usb_runtime_try_send_in_report(interface_number, report, report_len)) {
         return true;
@@ -296,6 +325,7 @@ void usb_runtime_request_reenumeration(void) {
     g_usb_runtime_reenum_pending = true;
     g_usb_runtime_reenum_disconnected = false;
     g_usb_runtime_reenum_resume_ms = 0U;
+    g_usb_runtime_reenum_quiesce_until_ms = platform_uptime_ms() + USB_RUNTIME_REENUM_QUIESCE_MS;
 #endif
 }
 
