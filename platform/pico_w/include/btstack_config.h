@@ -38,8 +38,21 @@
 #define HCI_ACL_CHUNK_SIZE_ALIGNMENT 4
 #define MAX_NR_CONTROLLER_ACL_BUFFERS 4
 #define MAX_NR_CONTROLLER_SCO_PACKETS 3
+/*
+ * Controller-to-host flow control must keep the worst-case in-flight data
+ * BELOW the radio's 4 KB shared-bus pipe (BTSDIO_FWBUF_SIZE in the SDK's
+ * cybt_shared_bus driver): the pipe overflows -> the SDK driver calls
+ * panic("cyw43 buffer overflow") and the firmware freezes. The previous
+ * 4 x 1024-byte host buffers granted ~4128 bytes of credit including ACL
+ * and transport headers -- MORE than the pipe -- so a burst of maximum-size
+ * ACL fragments (a big SDP response, e.g. the Magic Trackpad's report
+ * descriptor at connection) could overrun it whenever the host stalled for
+ * a few milliseconds. 4 x 512 caps in-flight ACL at ~2.1 KB, leaving ~2 KB
+ * of pipe headroom for HCI events, which flow control does not cover.
+ * BTstack reassembles L2CAP from smaller fragments transparently.
+ */
 #define ENABLE_HCI_CONTROLLER_TO_HOST_FLOW_CONTROL
-#define HCI_HOST_ACL_PACKET_LEN 1024
+#define HCI_HOST_ACL_PACKET_LEN 512
 #define HCI_HOST_ACL_PACKET_NUM 4
 #define HCI_HOST_SCO_PACKET_LEN 120
 #define HCI_HOST_SCO_PACKET_NUM 3
