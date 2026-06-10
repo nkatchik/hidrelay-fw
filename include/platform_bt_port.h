@@ -19,4 +19,16 @@ bool platform_bt_port_init(
     void ** out_tlv_context
 );
 
+/*
+ * Serialize access to the Bluetooth stack. On platforms where the stack
+ * executes on its own context (e.g. a background/IRQ-driven async context),
+ * every call into stack APIs or stack-owned state from the application
+ * thread must happen between lock and unlock -- unsynchronized calls race
+ * the stack's own execution and corrupt its internal state. The lock is
+ * recursive (nested entry points are fine) and may also be taken from
+ * within the stack's own callbacks. No-op before the radio is initialized.
+ */
+void platform_bt_port_lock(void);
+void platform_bt_port_unlock(void);
+
 #endif

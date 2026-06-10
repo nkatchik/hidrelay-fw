@@ -44,6 +44,26 @@ enum {
 static hid_transport_runtime_t g_transport_runtime = {0};
 static uint8_t g_stack_last_connect_status = 0U;
 
+/*
+ * The Bluetooth stack executes on the platform's own context -- on some
+ * platforms a background/IRQ-driven one -- while the public entry points
+ * below run on the application thread. Every entry point must therefore
+ * hold the platform's (recursive) stack lock around anything that touches
+ * stack APIs or state shared with stack callbacks; unsynchronized calls
+ * race the stack's execution context and corrupt its internal structures.
+ */
+static void transport_stack_lock(void) {
+#ifdef APP_HAS_BTSTACK
+    platform_bt_port_lock();
+#endif
+}
+
+static void transport_stack_unlock(void) {
+#ifdef APP_HAS_BTSTACK
+    platform_bt_port_unlock();
+#endif
+}
+
 static bool transport_stack_push_event(const hid_transport_event_t * event) {
     return hid_transport_runtime_push_event(&g_transport_runtime, event);
 }
@@ -2924,7 +2944,7 @@ static void transport_stack_packet_handler(
 
 #endif
 
-bool transport_stack_init(void) {
+static bool transport_stack_init_locked(void) {
     hid_transport_runtime_init(&g_transport_runtime);
     g_stack_last_connect_status = 0U;
 
@@ -3101,6 +3121,7 @@ void transport_stack_poll(uint32_t now_ms) {
 #ifdef APP_HAS_BTSTACK
     uint8_t le_index = 0U;
 
+    transport_stack_lock();
     g_btstack_now_ms = now_ms;
     transport_stack_sync_hci_ready();
 
@@ -3168,12 +3189,13 @@ void transport_stack_poll(uint32_t now_ms) {
             }
         }
     }
+    transport_stack_unlock();
 #endif
 
     usb_runtime_poll();
 }
 
-void transport_stack_set_usb_plan(
+static void transport_stack_set_usb_plan_locked(
     uint8_t interface_count,
     uint32_t descriptor_generation,
     const hid_transport_usb_interface_plan_t * interface_plan
@@ -3203,7 +3225,7 @@ void transport_stack_set_usb_plan(
     }
 }
 
-void transport_stack_set_pairing(
+static void transport_stack_set_pairing_locked(
     bool pairing_active,
     uint8_t bt_link_type
 ) {
@@ -3274,7 +3296,7 @@ void transport_stack_set_pairing(
 #endif
 }
 
-bool transport_stack_request_reconnect(
+static bool transport_stack_request_reconnect_locked(
     const pair_device_id_t * device_id,
     uint8_t bt_link_type_hint,
     uint8_t bt_addr_type_hint
@@ -3477,7 +3499,7 @@ bool transport_stack_request_reconnect(
 #endif
 }
 
-bool transport_stack_forget_device(const pair_device_id_t * device_id) {
+static bool transport_stack_forget_device_locked(const pair_device_id_t * device_id) {
 #ifdef APP_HAS_BTSTACK
     bd_addr_t device_addr = {0};
     uint16_t hid_cid = 0U;
@@ -3550,7 +3572,12 @@ bool transport_stack_forget_device(const pair_device_id_t * device_id) {
 }
 
 uint8_t transport_stack_usb_interface_count(void) {
-    return hid_transport_runtime_usb_interface_count(&g_transport_runtime);
+    uint8_t interface_count = 0U;
+
+    transport_stack_lock();
+    interface_count = hid_transport_runtime_usb_interface_count(&g_transport_runtime);
+    transport_stack_unlock();
+    return interface_count;
 }
 
 static void transport_stack_descriptor_cache_store(
@@ -3583,7 +3610,7 @@ static void transport_stack_descriptor_cache_store(
     slot->valid = true;
 }
 
-const uint8_t * transport_stack_usb_report_descriptor(
+static const uint8_t * transport_stack_usb_report_descriptor_locked(
     uint8_t interface_number,
     uint16_t * out_len
 ) {
@@ -3737,20 +3764,31 @@ uint16_t transport_stack_usb_report_descriptor_len(uint8_t interface_number) {
 }
 
 uint8_t transport_stack_usb_protocol_mode(uint8_t interface_number) {
-    return hid_transport_runtime_usb_protocol_mode(&g_transport_runtime, interface_number);
+    uint8_t protocol_mode = 0U;
+
+    transport_stack_lock();
+    protocol_mode = hid_transport_runtime_usb_protocol_mode(&g_transport_runtime, interface_number);
+    transport_stack_unlock();
+    return protocol_mode;
 }
 
+/* Only used from entry points that already hold the stack lock. */
 static const uint8_t * transport_stack_runtime_report_descriptor(
     uint8_t interface_number,
     uint16_t * out_len,
     void * context
 ) {
     (void)context;
-    return transport_stack_usb_report_descriptor(interface_number, out_len);
+    return transport_stack_usb_report_descriptor_locked(interface_number, out_len);
 }
 
 bool transport_stack_take_event(hid_transport_event_t * out_event) {
-    return hid_transport_runtime_take_event(&g_transport_runtime, out_event);
+    bool taken = false;
+
+    transport_stack_lock();
+    taken = hid_transport_runtime_take_event(&g_transport_runtime, out_event);
+    transport_stack_unlock();
+    return taken;
 }
 
 void transport_stack_ingest_usb_report(
@@ -3758,6 +3796,7 @@ void transport_stack_ingest_usb_report(
     const uint8_t * report,
     uint16_t report_len
 ) {
+    transport_stack_lock();
     (void)hid_transport_runtime_ingest_usb_report(
         &g_transport_runtime,
         interface_number,
@@ -3766,9 +3805,10 @@ void transport_stack_ingest_usb_report(
         transport_stack_runtime_report_descriptor,
         NULL
     );
+    transport_stack_unlock();
 }
 
-bool transport_stack_send_usb_report(
+static bool transport_stack_send_usb_report_locked(
     uint8_t interface_number,
     const uint8_t * report,
     uint16_t report_len
@@ -3792,7 +3832,7 @@ bool transport_stack_send_usb_report(
     return usb_runtime_send_in_report(interface_number, remapped_report, remapped_report_len);
 }
 
-bool transport_stack_send_bt_report(
+static bool transport_stack_send_bt_report_locked(
     uint16_t hid_cid,
     uint8_t bt_link_type,
     uint8_t protocol_mode,
@@ -3869,7 +3909,7 @@ bool transport_stack_send_bt_report(
 #endif
 }
 
-bool transport_stack_state_get(transport_stack_state_t * out_state) {
+static bool transport_stack_state_get_locked(transport_stack_state_t * out_state) {
     hid_transport_runtime_queue_state_t queue_state = {0};
 
     if (out_state == NULL) {
@@ -3899,4 +3939,117 @@ bool transport_stack_state_get(transport_stack_state_t * out_state) {
     out_state->last_connect_status = 0U;
 #endif
     return true;
+}
+
+/*
+ * Public entry points. These run on the application thread while the
+ * Bluetooth stack executes on the platform's own context, so each one is a
+ * thin wrapper taking the recursive stack lock around its implementation
+ * (see transport_stack_lock at the top of this file).
+ */
+
+bool transport_stack_init(void) {
+    bool initialized = false;
+
+    transport_stack_lock();
+    initialized = transport_stack_init_locked();
+    transport_stack_unlock();
+    return initialized;
+}
+
+void transport_stack_set_usb_plan(
+    uint8_t interface_count,
+    uint32_t descriptor_generation,
+    const hid_transport_usb_interface_plan_t * interface_plan
+) {
+    transport_stack_lock();
+    transport_stack_set_usb_plan_locked(interface_count, descriptor_generation, interface_plan);
+    transport_stack_unlock();
+}
+
+void transport_stack_set_pairing(
+    bool pairing_active,
+    uint8_t bt_link_type
+) {
+    transport_stack_lock();
+    transport_stack_set_pairing_locked(pairing_active, bt_link_type);
+    transport_stack_unlock();
+}
+
+bool transport_stack_request_reconnect(
+    const pair_device_id_t * device_id,
+    uint8_t bt_link_type_hint,
+    uint8_t bt_addr_type_hint
+) {
+    bool requested = false;
+
+    transport_stack_lock();
+    requested =
+        transport_stack_request_reconnect_locked(device_id, bt_link_type_hint, bt_addr_type_hint);
+    transport_stack_unlock();
+    return requested;
+}
+
+bool transport_stack_forget_device(const pair_device_id_t * device_id) {
+    bool forgotten = false;
+
+    transport_stack_lock();
+    forgotten = transport_stack_forget_device_locked(device_id);
+    transport_stack_unlock();
+    return forgotten;
+}
+
+const uint8_t * transport_stack_usb_report_descriptor(
+    uint8_t interface_number,
+    uint16_t * out_len
+) {
+    const uint8_t * descriptor = NULL;
+
+    transport_stack_lock();
+    descriptor = transport_stack_usb_report_descriptor_locked(interface_number, out_len);
+    transport_stack_unlock();
+    return descriptor;
+}
+
+bool transport_stack_send_usb_report(
+    uint8_t interface_number,
+    const uint8_t * report,
+    uint16_t report_len
+) {
+    bool sent = false;
+
+    transport_stack_lock();
+    sent = transport_stack_send_usb_report_locked(interface_number, report, report_len);
+    transport_stack_unlock();
+    return sent;
+}
+
+bool transport_stack_send_bt_report(
+    uint16_t hid_cid,
+    uint8_t bt_link_type,
+    uint8_t protocol_mode,
+    const uint8_t * report,
+    uint16_t report_len
+) {
+    bool sent = false;
+
+    transport_stack_lock();
+    sent = transport_stack_send_bt_report_locked(
+        hid_cid,
+        bt_link_type,
+        protocol_mode,
+        report,
+        report_len
+    );
+    transport_stack_unlock();
+    return sent;
+}
+
+bool transport_stack_state_get(transport_stack_state_t * out_state) {
+    bool state_valid = false;
+
+    transport_stack_lock();
+    state_valid = transport_stack_state_get_locked(out_state);
+    transport_stack_unlock();
+    return state_valid;
 }

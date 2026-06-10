@@ -34,4 +34,25 @@ bool platform_bt_port_init(
     return *out_tlv_impl != NULL;
 }
 
+/*
+ * BTstack runs on the cyw43 async context, which on this platform executes
+ * in a background (IRQ-driven) context, not on the application thread. The
+ * async context lock is recursive and safe to take from its own callbacks.
+ */
+void platform_bt_port_lock(void) {
+    async_context_t * context = cyw43_arch_async_context();
+
+    if (context != NULL) {
+        async_context_acquire_lock_blocking(context);
+    }
+}
+
+void platform_bt_port_unlock(void) {
+    async_context_t * context = cyw43_arch_async_context();
+
+    if (context != NULL) {
+        async_context_release_lock(context);
+    }
+}
+
 #endif
