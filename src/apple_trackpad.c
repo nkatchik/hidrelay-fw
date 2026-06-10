@@ -49,8 +49,8 @@ enum {
  * resulting position step must not become a pointer jump.
  */
 enum {
-    APPLE_TRACKPAD_POINTER_DIV = 6,
-    APPLE_TRACKPAD_SCROLL_DIV = 24,
+    APPLE_TRACKPAD_POINTER_DIV = 4,
+    APPLE_TRACKPAD_SCROLL_DIV = 12,
     APPLE_TRACKPAD_MAX_FRAME_DELTA = 1200
 };
 
@@ -213,6 +213,24 @@ static const uint8_t k_apple_trackpad_mouse_descriptor[] = {
     0x30, /*     Usage (X)                       */
     0x09,
     0x31, /*     Usage (Y)                       */
+    /*
+     * Physical Min/Max, Unit and Unit Exponent are HID GLOBAL items: they
+     * persist across the whole descriptor, and this collection is appended
+     * after the trackpad's native one, which declares its +/-127 X/Y as
+     * +/-317 thousandths of an inch (~400 dpi). Inherited by our 16-bit
+     * range they declare a ~103000 dpi device, which the macOS pointer
+     * pipeline turns into wild constant-step cursor jumps. Reset all four
+     * to zero so the logical counts pass through 1:1 at the host's default
+     * pointer resolution.
+     */
+    0x35,
+    0x00, /*     Physical Minimum (0 = logical)  */
+    0x45,
+    0x00, /*     Physical Maximum (0 = logical)  */
+    0x65,
+    0x00, /*     Unit (None)                     */
+    0x55,
+    0x00, /*     Unit Exponent (0)               */
     0x16,
     0x01,
     0x80, /*     Logical Minimum (-32767)        */
@@ -227,6 +245,23 @@ static const uint8_t k_apple_trackpad_mouse_descriptor[] = {
     0x06, /*     Input (Data,Var,Rel)            */
     0x09,
     0x38, /*     Usage (Wheel)                   */
+    /*
+     * Deliberately re-declare the physical range and unit the trackpad's
+     * native collection uses for its pointer (+/-317 thousandths of an
+     * inch): wheel counts then read as ~400 per inch, which macOS treats
+     * as a high-resolution scroll device and scrolls smoothly instead of
+     * in coarse per-count line jumps. Applies to AC Pan below too.
+     */
+    0x36,
+    0xC3,
+    0xFE, /*     Physical Minimum (-317)         */
+    0x46,
+    0x3D,
+    0x01, /*     Physical Maximum (317)          */
+    0x65,
+    0x13, /*     Unit (Inch)                     */
+    0x55,
+    0x0D, /*     Unit Exponent (-3)              */
     0x15,
     0x81, /*     Logical Minimum (-127)          */
     0x25,

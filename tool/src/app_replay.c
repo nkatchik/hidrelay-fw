@@ -2240,17 +2240,17 @@ static bool app_replay_test_trackpad_pointer_motion(void) {
         )) {
         return false;
     }
-    /* 240 raw units / pointer divider 6 = 40 counts on both axes. */
+    /* 240 raw units / pointer divider 4 = 60 counts on both axes. */
     if (!app_replay_expect_u32_eq(
             (uint32_t)(uint16_t)(out.bytes[0][2] | (out.bytes[0][3] << 8U)),
-            40U,
+            60U,
             "x delta should be scaled raw motion"
         )) {
         return false;
     }
     return app_replay_expect_u32_eq(
         (uint32_t)(uint16_t)(out.bytes[0][4] | (out.bytes[0][5] << 8U)),
-        40U,
+        60U,
         "y delta should be scaled raw motion"
     );
 }
@@ -2273,7 +2273,7 @@ static bool app_replay_test_trackpad_two_finger_scroll(void) {
         return false;
     }
 
-    /* Both fingers move up 128 units: wheel +5 (traditional scroll-up). */
+    /* Both fingers move up 128 units: wheel +10 (traditional scroll-up). */
     touches[0].y = -128;
     touches[1].y = -128;
     frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
@@ -2287,7 +2287,7 @@ static bool app_replay_test_trackpad_two_finger_scroll(void) {
     if (!app_replay_expect_u32_eq(out.count, 1U, "scroll should emit one mouse report")) {
         return false;
     }
-    if (!app_replay_expect_u32_eq(out.bytes[0][6], 5U, "fingers up should be wheel +5")) {
+    if (!app_replay_expect_u32_eq(out.bytes[0][6], 10U, "fingers up should be wheel +10")) {
         return false;
     }
     if (!app_replay_expect_true(
