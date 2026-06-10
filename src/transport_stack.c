@@ -77,7 +77,9 @@ enum {
     TRANSPORT_STACK_HANG_BT_DEVICE_ID_SDP = 4U,
     TRANSPORT_STACK_HANG_BT_RECOGNITION = 5U,
     TRANSPORT_STACK_HANG_BT_MT_ENABLE_SEND = 6U,
-    TRANSPORT_STACK_HANG_BT_MT_ENABLE_DONE = 7U
+    TRANSPORT_STACK_HANG_BT_MT_ENABLE_DONE = 7U,
+    TRANSPORT_STACK_HANG_BT_RECOGNITION_DONE = 8U,
+    TRANSPORT_STACK_HANG_BT_SET_REPORT_RESPONSE = 9U
 };
 
 static bool transport_stack_push_event(const hid_transport_event_t * event) {
@@ -688,9 +690,14 @@ static bool transport_stack_classic_session_usb_id(
  * Send the pending multitouch-enable SET_REPORT for a recognized trackpad.
  * Failures (control channel busy, device still settling) retry on the next
  * poll tick until the device acks (HID_SUBEVENT_SET_REPORT_RESPONSE) or the
- * attempt budget runs out.
+ * attempt budget runs out. The hang markers are written only for the
+ * stack-context call (recognition); poll-context retries run on the main
+ * thread and must not pollute the stack-context breadcrumb.
  */
-static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t * session) {
+static void transport_stack_try_send_mt_enable(
+    transport_stack_classic_session_t * session,
+    bool from_stack_context
+) {
     uint8_t report_id = 0U;
 
     if ((session == NULL)
@@ -715,7 +722,9 @@ static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t
 
     session->mt_enable_attempts = (uint8_t)(session->mt_enable_attempts + 1U);
     session->mt_enable_next_attempt_ms = g_btstack_now_ms + TRANSPORT_STACK_MT_ENABLE_RETRY_MS;
-    platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_MT_ENABLE_SEND);
+    if (from_stack_context) {
+        platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_MT_ENABLE_SEND);
+    }
     (void)hid_host_send_set_report(
         session->hid_cid,
         HID_REPORT_TYPE_FEATURE,
@@ -723,7 +732,9 @@ static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t
         session->mt_enable_payload,
         session->mt_enable_payload_len
     );
-    platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_MT_ENABLE_DONE);
+    if (from_stack_context) {
+        platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_MT_ENABLE_DONE);
+    }
 }
 
 static uint8_t transport_stack_active_connection_count(void) {
@@ -2538,7 +2549,7 @@ static void transport_stack_device_id_sdp_handler(
                     session->mt_enable_pending = true;
                     session->mt_enable_attempts = 0U;
                     session->mt_enable_next_attempt_ms = g_btstack_now_ms;
-                    transport_stack_try_send_mt_enable(session);
+                    transport_stack_try_send_mt_enable(session, true);
                 }
 
                 /*
@@ -2570,6 +2581,7 @@ static void transport_stack_device_id_sdp_handler(
                     }
                     break;
                 }
+                platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_RECOGNITION_DONE);
             }
         } break;
         default:
@@ -2946,6 +2958,8 @@ static void transport_stack_packet_handler(
                             hid_subevent_set_report_response_get_hid_cid(packet)
                         );
 
+                    platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_SET_REPORT_RESPONSE);
+
                     if ((session != NULL)
                         && session->mt_enable_pending
                         && (hid_subevent_set_report_response_get_handshake_status(packet)
@@ -3206,7 +3220,7 @@ void transport_stack_poll(uint32_t now_ms) {
         transport_stack_try_start_le_hids_client();
         for (session_index = 0U; session_index < TRANSPORT_STACK_MAX_USB_INTERFACE;
             session_index++) {
-            transport_stack_try_send_mt_enable(&g_btstack_classic_session[session_index]);
+            transport_stack_try_send_mt_enable(&g_btstack_classic_session[session_index], false);
         }
 
         if (g_apple_trackpad_hid_cid != 0U) {

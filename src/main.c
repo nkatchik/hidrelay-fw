@@ -24,7 +24,11 @@ enum {
     MAIN_HANG_MARKER_APP_TICK = 3U,
     MAIN_HANG_MARKER_APPLY_OUTPUT = 4U,
     MAIN_HANG_MARKER_PAIR_STORE_SAVE = 5U,
-    MAIN_HANG_MARKER_LOOP_DONE = 6U
+    MAIN_HANG_MARKER_LOOP_DONE = 6U,
+    /* 7-8 written from transport_stack_poll. */
+    MAIN_HANG_MARKER_APPLY_TRANSPORT = 9U,
+    MAIN_HANG_MARKER_APPLY_LED = 10U,
+    MAIN_HANG_MARKER_APPLY_SLEEP = 11U
 };
 
 enum {
@@ -267,6 +271,7 @@ static void main_apply_output(const app_output_t * output) {
         return;
     }
 
+    platform_hang_checkpoint_main(MAIN_HANG_MARKER_APPLY_TRANSPORT);
     have_transport_state = transport_stack_state_get(&transport_state);
     sleep_us = output->sleep_us;
 
@@ -313,7 +318,11 @@ static void main_apply_output(const app_output_t * output) {
     }
     main_publish_diag(&diag);
 
+    /* The LED is a radio-chip GPIO: this write is a bus transaction to the
+     * same chip carrying Bluetooth, so it gets its own hang marker. */
+    platform_hang_checkpoint_main(MAIN_HANG_MARKER_APPLY_LED);
     platform_set_led(output->led_on);
+    platform_hang_checkpoint_main(MAIN_HANG_MARKER_APPLY_SLEEP);
 #if defined(APP_HAS_TINYUSB)
     if (sleep_us > USB_RUNTIME_MAX_POLL_SLEEP_US) {
         sleep_us = USB_RUNTIME_MAX_POLL_SLEEP_US;
