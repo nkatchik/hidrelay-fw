@@ -37,12 +37,21 @@ enum {
 
 /*
  * Sensor units are ~47 per millimeter on both families. The pointer divider
- * yields ~24 counts/mm (a ~600 dpi mouse, before host acceleration); the
- * scroll divider yields one wheel detent per ~1.4 mm of finger travel.
+ * yields ~8 counts/mm (a ~200 dpi mouse before host acceleration -- a full
+ * pad swipe crosses roughly one screen); the scroll divider yields one
+ * wheel detent per ~0.5 mm of finger travel. Hardware-tuned 2026-06-10:
+ * the original 2/64 pair made the pointer wildly fast next to a sluggish
+ * scroll.
+ *
+ * The per-frame delta limit rejects motion that is physically implausible
+ * within one ~11 ms frame (~2.3 m/s): the trackpad occasionally reuses a
+ * touch id for a brand-new contact with no lift frame in between, and the
+ * resulting position step must not become a pointer jump.
  */
 enum {
-    APPLE_TRACKPAD_POINTER_DIV = 2,
-    APPLE_TRACKPAD_SCROLL_DIV = 64
+    APPLE_TRACKPAD_POINTER_DIV = 6,
+    APPLE_TRACKPAD_SCROLL_DIV = 24,
+    APPLE_TRACKPAD_MAX_FRAME_DELTA = 1200
 };
 
 enum {
@@ -576,12 +585,21 @@ bool apple_trackpad_process_report(
     if (finger_count == state->finger_count) {
         for (i = 0U; i < record_count; i++) {
             const apple_trackpad_touch_t * prev = &state->touch[record[i].id];
+            int32_t delta_x = 0;
+            int32_t delta_y = 0;
 
             if (!record[i].down || !prev->valid || !prev->down) {
                 continue;
             }
-            sum_dx += (int32_t)record[i].x - (int32_t)prev->x;
-            sum_dy += (int32_t)record[i].y - (int32_t)prev->y;
+            delta_x = (int32_t)record[i].x - (int32_t)prev->x;
+            delta_y = (int32_t)record[i].y - (int32_t)prev->y;
+            if ((apple_trackpad_abs_i32(delta_x) > APPLE_TRACKPAD_MAX_FRAME_DELTA)
+                || (apple_trackpad_abs_i32(delta_y) > APPLE_TRACKPAD_MAX_FRAME_DELTA)) {
+                /* Touch id reused for a new contact, not finger motion. */
+                continue;
+            }
+            sum_dx += delta_x;
+            sum_dy += delta_y;
             matched = (uint8_t)(matched + 1U);
         }
     } else {
