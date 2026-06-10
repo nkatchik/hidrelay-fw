@@ -1522,6 +1522,15 @@ static void transport_stack_emit_bt_protocol_event(
     (void)transport_stack_push_event(&event);
 }
 
+/* Remap state for the connected Apple keyboard (single-device scope). */
+static apple_keyboard_state_t g_apple_keyboard_state = {0};
+/* Gesture-engine state for the connected Apple trackpad (single-device scope:
+ * one trackpad at a time; a second one would steal the engine). */
+static apple_trackpad_state_t g_apple_trackpad_state = {0};
+/* Connection feeding the trackpad engine; routes its time-driven output
+ * (deferred tap releases) from transport_stack_poll. 0 when none. */
+static uint16_t g_apple_trackpad_hid_cid = 0U;
+
 static void transport_stack_emit_classic_close_by_hid_cid(uint16_t hid_cid) {
     hid_transport_event_t event = {0};
 
@@ -1536,6 +1545,9 @@ static void transport_stack_emit_classic_close_by_hid_cid(uint16_t hid_cid) {
         g_btstack_device_id_query_deferred = false;
         g_btstack_device_id_deferred_hid_cid = 0U;
     }
+    if (g_apple_trackpad_hid_cid == hid_cid) {
+        g_apple_trackpad_hid_cid = 0U;
+    }
     transport_stack_forget_classic_session_by_hid_cid(hid_cid);
     (void)transport_stack_push_event(&event);
 }
@@ -1549,12 +1561,6 @@ static void transport_stack_emit_classic_close_event(uint8_t * packet) {
         hid_subevent_connection_closed_get_hid_cid(packet)
     );
 }
-
-/* Remap state for the connected Apple keyboard (single-device scope). */
-static apple_keyboard_state_t g_apple_keyboard_state = {0};
-/* Gesture-engine state for the connected Apple trackpad (single-device scope:
- * one trackpad at a time; a second one would steal the engine). */
-static apple_trackpad_state_t g_apple_trackpad_state = {0};
 
 static void transport_stack_push_classic_report(
     uint16_t hid_cid,
@@ -1650,6 +1656,7 @@ static void transport_stack_emit_classic_report_event(uint8_t * packet) {
             )) {
             uint8_t out_index = 0U;
 
+            g_apple_trackpad_hid_cid = hid_cid;
             for (out_index = 0U; out_index < trackpad_out.count; out_index++) {
                 transport_stack_push_classic_report(
                     hid_cid,
@@ -3131,6 +3138,20 @@ void transport_stack_poll(uint32_t now_ms) {
         for (session_index = 0U; session_index < TRANSPORT_STACK_MAX_USB_INTERFACE;
             session_index++) {
             transport_stack_try_send_mt_enable(&g_btstack_classic_session[session_index]);
+        }
+
+        if (g_apple_trackpad_hid_cid != 0U) {
+            apple_trackpad_out_t trackpad_out = {0};
+            uint8_t out_index = 0U;
+
+            apple_trackpad_tick(&g_apple_trackpad_state, now_ms, &trackpad_out);
+            for (out_index = 0U; out_index < trackpad_out.count; out_index++) {
+                transport_stack_push_classic_report(
+                    g_apple_trackpad_hid_cid,
+                    trackpad_out.bytes[out_index],
+                    trackpad_out.len[out_index]
+                );
+            }
         }
     }
 #endif

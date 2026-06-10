@@ -93,6 +93,17 @@ typedef struct {
     int32_t move_rem_y;
     int32_t scroll_rem_x;
     int32_t scroll_rem_y;
+    /* Tap/click synthesis. A touch episode runs from first finger down to
+     * last finger up; short, still, click-free episodes become taps. */
+    bool touch_active;
+    uint32_t touch_started_ms;
+    uint8_t episode_max_fingers;
+    bool episode_moved;
+    bool episode_clicked;
+    int32_t episode_travel;
+    uint8_t click_buttons; /* mapping latched while the physical button is down */
+    uint8_t pending_release_buttons; /* tap pulse awaiting its timed release */
+    uint32_t tap_release_deadline_ms;
 } apple_trackpad_state_t;
 
 void apple_trackpad_state_init(

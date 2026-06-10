@@ -2335,6 +2335,165 @@ static bool app_replay_test_trackpad_click_and_passthrough(void) {
     return app_replay_expect_u32_eq(out.bytes[0][1], 0U, "release should clear button 1");
 }
 
+static bool app_replay_test_trackpad_tap_to_click(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touch = {.x = 0, .y = 0, .touch_id = 0U, .down = true};
+
+    apple_trackpad_state_init(&state, 0x0265U);
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+
+    /* All fingers up after 100 ms with no movement: tap press is emitted. */
+    frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 100U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "tap liftoff should emit the click press")) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(out.bytes[0][1], 1U, "single-finger tap should press button 1")) {
+        return false;
+    }
+
+    /* Release is timed: nothing before the pulse deadline, release after. */
+    out.count = 0U;
+    apple_trackpad_tick(&state, 110U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 0U, "tap release should wait for the pulse")) {
+        return false;
+    }
+    out.count = 0U;
+    apple_trackpad_tick(&state, 140U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "tap release should fire after the pulse")) {
+        return false;
+    }
+    return app_replay_expect_u32_eq(out.bytes[0][1], 0U, "tap release should clear the button");
+}
+
+static bool app_replay_test_trackpad_multi_finger_taps(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touches[3] = {
+        {.x = 0, .y = 0, .touch_id = 0U, .down = true},
+        {.x = 500, .y = 0, .touch_id = 1U, .down = true},
+        {.x = 1000, .y = 0, .touch_id = 2U, .down = true},
+    };
+
+    /* Two-finger tap = right click. */
+    apple_trackpad_state_init(&state, 0x0265U);
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+    frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 100U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "two-finger tap should emit a press")) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(out.bytes[0][1], 2U, "two-finger tap should press button 2")) {
+        return false;
+    }
+    out.count = 0U;
+    apple_trackpad_tick(&state, 200U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "two-finger tap should release by time")) {
+        return false;
+    }
+
+    /* Three-finger tap = middle click. */
+    apple_trackpad_state_init(&state, 0x0265U);
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 3U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+    frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 100U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "three-finger tap should emit a press")) {
+        return false;
+    }
+    return app_replay_expect_u32_eq(out.bytes[0][1], 4U, "three-finger tap should press button 3");
+}
+
+static bool app_replay_test_trackpad_tap_suppression(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touch = {.x = 0, .y = 0, .touch_id = 0U, .down = true};
+
+    /* A touch that moved is not a tap. */
+    apple_trackpad_state_init(&state, 0x0265U);
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+    touch.x = 400;
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 50U, &out);
+    frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 100U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 0U, "moved touch should not click")) {
+        return false;
+    }
+
+    /* A touch that stayed down too long is not a tap. */
+    apple_trackpad_state_init(&state, 0x0265U);
+    touch.x = 0;
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+    frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 400U, &out);
+    return app_replay_expect_u32_eq(out.count, 0U, "slow touch should not click");
+}
+
+static bool app_replay_test_trackpad_multi_finger_physical_click(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touches[2] = {
+        {.x = 0, .y = 0, .touch_id = 0U, .down = true},
+        {.x = 500, .y = 0, .touch_id = 1U, .down = true},
+    };
+
+    apple_trackpad_state_init(&state, 0x0265U);
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+
+    frame_len = app_replay_trackpad_frame(frame, 1U, touches, 2U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 10U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "two-finger click should emit a report")) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(
+            out.bytes[0][1],
+            2U,
+            "two-finger physical click should press button 2"
+        )) {
+        return false;
+    }
+
+    /* Lifting a finger mid-press must not morph the held button. */
+    touches[1].down = false;
+    frame_len = app_replay_trackpad_frame(frame, 1U, touches, 2U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 20U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 0U, "held click should not re-report")) {
+        return false;
+    }
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 30U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "click release should emit a report")) {
+        return false;
+    }
+    return app_replay_expect_u32_eq(out.bytes[0][1], 0U, "click release should clear buttons");
+}
+
 static bool app_replay_test_trackpad_descriptor_augment(void) {
     const uint8_t base[5] = {0x05U, 0x01U, 0x09U, 0x02U, 0xC0U};
     uint8_t out_buf[512] = {0};
@@ -2456,6 +2615,11 @@ int main(void) {
         {.name = "trackpad_click_and_passthrough",
             .fn = app_replay_test_trackpad_click_and_passthrough},
         {.name = "trackpad_descriptor_augment", .fn = app_replay_test_trackpad_descriptor_augment},
+        {.name = "trackpad_tap_to_click", .fn = app_replay_test_trackpad_tap_to_click},
+        {.name = "trackpad_multi_finger_taps", .fn = app_replay_test_trackpad_multi_finger_taps},
+        {.name = "trackpad_tap_suppression", .fn = app_replay_test_trackpad_tap_suppression},
+        {.name = "trackpad_multi_finger_physical_click",
+            .fn = app_replay_test_trackpad_multi_finger_physical_click},
     };
     const size_t test_count = sizeof(test_cases) / sizeof(test_cases[0]);
     size_t index = 0U;

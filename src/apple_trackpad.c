@@ -44,6 +44,24 @@ enum {
     APPLE_TRACKPAD_SCROLL_DIV = 64
 };
 
+enum {
+    APPLE_TRACKPAD_BUTTON_LEFT = 0x01U,
+    APPLE_TRACKPAD_BUTTON_RIGHT = 0x02U,
+    APPLE_TRACKPAD_BUTTON_MIDDLE = 0x04U
+};
+
+/*
+ * Tap thresholds: a touch episode becomes a tap when every finger lifts
+ * within the time limit, total travel stayed under ~2 mm, and the physical
+ * button was never pressed. The synthesized click is released by time
+ * (apple_trackpad_tick) since no input frames arrive after liftoff.
+ */
+enum {
+    APPLE_TRACKPAD_TAP_MAX_MS = 250,
+    APPLE_TRACKPAD_TAP_TRAVEL_LIMIT = 100,
+    APPLE_TRACKPAD_TAP_PULSE_MS = 30
+};
+
 static uint8_t apple_trackpad_family_for_pid(uint16_t product_id) {
     switch (product_id) {
         case 0x030EU: /* Magic Trackpad (A1339) */
@@ -337,6 +355,37 @@ static void apple_trackpad_emit_mouse(
     state->buttons = buttons;
 }
 
+static int32_t apple_trackpad_abs_i32(int32_t value) {
+    return (value < 0) ? -value : value;
+}
+
+/* One finger taps/clicks left, two right, three or more middle. */
+static uint8_t apple_trackpad_buttons_for_fingers(uint8_t fingers) {
+    if (fingers >= 3U) {
+        return APPLE_TRACKPAD_BUTTON_MIDDLE;
+    }
+    if (fingers == 2U) {
+        return APPLE_TRACKPAD_BUTTON_RIGHT;
+    }
+    return APPLE_TRACKPAD_BUTTON_LEFT;
+}
+
+static void apple_trackpad_flush_tap_release(
+    apple_trackpad_state_t * state,
+    uint32_t now_ms,
+    apple_trackpad_out_t * out,
+    bool force
+) {
+    if (state->pending_release_buttons == 0U) {
+        return;
+    }
+    if (!force && ((int32_t)(now_ms - state->tap_release_deadline_ms) < 0)) {
+        return;
+    }
+    state->pending_release_buttons = 0U;
+    apple_trackpad_emit_mouse(state, out, 0U, 0, 0, 0, 0);
+}
+
 bool apple_trackpad_process_report(
     apple_trackpad_state_t * state,
     const uint8_t * report,
@@ -357,8 +406,6 @@ bool apple_trackpad_process_report(
     int32_t wheel = 0;
     int32_t pan = 0;
     uint8_t i = 0U;
-
-    (void)now_ms;
 
     if ((state == NULL) || !state->initialized || (report == NULL) || (out == NULL)) {
         return false;
@@ -389,7 +436,23 @@ bool apple_trackpad_process_report(
         }
     }
 
-    buttons = (uint8_t)(report[APPLE_TRACKPAD_BUTTON_BYTE] & 0x01U);
+    /* A tap pulse still in flight is released before this frame's output so
+     * a quick follow-up touch cannot leave the synthesized button stuck. */
+    apple_trackpad_flush_tap_release(state, now_ms, out, finger_count > 0U);
+
+    /*
+     * Physical click, mapped by resting finger count (one = left, two =
+     * right, three = middle) and latched for the whole press so lifting a
+     * finger mid-press cannot morph the button.
+     */
+    if ((report[APPLE_TRACKPAD_BUTTON_BYTE] & 0x01U) != 0U) {
+        if (state->click_buttons == 0U) {
+            state->click_buttons = apple_trackpad_buttons_for_fingers(finger_count);
+        }
+        buttons = state->click_buttons;
+    } else {
+        state->click_buttons = 0U;
+    }
 
     /*
      * Motion is only accumulated while the finger count is stable; the frame
@@ -412,6 +475,28 @@ bool apple_trackpad_process_report(
         state->move_rem_y = 0;
         state->scroll_rem_x = 0;
         state->scroll_rem_y = 0;
+    }
+
+    /* Touch-episode bookkeeping for tap detection. */
+    if ((finger_count > 0U) && !state->touch_active) {
+        state->touch_active = true;
+        state->touch_started_ms = now_ms;
+        state->episode_max_fingers = finger_count;
+        state->episode_moved = false;
+        state->episode_clicked = false;
+        state->episode_travel = 0;
+    } else if (finger_count > state->episode_max_fingers) {
+        state->episode_max_fingers = finger_count;
+    }
+    if (buttons != 0U) {
+        state->episode_clicked = true;
+    }
+    if (matched > 0U) {
+        state->episode_travel +=
+            (apple_trackpad_abs_i32(sum_dx) + apple_trackpad_abs_i32(sum_dy)) / (int32_t)matched;
+        if (state->episode_travel > APPLE_TRACKPAD_TAP_TRAVEL_LIMIT) {
+            state->episode_moved = true;
+        }
     }
 
     if ((finger_count == 1U) && (matched == 1U)) {
@@ -438,6 +523,24 @@ bool apple_trackpad_process_report(
 
     apple_trackpad_emit_mouse(state, out, buttons, dx, dy, wheel, pan);
 
+    /*
+     * Episode end: a short, still, click-free touch becomes a tap. The press
+     * is emitted now; the release is timed (apple_trackpad_tick) because the
+     * trackpad stops sending frames once all fingers are up.
+     */
+    if ((finger_count == 0U) && state->touch_active) {
+        state->touch_active = false;
+        if (!state->episode_moved
+            && !state->episode_clicked
+            && ((uint32_t)(now_ms - state->touch_started_ms) <= APPLE_TRACKPAD_TAP_MAX_MS)) {
+            const uint8_t pulse = apple_trackpad_buttons_for_fingers(state->episode_max_fingers);
+
+            apple_trackpad_emit_mouse(state, out, pulse, 0, 0, 0, 0);
+            state->pending_release_buttons = pulse;
+            state->tap_release_deadline_ms = now_ms + APPLE_TRACKPAD_TAP_PULSE_MS;
+        }
+    }
+
     /* Replace the touch table with this frame's view. */
     (void)memset(state->touch, 0, sizeof(state->touch));
     for (i = 0U; i < record_count; i++) {
@@ -458,8 +561,8 @@ void apple_trackpad_tick(
     uint32_t now_ms,
     apple_trackpad_out_t * out
 ) {
-    /* No time-driven output yet (tap handling arrives with tap-to-click). */
-    (void)state;
-    (void)now_ms;
-    (void)out;
+    if ((state == NULL) || !state->initialized || (out == NULL)) {
+        return;
+    }
+    apple_trackpad_flush_tap_release(state, now_ms, out, false);
 }
