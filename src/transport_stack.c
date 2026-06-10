@@ -63,8 +63,15 @@ enum {
     TRANSPORT_STACK_LE_SCAN_WINDOW = 48U,
     TRANSPORT_STACK_LE_CONN_SCAN_INTERVAL = 48U,
     TRANSPORT_STACK_LE_CONN_SCAN_WINDOW = 48U,
-    TRANSPORT_STACK_LE_CONN_INTERVAL_MIN = 9U,
-    TRANSPORT_STACK_LE_CONN_INTERVAL_MAX = 12U,
+    /*
+     * 7.5ms (6 x 1.25ms) is the spec minimum connection interval. The interval
+     * bounds every keystroke's radio latency (average = interval/2), so bias
+     * the link as low as the peripheral will schedule; a peripheral that wants
+     * a slower cadence for battery life can request relaxed parameters and the
+     * central honors it.
+     */
+    TRANSPORT_STACK_LE_CONN_INTERVAL_MIN = 6U,
+    TRANSPORT_STACK_LE_CONN_INTERVAL_MAX = 9U,
     TRANSPORT_STACK_LE_CONN_LATENCY = 0U,
     TRANSPORT_STACK_LE_CONN_SUPERVISION_TIMEOUT = 40U,
     TRANSPORT_STACK_LE_CONN_CE_LENGTH_MIN = 0U,
@@ -785,10 +792,14 @@ static void transport_stack_request_le_low_latency_params(transport_stack_le_ses
     }
 
     /*
-     * Best-effort latency reduction: peripherals may reject or ignore this
-     * request, in which case the existing negotiated parameters remain active.
+     * Central-initiated HCI LE Connection Update. The previous
+     * gap_request_connection_parameter_update() here is the peripheral-role
+     * API (it sends an L2CAP parameter update REQUEST to the central) -- from
+     * our central role it never changed anything. Best-effort: the peripheral
+     * can still request relaxed parameters afterwards and the central honors
+     * that, so this only biases the link toward low latency.
      */
-    (void)gap_request_connection_parameter_update(
+    (void)gap_update_connection_parameters(
         session->con_handle,
         TRANSPORT_STACK_LE_CONN_INTERVAL_MIN,
         TRANSPORT_STACK_LE_CONN_INTERVAL_MAX,
