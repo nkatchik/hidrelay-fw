@@ -11,6 +11,11 @@ endif()
 
 include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
+# Route every SDK panic() through the platform's handler so a hang report can
+# record WHICH panic fired (the cyw43 Bluetooth drivers panic on shared-bus
+# faults). Directory-wide so the SDK's own panic.c picks it up.
+add_compile_definitions(PICO_PANIC_FUNCTION=pico_w_panic)
+
 pico_sdk_init()
 
 add_executable(hidrelay_fw

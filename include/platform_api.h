@@ -32,9 +32,16 @@ void platform_watchdog_enable(void);
 void platform_watchdog_feed(void);
 void platform_hang_checkpoint_bt(uint8_t marker);
 void platform_hang_checkpoint_main(uint8_t marker);
+/*
+ * out_panic_class: 0 = no panic recorded (the wedge was a loop or deadlock,
+ * not a panic); platform-specific nonzero classes otherwise (on pico_w:
+ * 1 = radio shared-bus RX overflow panic, 2 = its register-corruption
+ * panic, 3 = any other panic).
+ */
 bool platform_take_hang_report(
     uint8_t * out_bt_marker,
-    uint8_t * out_main_marker
+    uint8_t * out_main_marker,
+    uint8_t * out_panic_class
 );
 
 /*

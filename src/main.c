@@ -69,16 +69,18 @@ static void main_hang_blink_group(uint8_t blink_count) {
 }
 
 /*
- * After a watchdog recovery from a firmware hang, blink the two frozen
- * checkpoint markers before normal startup: first group = Bluetooth-context
- * marker + 1, gap, second group = main-thread marker + 1 (so a marker of 0
- * still produces one blink). Localizes the wedge without any tooling.
+ * After a watchdog recovery from a firmware hang, blink three groups before
+ * normal startup: Bluetooth-context marker + 1, main-thread marker + 1, and
+ * panic class + 1 (so zero values still produce one blink). The panic group
+ * separates "an SDK panic fired" (and which one) from a pure loop or
+ * deadlock. Localizes the wedge without any tooling.
  */
 static void main_report_hang_if_any(void) {
     uint8_t bt_marker = 0U;
     uint8_t main_marker = 0U;
+    uint8_t panic_class = 0U;
 
-    if (!platform_take_hang_report(&bt_marker, &main_marker)) {
+    if (!platform_take_hang_report(&bt_marker, &main_marker, &panic_class)) {
         return;
     }
 
@@ -86,6 +88,8 @@ static void main_report_hang_if_any(void) {
     main_hang_blink_group((uint8_t)(bt_marker + 1U));
     main_hang_blink_delay_ms(MAIN_HANG_BLINK_GROUP_GAP_MS);
     main_hang_blink_group((uint8_t)(main_marker + 1U));
+    main_hang_blink_delay_ms(MAIN_HANG_BLINK_GROUP_GAP_MS);
+    main_hang_blink_group((uint8_t)(panic_class + 1U));
     main_hang_blink_delay_ms(MAIN_HANG_BLINK_GROUP_GAP_MS);
 }
 

@@ -1,5 +1,7 @@
 #include <stddef.h>
+#include <string.h>
 
+#include "hardware/sync.h"
 #include "hardware/watchdog.h"
 #include "pico/stdlib.h"
 #include "platform_api.h"
@@ -22,17 +24,51 @@ static pico_w_state_t g_state = {
  * (watchdog_reboot/reset paths) overwrite the SDK magic on their own.
  */
 enum {
+    PICO_W_HANG_SCRATCH_PANIC = 0U,
     PICO_W_HANG_SCRATCH_BT = 2U,
     PICO_W_HANG_SCRATCH_MAIN = 3U,
     PICO_W_SDK_SCRATCH_REBOOT_MAGIC = 4U,
     PICO_W_WATCHDOG_TIMEOUT_MS = 5000U
 };
 
+/* "PAN" tag + class in the low byte (see pico_w_panic). */
+#define PICO_W_PANIC_CODE_BASE 0x50414E00U
+#define PICO_W_PANIC_CODE_MASK 0xFFFFFF00U
+
+/*
+ * All SDK panic() calls land here (PICO_PANIC_FUNCTION). Record which panic
+ * fired in a scratch register that survives the watchdog reset, then spin
+ * until the hang watchdog reboots the firmware; the boot-time hang report
+ * blinks the class out. Class 1 = the cyw43 BT shared-bus RX overflow
+ * panic, 2 = its register-corruption panic, 3 = any other panic.
+ */
+void __attribute__((noreturn)) pico_w_panic(
+    const char * fmt,
+    ...
+) {
+    uint32_t panic_class = 3U;
+
+    if (fmt != NULL) {
+        if (strstr(fmt, "buffer overflow") != NULL) {
+            panic_class = 1U;
+        } else if (strstr(fmt, "register corruption") != NULL) {
+            panic_class = 2U;
+        }
+    }
+    watchdog_hw->scratch[PICO_W_HANG_SCRATCH_PANIC] = PICO_W_PANIC_CODE_BASE | panic_class;
+
+    (void)save_and_disable_interrupts();
+    for (;;) {
+        tight_loop_contents();
+    }
+}
+
 static bool platform_ready(void) {
     return pico_w_state_is_initialized(&g_state);
 }
 
 void platform_watchdog_enable(void) {
+    watchdog_hw->scratch[PICO_W_HANG_SCRATCH_PANIC] = 0U;
     watchdog_hw->scratch[PICO_W_HANG_SCRATCH_BT] = 0U;
     watchdog_hw->scratch[PICO_W_HANG_SCRATCH_MAIN] = 0U;
     watchdog_enable(PICO_W_WATCHDOG_TIMEOUT_MS, true);
@@ -52,7 +88,8 @@ void platform_hang_checkpoint_main(uint8_t marker) {
 
 bool platform_take_hang_report(
     uint8_t * out_bt_marker,
-    uint8_t * out_main_marker
+    uint8_t * out_main_marker,
+    uint8_t * out_panic_class
 ) {
     if (!watchdog_enable_caused_reboot()) {
         return false;
@@ -63,6 +100,13 @@ bool platform_take_hang_report(
     }
     if (out_main_marker != NULL) {
         *out_main_marker = (uint8_t)watchdog_hw->scratch[PICO_W_HANG_SCRATCH_MAIN];
+    }
+    if (out_panic_class != NULL) {
+        const uint32_t panic_code = watchdog_hw->scratch[PICO_W_HANG_SCRATCH_PANIC];
+
+        *out_panic_class = ((panic_code & PICO_W_PANIC_CODE_MASK) == PICO_W_PANIC_CODE_BASE)
+            ? (uint8_t)(panic_code & 0xFFU)
+            : 0U;
     }
     watchdog_hw->scratch[PICO_W_SDK_SCRATCH_REBOOT_MAGIC] = 0U;
     return true;
