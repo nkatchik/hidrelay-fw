@@ -13,6 +13,18 @@ enum {
     MAIN_PAIR_DB_SAVE_MAX_STALE_MS = 15000U,
     MAIN_PAIR_DB_SAVE_RETRY_MS = 5000U,
     MAIN_DIAG_EMIT_INTERVAL_MS = 50U,
+    /*
+     * Flash writes stall the core with IRQs masked for tens to hundreds of
+     * milliseconds, during which nothing drains the radio's 4 KB
+     * radio-to-host buffer. A device streaming input (a trackpad in use)
+     * can overflow it in that blackout, and the SDK's shared-bus driver
+     * panics on overflow ("cyw43 buffer overflow") -- the
+     * trackpad-connection freeze. Saves therefore wait for a quiet window
+     * with no recent Bluetooth input; the hard cap keeps persistence from
+     * being deferred forever under continuous streaming.
+     */
+    MAIN_PAIR_DB_SAVE_BT_QUIET_MS = 400U,
+    MAIN_PAIR_DB_SAVE_QUIET_WAIT_CAP_MS = 30000U,
 };
 
 /* Main-thread hang-checkpoint markers (see platform_hang_checkpoint_main).
@@ -362,6 +374,9 @@ int main(void) {
         g_persisted_pair_db = g_initial_pair_db;
     }
 
+    uint32_t last_bt_report_ms = 0U;
+    bool bt_report_seen = false;
+
     for (;;) {
         app_input_t app_input = {0};
         bool pair_db_changed = false;
@@ -379,6 +394,11 @@ int main(void) {
 
         if (!transport_stack_take_event(&app_input.transport_event)) {
             app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
+        }
+
+        if (app_input.transport_event.type == HID_TRANSPORT_EVENT_BT_HID_REPORT) {
+            last_bt_report_ms = app_input.now_ms;
+            bt_report_seen = true;
         }
 
         platform_hang_checkpoint_main(MAIN_HANG_MARKER_APP_TICK);
@@ -414,8 +434,21 @@ int main(void) {
                                            MAIN_PAIR_DB_SAVE_RETRY_MS
                                        )
                 || (pair_db_last_save_attempt_ms == 0U);
+            const bool bt_quiet = !bt_report_seen
+                || main_time_elapsed(
+                    app_input.now_ms,
+                    last_bt_report_ms,
+                    MAIN_PAIR_DB_SAVE_BT_QUIET_MS
+                );
+            const bool quiet_wait_capped = main_time_elapsed(
+                app_input.now_ms,
+                pair_db_pending_since_ms,
+                MAIN_PAIR_DB_SAVE_QUIET_WAIT_CAP_MS
+            );
 
-            if ((debounce_elapsed || max_stale_elapsed) && retry_elapsed) {
+            if ((debounce_elapsed || max_stale_elapsed)
+                && retry_elapsed
+                && (bt_quiet || quiet_wait_capped)) {
                 pair_db_last_save_attempt_ms = app_input.now_ms;
 
                 platform_hang_checkpoint_main(MAIN_HANG_MARKER_PAIR_STORE_SAVE);
