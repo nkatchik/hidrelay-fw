@@ -1,0 +1,465 @@
+#include "apple_trackpad.h"
+
+#include <stddef.h>
+#include <string.h>
+
+/* USB-form Apple vendor ID used to recognize Apple trackpads. */
+#define APPLE_TRACKPAD_USB_VENDOR_ID 0x05ACU
+
+/*
+ * Decode families. Magic Trackpad 2 and the USB-C Magic Trackpad share the
+ * second-generation frame layout; the original Magic Trackpad (A1339) uses
+ * the first-generation one.
+ */
+enum {
+    APPLE_TRACKPAD_FAMILY_NONE = 0U,
+    APPLE_TRACKPAD_FAMILY_MT1 = 1U, /* A1339 (PID 0x030E) */
+    APPLE_TRACKPAD_FAMILY_MT2 = 2U /* A1535 (0x0265), USB-C (0x0324) */
+};
+
+/*
+ * Vendor multitouch frame layout (both families): report ID, 4-byte prefix
+ * whose byte 1 bit 0 is the physical button, then 9 bytes per touch.
+ */
+enum {
+    APPLE_TRACKPAD_MT1_REPORT_ID = 0x28U,
+    APPLE_TRACKPAD_MT2_REPORT_ID = 0x31U,
+    APPLE_TRACKPAD_FRAME_PREFIX_LEN = 4U,
+    APPLE_TRACKPAD_TOUCH_RECORD_LEN = 9U,
+    APPLE_TRACKPAD_BUTTON_BYTE = 1U,
+    /* MT2 per-touch state lives in record byte 3 bits 6-7; 0x80 = touching. */
+    APPLE_TRACKPAD_MT2_STATE_MASK = 0xC0U,
+    APPLE_TRACKPAD_MT2_STATE_DOWN = 0x80U,
+    /* MT1 per-touch state lives in record byte 8 bits 4-7; 0 = lifted. */
+    APPLE_TRACKPAD_MT1_STATE_MASK = 0xF0U
+};
+
+/*
+ * Sensor units are ~47 per millimeter on both families. The pointer divider
+ * yields ~24 counts/mm (a ~600 dpi mouse, before host acceleration); the
+ * scroll divider yields one wheel detent per ~1.4 mm of finger travel.
+ */
+enum {
+    APPLE_TRACKPAD_POINTER_DIV = 2,
+    APPLE_TRACKPAD_SCROLL_DIV = 64
+};
+
+static uint8_t apple_trackpad_family_for_pid(uint16_t product_id) {
+    switch (product_id) {
+        case 0x030EU: /* Magic Trackpad (A1339) */
+            return APPLE_TRACKPAD_FAMILY_MT1;
+        case 0x0265U: /* Magic Trackpad 2 (A1535) */
+        case 0x0324U: /* Magic Trackpad USB-C (2024) */
+            return APPLE_TRACKPAD_FAMILY_MT2;
+        default:
+            return APPLE_TRACKPAD_FAMILY_NONE;
+    }
+}
+
+bool apple_trackpad_is_supported(
+    uint16_t vendor_id,
+    uint16_t product_id
+) {
+    return (vendor_id == APPLE_TRACKPAD_USB_VENDOR_ID)
+        && (apple_trackpad_family_for_pid(product_id) != APPLE_TRACKPAD_FAMILY_NONE);
+}
+
+bool apple_trackpad_mt_enable_report(
+    uint16_t product_id,
+    uint8_t * out_report_id,
+    uint8_t out_payload[4],
+    uint8_t * out_payload_len
+) {
+    if ((out_report_id == NULL) || (out_payload == NULL) || (out_payload_len == NULL)) {
+        return false;
+    }
+
+    switch (apple_trackpad_family_for_pid(product_id)) {
+        case APPLE_TRACKPAD_FAMILY_MT1:
+            /* Feature report 0xD7 = 0x01. */
+            *out_report_id = 0xD7U;
+            out_payload[0] = 0x01U;
+            *out_payload_len = 1U;
+            return true;
+        case APPLE_TRACKPAD_FAMILY_MT2:
+            /* Feature report 0xF1 = 0x02 0x01 (Bluetooth transport form). */
+            *out_report_id = 0xF1U;
+            out_payload[0] = 0x02U;
+            out_payload[1] = 0x01U;
+            *out_payload_len = 2U;
+            return true;
+        default:
+            return false;
+    }
+}
+
+/*
+ * Mouse collection appended to the trackpad's report descriptor. Everything
+ * the gesture engine emits in its mouse report must be declared here: three
+ * buttons, 16-bit relative X/Y, vertical wheel, and horizontal AC Pan.
+ */
+static const uint8_t k_apple_trackpad_mouse_descriptor[] = {
+    0x05,
+    0x01, /* Usage Page (Generic Desktop)        */
+    0x09,
+    0x02, /* Usage (Mouse)                       */
+    0xA1,
+    0x01, /* Collection (Application)            */
+    0x85,
+    APPLE_TRACKPAD_MOUSE_REPORT_ID, /* Report ID (0xB1)  */
+    0x09,
+    0x01, /*   Usage (Pointer)                   */
+    0xA1,
+    0x00, /*   Collection (Physical)             */
+    0x05,
+    0x09, /*     Usage Page (Button)             */
+    0x19,
+    0x01, /*     Usage Minimum (1)               */
+    0x29,
+    0x03, /*     Usage Maximum (3)               */
+    0x15,
+    0x00, /*     Logical Minimum (0)             */
+    0x25,
+    0x01, /*     Logical Maximum (1)             */
+    0x75,
+    0x01, /*     Report Size (1)                 */
+    0x95,
+    0x03, /*     Report Count (3)                */
+    0x81,
+    0x02, /*     Input (Data,Var,Abs)            */
+    0x75,
+    0x05, /*     Report Size (5)                 */
+    0x95,
+    0x01, /*     Report Count (1)    pad         */
+    0x81,
+    0x03, /*     Input (Const,Var,Abs)           */
+    0x05,
+    0x01, /*     Usage Page (Generic Desktop)    */
+    0x09,
+    0x30, /*     Usage (X)                       */
+    0x09,
+    0x31, /*     Usage (Y)                       */
+    0x16,
+    0x01,
+    0x80, /*     Logical Minimum (-32767)        */
+    0x26,
+    0xFF,
+    0x7F, /*     Logical Maximum (32767)         */
+    0x75,
+    0x10, /*     Report Size (16)                */
+    0x95,
+    0x02, /*     Report Count (2)                */
+    0x81,
+    0x06, /*     Input (Data,Var,Rel)            */
+    0x09,
+    0x38, /*     Usage (Wheel)                   */
+    0x15,
+    0x81, /*     Logical Minimum (-127)          */
+    0x25,
+    0x7F, /*     Logical Maximum (127)           */
+    0x75,
+    0x08, /*     Report Size (8)                 */
+    0x95,
+    0x01, /*     Report Count (1)                */
+    0x81,
+    0x06, /*     Input (Data,Var,Rel)            */
+    0x05,
+    0x0C, /*     Usage Page (Consumer)           */
+    0x0A,
+    0x38,
+    0x02, /*     Usage (AC Pan)                  */
+    0x15,
+    0x81, /*     Logical Minimum (-127)          */
+    0x25,
+    0x7F, /*     Logical Maximum (127)           */
+    0x75,
+    0x08, /*     Report Size (8)                 */
+    0x95,
+    0x01, /*     Report Count (1)                */
+    0x81,
+    0x06, /*     Input (Data,Var,Rel)            */
+    0xC0, /*   End Collection                    */
+    0xC0 /* End Collection                      */
+};
+
+uint16_t apple_trackpad_augment_descriptor(
+    uint16_t product_id,
+    const uint8_t * base_descriptor,
+    uint16_t base_len,
+    uint8_t * out_buf,
+    uint16_t out_cap
+) {
+    const uint16_t aux_len = (uint16_t)sizeof(k_apple_trackpad_mouse_descriptor);
+    uint16_t total = 0U;
+
+    if ((base_descriptor == NULL) || (out_buf == NULL)) {
+        return 0U;
+    }
+    if (apple_trackpad_family_for_pid(product_id) == APPLE_TRACKPAD_FAMILY_NONE) {
+        return 0U;
+    }
+
+    total = (uint16_t)(base_len + aux_len);
+    if (total > out_cap) {
+        return 0U;
+    }
+
+    if (base_len > 0U) {
+        (void)memcpy(out_buf, base_descriptor, base_len);
+    }
+    (void)memcpy(&out_buf[base_len], k_apple_trackpad_mouse_descriptor, aux_len);
+    return total;
+}
+
+void apple_trackpad_state_init(
+    apple_trackpad_state_t * state,
+    uint16_t product_id
+) {
+    if (state == NULL) {
+        return;
+    }
+    (void)memset(state, 0, sizeof(*state));
+    state->initialized = true;
+    state->product_id = product_id;
+    state->family = apple_trackpad_family_for_pid(product_id);
+}
+
+static int16_t apple_trackpad_sign_extend_13(uint16_t raw) {
+    uint16_t value = (uint16_t)(raw & 0x1FFFU);
+
+    if ((value & 0x1000U) != 0U) {
+        value = (uint16_t)(value | 0xE000U);
+    }
+    return (int16_t)value;
+}
+
+/* One decoded touch record. */
+typedef struct {
+    uint8_t id;
+    bool down;
+    int16_t x;
+    int16_t y;
+} apple_trackpad_record_t;
+
+/*
+ * Decode one 9-byte touch record. Bit layout per the hid-magicmouse
+ * protocol: x is a signed 13-bit field across bytes 0-1, y a signed 13-bit
+ * field across bytes 1-3 (negated so positive y points toward the user,
+ * matching HID mouse +Y). Touch id and state placement differ per family.
+ */
+static void apple_trackpad_decode_record(
+    uint8_t family,
+    const uint8_t * tdata,
+    apple_trackpad_record_t * out
+) {
+    const uint16_t raw_x = (uint16_t)(tdata[0] | (uint16_t)((uint16_t)(tdata[1] & 0x1FU) << 8U));
+    const uint16_t raw_y = (uint16_t)((tdata[1] >> 5U)
+        | (uint16_t)((uint16_t)tdata[2] << 3U)
+        | (uint16_t)((uint16_t)(tdata[3] & 0x03U) << 11U));
+
+    out->x = apple_trackpad_sign_extend_13(raw_x);
+    out->y = (int16_t)-apple_trackpad_sign_extend_13(raw_y);
+
+    if (family == APPLE_TRACKPAD_FAMILY_MT2) {
+        out->id = (uint8_t)(tdata[8] & 0x0FU);
+        out->down = (tdata[3] & APPLE_TRACKPAD_MT2_STATE_MASK) == APPLE_TRACKPAD_MT2_STATE_DOWN;
+    } else {
+        out->id = (uint8_t)(((uint16_t)((uint16_t)tdata[7] << 2U) | (tdata[6] >> 6U)) & 0x0FU);
+        out->down = (tdata[8] & APPLE_TRACKPAD_MT1_STATE_MASK) != 0U;
+    }
+}
+
+static uint8_t apple_trackpad_report_id_for_family(uint8_t family) {
+    return (family == APPLE_TRACKPAD_FAMILY_MT2) ? APPLE_TRACKPAD_MT2_REPORT_ID
+                                                 : APPLE_TRACKPAD_MT1_REPORT_ID;
+}
+
+static void apple_trackpad_out_push(
+    apple_trackpad_out_t * out,
+    const uint8_t * bytes,
+    uint8_t len
+) {
+    if ((out->count >= APPLE_TRACKPAD_MAX_OUT_REPORTS)
+        || (len > APPLE_TRACKPAD_OUT_REPORT_MAX_LEN)) {
+        return;
+    }
+    (void)memcpy(out->bytes[out->count], bytes, len);
+    out->len[out->count] = len;
+    out->count = (uint8_t)(out->count + 1U);
+}
+
+static int8_t apple_trackpad_clamp_i8(int32_t value) {
+    if (value > 127) {
+        return 127;
+    }
+    if (value < -127) {
+        return -127;
+    }
+    return (int8_t)value;
+}
+
+static int16_t apple_trackpad_clamp_i16(int32_t value) {
+    if (value > 32767) {
+        return 32767;
+    }
+    if (value < -32767) {
+        return -32767;
+    }
+    return (int16_t)value;
+}
+
+static void apple_trackpad_emit_mouse(
+    apple_trackpad_state_t * state,
+    apple_trackpad_out_t * out,
+    uint8_t buttons,
+    int32_t dx,
+    int32_t dy,
+    int32_t wheel,
+    int32_t pan
+) {
+    uint8_t report[APPLE_TRACKPAD_MOUSE_REPORT_LEN] = {0};
+    const int16_t x16 = apple_trackpad_clamp_i16(dx);
+    const int16_t y16 = apple_trackpad_clamp_i16(dy);
+
+    if ((buttons == state->buttons) && (dx == 0) && (dy == 0) && (wheel == 0) && (pan == 0)) {
+        return;
+    }
+
+    report[0] = APPLE_TRACKPAD_MOUSE_REPORT_ID;
+    report[1] = buttons;
+    report[2] = (uint8_t)((uint16_t)x16 & 0xFFU);
+    report[3] = (uint8_t)(((uint16_t)x16 >> 8U) & 0xFFU);
+    report[4] = (uint8_t)((uint16_t)y16 & 0xFFU);
+    report[5] = (uint8_t)(((uint16_t)y16 >> 8U) & 0xFFU);
+    report[6] = (uint8_t)apple_trackpad_clamp_i8(wheel);
+    report[7] = (uint8_t)apple_trackpad_clamp_i8(pan);
+    apple_trackpad_out_push(out, report, (uint8_t)sizeof(report));
+    state->buttons = buttons;
+}
+
+bool apple_trackpad_process_report(
+    apple_trackpad_state_t * state,
+    const uint8_t * report,
+    uint16_t report_len,
+    uint32_t now_ms,
+    apple_trackpad_out_t * out
+) {
+    apple_trackpad_record_t record[APPLE_TRACKPAD_MAX_TOUCH];
+    uint8_t record_count = 0U;
+    uint8_t finger_count = 0U;
+    uint8_t matched = 0U;
+    uint8_t buttons = 0U;
+    uint16_t touch_bytes = 0U;
+    int32_t sum_dx = 0;
+    int32_t sum_dy = 0;
+    int32_t dx = 0;
+    int32_t dy = 0;
+    int32_t wheel = 0;
+    int32_t pan = 0;
+    uint8_t i = 0U;
+
+    (void)now_ms;
+
+    if ((state == NULL) || !state->initialized || (report == NULL) || (out == NULL)) {
+        return false;
+    }
+    if ((report_len < APPLE_TRACKPAD_FRAME_PREFIX_LEN)
+        || (report[0] != apple_trackpad_report_id_for_family(state->family))) {
+        return false;
+    }
+    touch_bytes = (uint16_t)(report_len - APPLE_TRACKPAD_FRAME_PREFIX_LEN);
+    if ((touch_bytes % APPLE_TRACKPAD_TOUCH_RECORD_LEN) != 0U) {
+        return false;
+    }
+
+    record_count = (uint8_t)(touch_bytes / APPLE_TRACKPAD_TOUCH_RECORD_LEN);
+    if (record_count > APPLE_TRACKPAD_MAX_TOUCH) {
+        record_count = APPLE_TRACKPAD_MAX_TOUCH;
+    }
+
+    for (i = 0U; i < record_count; i++) {
+        apple_trackpad_decode_record(
+            state->family,
+            &report
+                [APPLE_TRACKPAD_FRAME_PREFIX_LEN + ((uint16_t)i * APPLE_TRACKPAD_TOUCH_RECORD_LEN)],
+            &record[i]
+        );
+        if (record[i].down) {
+            finger_count = (uint8_t)(finger_count + 1U);
+        }
+    }
+
+    buttons = (uint8_t)(report[APPLE_TRACKPAD_BUTTON_BYTE] & 0x01U);
+
+    /*
+     * Motion is only accumulated while the finger count is stable; the frame
+     * where a finger lands or lifts otherwise injects a large bogus delta
+     * (e.g. the pointer jumping when a second finger starts a scroll).
+     */
+    if (finger_count == state->finger_count) {
+        for (i = 0U; i < record_count; i++) {
+            const apple_trackpad_touch_t * prev = &state->touch[record[i].id];
+
+            if (!record[i].down || !prev->valid || !prev->down) {
+                continue;
+            }
+            sum_dx += (int32_t)record[i].x - (int32_t)prev->x;
+            sum_dy += (int32_t)record[i].y - (int32_t)prev->y;
+            matched = (uint8_t)(matched + 1U);
+        }
+    } else {
+        state->move_rem_x = 0;
+        state->move_rem_y = 0;
+        state->scroll_rem_x = 0;
+        state->scroll_rem_y = 0;
+    }
+
+    if ((finger_count == 1U) && (matched == 1U)) {
+        state->move_rem_x += sum_dx;
+        state->move_rem_y += sum_dy;
+        dx = state->move_rem_x / APPLE_TRACKPAD_POINTER_DIV;
+        dy = state->move_rem_y / APPLE_TRACKPAD_POINTER_DIV;
+        state->move_rem_x -= dx * APPLE_TRACKPAD_POINTER_DIV;
+        state->move_rem_y -= dy * APPLE_TRACKPAD_POINTER_DIV;
+    } else if ((finger_count == 2U) && (matched > 0U)) {
+        state->scroll_rem_x += sum_dx / (int32_t)matched;
+        state->scroll_rem_y += sum_dy / (int32_t)matched;
+        /*
+         * Traditional wheel semantics: fingers moving up (negative dy)
+         * scroll up (positive wheel), fingers moving right pan right. A host
+         * with "natural" scrolling enabled inverts these itself, landing on
+         * the native finger-follows-content feel.
+         */
+        wheel = -(state->scroll_rem_y / APPLE_TRACKPAD_SCROLL_DIV);
+        pan = state->scroll_rem_x / APPLE_TRACKPAD_SCROLL_DIV;
+        state->scroll_rem_y += wheel * APPLE_TRACKPAD_SCROLL_DIV;
+        state->scroll_rem_x -= pan * APPLE_TRACKPAD_SCROLL_DIV;
+    }
+
+    apple_trackpad_emit_mouse(state, out, buttons, dx, dy, wheel, pan);
+
+    /* Replace the touch table with this frame's view. */
+    (void)memset(state->touch, 0, sizeof(state->touch));
+    for (i = 0U; i < record_count; i++) {
+        apple_trackpad_touch_t * slot = &state->touch[record[i].id];
+
+        slot->valid = true;
+        slot->down = record[i].down;
+        slot->x = record[i].x;
+        slot->y = record[i].y;
+    }
+    state->finger_count = finger_count;
+
+    return true;
+}
+
+void apple_trackpad_tick(
+    apple_trackpad_state_t * state,
+    uint32_t now_ms,
+    apple_trackpad_out_t * out
+) {
+    /* No time-driven output yet (tap handling arrives with tap-to-click). */
+    (void)state;
+    (void)now_ms;
+    (void)out;
+}

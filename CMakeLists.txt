@@ -34,6 +34,7 @@ add_library(hidrelay_core STATIC
     src/hid_report_policy.c
     src/hid_report_remap.c
     src/apple_keyboard.c
+    src/apple_trackpad.c
     src/hid_transport_runtime.c
     src/hid_device_map.c
     src/pair_store.c

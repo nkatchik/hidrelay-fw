@@ -27,6 +27,7 @@
 #endif
 
 #include "apple_keyboard.h"
+#include "apple_trackpad.h"
 #include "hid_transport_runtime.h"
 #include "usb_runtime.h"
 
@@ -36,6 +37,8 @@ enum {
     TRANSPORT_STACK_INQUIRY_DURATION_UNITS = 0x08U,
     TRANSPORT_STACK_MAJOR_CLASS_PERIPHERAL = 0x05U,
     TRANSPORT_STACK_COD_MINOR_KEYBOARD_BIT = 0x40U,
+    TRANSPORT_STACK_MT_ENABLE_RETRY_MS = 500U,
+    TRANSPORT_STACK_MT_ENABLE_MAX_ATTEMPTS = 10U,
 };
 
 static hid_transport_runtime_t g_transport_runtime = {0};
@@ -167,6 +170,18 @@ typedef struct {
     bool usb_id_valid;
     uint16_t usb_vendor_id;
     uint16_t usb_product_id;
+    /*
+     * Recognized Apple trackpads must be switched into their vendor
+     * multitouch mode with a SET_REPORT (apple_trackpad_mt_enable_report)
+     * after every connection -- the device falls back to plain-mouse mode on
+     * link loss. Pending until the device acks the write; retried from
+     * transport_stack_poll while the control channel is busy. If it never
+     * sticks, the trackpad keeps working as the plain mouse its native
+     * descriptor declares.
+     */
+    bool mt_enable_pending;
+    uint8_t mt_enable_attempts;
+    uint32_t mt_enable_next_attempt_ms;
 } transport_stack_classic_session_t;
 
 static uint8_t g_btstack_classic_hid_descriptor_storage[1024] = {0};
@@ -623,6 +638,48 @@ static bool transport_stack_classic_session_usb_id(
         *out_product_id = session->usb_product_id;
     }
     return true;
+}
+
+/*
+ * Send the pending multitouch-enable SET_REPORT for a recognized trackpad.
+ * Failures (control channel busy, device still settling) retry on the next
+ * poll tick until the device acks (HID_SUBEVENT_SET_REPORT_RESPONSE) or the
+ * attempt budget runs out.
+ */
+static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t * session) {
+    uint8_t report_id = 0U;
+    uint8_t payload[4] = {0};
+    uint8_t payload_len = 0U;
+
+    if ((session == NULL)
+        || !session->used
+        || !session->mt_enable_pending
+        || (session->hid_cid == 0U)
+        || ((int32_t)(g_btstack_now_ms - session->mt_enable_next_attempt_ms) < 0)) {
+        return;
+    }
+
+    if (!session->usb_id_valid
+        || !apple_trackpad_mt_enable_report(
+            session->usb_product_id,
+            &report_id,
+            payload,
+            &payload_len
+        )
+        || (session->mt_enable_attempts >= TRANSPORT_STACK_MT_ENABLE_MAX_ATTEMPTS)) {
+        session->mt_enable_pending = false;
+        return;
+    }
+
+    session->mt_enable_attempts = (uint8_t)(session->mt_enable_attempts + 1U);
+    session->mt_enable_next_attempt_ms = g_btstack_now_ms + TRANSPORT_STACK_MT_ENABLE_RETRY_MS;
+    (void)hid_host_send_set_report(
+        session->hid_cid,
+        HID_REPORT_TYPE_FEATURE,
+        report_id,
+        payload,
+        payload_len
+    );
 }
 
 static uint8_t transport_stack_active_connection_count(void) {
@@ -1495,6 +1552,9 @@ static void transport_stack_emit_classic_close_event(uint8_t * packet) {
 
 /* Remap state for the connected Apple keyboard (single-device scope). */
 static apple_keyboard_state_t g_apple_keyboard_state = {0};
+/* Gesture-engine state for the connected Apple trackpad (single-device scope:
+ * one trackpad at a time; a second one would steal the engine). */
+static apple_trackpad_state_t g_apple_trackpad_state = {0};
 
 static void transport_stack_push_classic_report(
     uint16_t hid_cid,
@@ -1565,6 +1625,41 @@ static void transport_stack_emit_classic_report_event(uint8_t * packet) {
     uint16_t usb_product_id = 0U;
     const bool usb_id_valid =
         transport_stack_classic_session_usb_id(hid_cid, &usb_vendor_id, &usb_product_id);
+
+    /*
+     * Recognized Apple trackpads: consume vendor multitouch frames and emit
+     * the synthesized standard reports declared by the augmented descriptor
+     * (pointer, buttons, scroll). Reports that are not multitouch frames --
+     * plain-mouse reports before the multitouch enable lands -- fall through
+     * and are forwarded raw.
+     */
+    if (usb_id_valid && apple_trackpad_is_supported(usb_vendor_id, usb_product_id)) {
+        apple_trackpad_out_t trackpad_out = {0};
+
+        if (!g_apple_trackpad_state.initialized
+            || (g_apple_trackpad_state.product_id != usb_product_id)) {
+            apple_trackpad_state_init(&g_apple_trackpad_state, usb_product_id);
+        }
+
+        if (apple_trackpad_process_report(
+                &g_apple_trackpad_state,
+                report,
+                report_len,
+                g_btstack_now_ms,
+                &trackpad_out
+            )) {
+            uint8_t out_index = 0U;
+
+            for (out_index = 0U; out_index < trackpad_out.count; out_index++) {
+                transport_stack_push_classic_report(
+                    hid_cid,
+                    trackpad_out.bytes[out_index],
+                    trackpad_out.len[out_index]
+                );
+            }
+            return;
+        }
+    }
 
     if (usb_id_valid && apple_keyboard_is_supported(usb_vendor_id, usb_product_id)) {
         uint8_t kbd[HID_TRANSPORT_REPORT_MAX_LEN];
@@ -2370,6 +2465,13 @@ static void transport_stack_device_id_sdp_handler(
                 session->usb_product_id = resolved_product;
                 session->usb_id_valid = true;
 
+                if (apple_trackpad_is_supported(usb_vendor_id, resolved_product)) {
+                    session->mt_enable_pending = true;
+                    session->mt_enable_attempts = 0U;
+                    session->mt_enable_next_attempt_ms = g_btstack_now_ms;
+                    transport_stack_try_send_mt_enable(session);
+                }
+
                 /*
                  * Re-enumerate to swap in the augmented descriptor only when the
                  * recognized device on this interface actually changes --
@@ -2389,7 +2491,8 @@ static void transport_stack_device_id_sdp_handler(
                         || (plan.hid_cid != session->hid_cid)) {
                         continue;
                     }
-                    if (apple_keyboard_is_supported(usb_vendor_id, resolved_product)) {
+                    if (apple_keyboard_is_supported(usb_vendor_id, resolved_product)
+                        || apple_trackpad_is_supported(usb_vendor_id, resolved_product)) {
                         desired_product = resolved_product;
                     }
                     if (desired_product != g_btstack_presented_product_id[iface]) {
@@ -2768,6 +2871,19 @@ static void transport_stack_packet_handler(
                         );
                     }
                     break;
+                case HID_SUBEVENT_SET_REPORT_RESPONSE: {
+                    transport_stack_classic_session_t * session =
+                        transport_stack_classic_session_by_hid_cid(
+                            hid_subevent_set_report_response_get_hid_cid(packet)
+                        );
+
+                    if ((session != NULL)
+                        && session->mt_enable_pending
+                        && (hid_subevent_set_report_response_get_handshake_status(packet)
+                            == HID_HANDSHAKE_PARAM_TYPE_SUCCESSFUL)) {
+                        session->mt_enable_pending = false;
+                    }
+                } break;
                 case HID_SUBEVENT_CONNECTION_CLOSED:
                     transport_stack_emit_classic_close_event(packet);
                     transport_stack_try_start_discovery();
@@ -3007,9 +3123,15 @@ void transport_stack_poll(uint32_t now_ms) {
     }
 
     if (g_btstack_available) {
+        uint8_t session_index = 0U;
+
         transport_stack_try_start_discovery();
         transport_stack_try_connect_candidate();
         transport_stack_try_start_le_hids_client();
+        for (session_index = 0U; session_index < TRANSPORT_STACK_MAX_USB_INTERFACE;
+            session_index++) {
+            transport_stack_try_send_mt_enable(&g_btstack_classic_session[session_index]);
+        }
     }
 #endif
 
@@ -3472,10 +3594,12 @@ const uint8_t * transport_stack_usb_report_descriptor(
 
             if ((descriptor != NULL) && (descriptor_len > 0U)) {
                 /*
-                 * For recognized Apple keyboards, present the keyboard's own
-                 * descriptor augmented with an Apple-vendor/consumer collection
-                 * so the relay-side top-row remap can emit usages macOS honors
-                 * (the keyboard's native BT descriptor declares none of them).
+                 * For recognized Apple devices, present the device's own
+                 * descriptor augmented with relay-authored collections: an
+                 * Apple-vendor/consumer collection for the keyboard top-row
+                 * remap, or the synthesized mouse collection the trackpad
+                 * gesture engine emits into (the native BT descriptors
+                 * declare none of those usages).
                  */
                 uint16_t usb_vendor_id = 0U;
                 uint16_t usb_product_id = 0U;
@@ -3485,17 +3609,27 @@ const uint8_t * transport_stack_usb_report_descriptor(
                     &usb_product_id
                 );
 
-                if ((bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC)
-                    && usb_id_valid
-                    && apple_keyboard_is_supported(usb_vendor_id, usb_product_id)) {
+                if ((bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC) && usb_id_valid) {
                     static uint8_t aug_descriptor[1024];
-                    const uint16_t aug_len = apple_keyboard_augment_descriptor(
-                        usb_product_id,
-                        descriptor,
-                        descriptor_len,
-                        aug_descriptor,
-                        (uint16_t)sizeof(aug_descriptor)
-                    );
+                    uint16_t aug_len = 0U;
+
+                    if (apple_keyboard_is_supported(usb_vendor_id, usb_product_id)) {
+                        aug_len = apple_keyboard_augment_descriptor(
+                            usb_product_id,
+                            descriptor,
+                            descriptor_len,
+                            aug_descriptor,
+                            (uint16_t)sizeof(aug_descriptor)
+                        );
+                    } else if (apple_trackpad_is_supported(usb_vendor_id, usb_product_id)) {
+                        aug_len = apple_trackpad_augment_descriptor(
+                            usb_product_id,
+                            descriptor,
+                            descriptor_len,
+                            aug_descriptor,
+                            (uint16_t)sizeof(aug_descriptor)
+                        );
+                    }
 
                     if (aug_len > 0U) {
                         transport_stack_descriptor_cache_store(

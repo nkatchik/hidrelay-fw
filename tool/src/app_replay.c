@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "apple_trackpad.h"
 #include "hid_device_map.h"
 #include "hid_transport_runtime.h"
 
@@ -2076,6 +2077,310 @@ static bool app_replay_test_hid_device_map_fn_esc_toggle(void) {
     );
 }
 
+/*
+ * Encode one Magic Trackpad 2 vendor touch record (the inverse of the
+ * decode in apple_trackpad.c): x is 13-bit signed across bytes 0-1, y is
+ * 13-bit signed (sensor-negated) across bytes 1-3, state 0x80 in byte 3
+ * means touching, id is the low nibble of byte 8.
+ */
+static void app_replay_trackpad_encode_touch(
+    uint8_t * record,
+    int16_t x,
+    int16_t y,
+    uint8_t touch_id,
+    bool down
+) {
+    const uint16_t raw_x = (uint16_t)x & 0x1FFFU;
+    const uint16_t raw_y = (uint16_t)(-y) & 0x1FFFU;
+
+    (void)memset(record, 0, 9U);
+    record[0] = (uint8_t)(raw_x & 0xFFU);
+    record[1] = (uint8_t)(((raw_x >> 8U) & 0x1FU) | ((raw_y & 0x07U) << 5U));
+    record[2] = (uint8_t)((raw_y >> 3U) & 0xFFU);
+    record[3] = (uint8_t)(((raw_y >> 11U) & 0x03U) | (down ? 0x80U : 0x00U));
+    record[8] = (uint8_t)(touch_id & 0x0FU);
+}
+
+typedef struct {
+    int16_t x;
+    int16_t y;
+    uint8_t touch_id;
+    bool down;
+} app_replay_trackpad_touch_t;
+
+static uint16_t app_replay_trackpad_frame(
+    uint8_t * buf,
+    uint8_t button,
+    const app_replay_trackpad_touch_t * touches,
+    uint8_t touch_count
+) {
+    uint8_t i = 0U;
+
+    buf[0] = 0x31U; /* Magic Trackpad 2 Bluetooth multitouch report ID */
+    buf[1] = button;
+    buf[2] = 0U;
+    buf[3] = 0U;
+    for (i = 0U; i < touch_count; i++) {
+        app_replay_trackpad_encode_touch(
+            &buf[4U + ((uint16_t)i * 9U)],
+            touches[i].x,
+            touches[i].y,
+            touches[i].touch_id,
+            touches[i].down
+        );
+    }
+    return (uint16_t)(4U + ((uint16_t)touch_count * 9U));
+}
+
+static bool app_replay_test_trackpad_recognition(void) {
+    uint8_t report_id = 0U;
+    uint8_t payload[4] = {0};
+    uint8_t payload_len = 0U;
+
+    if (!app_replay_expect_true(
+            apple_trackpad_is_supported(0x05ACU, 0x0265U)
+                && apple_trackpad_is_supported(0x05ACU, 0x0324U)
+                && apple_trackpad_is_supported(0x05ACU, 0x030EU),
+            "known Apple trackpad PIDs should be supported"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            !apple_trackpad_is_supported(0x05ACU, 0x0267U)
+                && !apple_trackpad_is_supported(0x046DU, 0x0265U),
+            "keyboard PID and foreign vendor should not be supported"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            apple_trackpad_mt_enable_report(0x0265U, &report_id, payload, &payload_len),
+            "Magic Trackpad 2 should have an enable report"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            (report_id == 0xF1U)
+                && (payload_len == 2U)
+                && (payload[0] == 0x02U)
+                && (payload[1] == 0x01U),
+            "Magic Trackpad 2 enable report should be F1 02 01"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            apple_trackpad_mt_enable_report(0x030EU, &report_id, payload, &payload_len),
+            "original Magic Trackpad should have an enable report"
+        )) {
+        return false;
+    }
+    return app_replay_expect_true(
+        (report_id == 0xD7U) && (payload_len == 1U) && (payload[0] == 0x01U),
+        "original Magic Trackpad enable report should be D7 01"
+    );
+}
+
+static bool app_replay_test_trackpad_pointer_motion(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touch = {.x = 100, .y = -50, .touch_id = 3U, .down = true};
+
+    apple_trackpad_state_init(&state, 0x0265U);
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    if (!app_replay_expect_true(
+            apple_trackpad_process_report(&state, frame, frame_len, 0U, &out),
+            "multitouch frame should be consumed"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(out.count, 0U, "touch-down frame should emit nothing")) {
+        return false;
+    }
+
+    touch.x = 300;
+    touch.y = 150;
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    out.count = 0U;
+    if (!app_replay_expect_true(
+            apple_trackpad_process_report(&state, frame, frame_len, 10U, &out),
+            "movement frame should be consumed"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(out.count, 1U, "movement should emit one mouse report")) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(
+            out.bytes[0][0],
+            APPLE_TRACKPAD_MOUSE_REPORT_ID,
+            "report should use the synthesized mouse report ID"
+        )) {
+        return false;
+    }
+    /* 200 raw units / pointer divider 2 = 100 counts on both axes. */
+    if (!app_replay_expect_u32_eq(
+            (uint32_t)(uint16_t)(out.bytes[0][2] | (out.bytes[0][3] << 8U)),
+            100U,
+            "x delta should be scaled raw motion"
+        )) {
+        return false;
+    }
+    return app_replay_expect_u32_eq(
+        (uint32_t)(uint16_t)(out.bytes[0][4] | (out.bytes[0][5] << 8U)),
+        100U,
+        "y delta should be scaled raw motion"
+    );
+}
+
+static bool app_replay_test_trackpad_two_finger_scroll(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touches[2] = {
+        {.x = 0, .y = 0, .touch_id = 0U, .down = true},
+        {.x = 500, .y = 0, .touch_id = 1U, .down = true},
+    };
+
+    apple_trackpad_state_init(&state, 0x0265U);
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 0U, "two-finger touch-down should emit nothing")) {
+        return false;
+    }
+
+    /* Both fingers move up 128 units: wheel +2 (traditional scroll-up). */
+    touches[0].y = -128;
+    touches[1].y = -128;
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    out.count = 0U;
+    if (!app_replay_expect_true(
+            apple_trackpad_process_report(&state, frame, frame_len, 10U, &out),
+            "scroll frame should be consumed"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(out.count, 1U, "scroll should emit one mouse report")) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(out.bytes[0][6], 2U, "fingers up should be wheel +2")) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            (out.bytes[0][2] == 0U)
+                && (out.bytes[0][3] == 0U)
+                && (out.bytes[0][4] == 0U)
+                && (out.bytes[0][5] == 0U),
+            "scroll should not move the pointer"
+        )) {
+        return false;
+    }
+
+    /* Lifting one finger changes the count; no motion may leak that frame. */
+    touches[0].down = false;
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 20U, &out);
+    return app_replay_expect_u32_eq(out.count, 0U, "finger-count change should emit nothing");
+}
+
+static bool app_replay_test_trackpad_click_and_passthrough(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    uint8_t plain_mouse_report[4] = {0x02U, 0x00U, 0x05U, 0x00U};
+    app_replay_trackpad_touch_t touch = {.x = 0, .y = 0, .touch_id = 0U, .down = true};
+
+    apple_trackpad_state_init(&state, 0x0265U);
+
+    /* Pre-enable plain-mouse reports are not consumed (forwarded raw). */
+    if (!app_replay_expect_true(
+            !apple_trackpad_process_report(
+                &state,
+                plain_mouse_report,
+                (uint16_t)sizeof(plain_mouse_report),
+                0U,
+                &out
+            ),
+            "non-multitouch report should not be consumed"
+        )) {
+        return false;
+    }
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+
+    frame_len = app_replay_trackpad_frame(frame, 1U, &touch, 1U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 10U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "click should emit one mouse report")) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(out.bytes[0][1], 1U, "physical click should press button 1")) {
+        return false;
+    }
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 20U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 1U, "release should emit one mouse report")) {
+        return false;
+    }
+    return app_replay_expect_u32_eq(out.bytes[0][1], 0U, "release should clear button 1");
+}
+
+static bool app_replay_test_trackpad_descriptor_augment(void) {
+    const uint8_t base[5] = {0x05U, 0x01U, 0x09U, 0x02U, 0xC0U};
+    uint8_t out_buf[512] = {0};
+    uint16_t total = 0U;
+
+    total = apple_trackpad_augment_descriptor(
+        0x0265U,
+        base,
+        (uint16_t)sizeof(base),
+        out_buf,
+        (uint16_t)sizeof(out_buf)
+    );
+    if (!app_replay_expect_true(
+            total > (uint16_t)sizeof(base),
+            "augmented descriptor should grow beyond the base"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            memcmp(out_buf, base, sizeof(base)) == 0,
+            "augmented descriptor should start with the base descriptor"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            (out_buf[sizeof(base)] == 0x05U)
+                && (out_buf[sizeof(base) + 1U] == 0x01U)
+                && (out_buf[total - 1U] == 0xC0U),
+            "appended collection should be the relay mouse collection"
+        )) {
+        return false;
+    }
+
+    return app_replay_expect_u32_eq(
+        apple_trackpad_augment_descriptor(
+            0x0267U,
+            base,
+            (uint16_t)sizeof(base),
+            out_buf,
+            (uint16_t)sizeof(out_buf)
+        ),
+        0U,
+        "unsupported product should not augment"
+    );
+}
+
 int main(void) {
     static const app_replay_test_case_t test_cases[] = {
         {.name = "led_startup_cue_short", .fn = app_replay_test_led_startup_cue_short},
@@ -2145,6 +2450,12 @@ int main(void) {
             .fn = app_replay_test_hid_device_map_profile_detection},
         {.name = "hid_device_map_fn_esc_toggle",
             .fn = app_replay_test_hid_device_map_fn_esc_toggle},
+        {.name = "trackpad_recognition", .fn = app_replay_test_trackpad_recognition},
+        {.name = "trackpad_pointer_motion", .fn = app_replay_test_trackpad_pointer_motion},
+        {.name = "trackpad_two_finger_scroll", .fn = app_replay_test_trackpad_two_finger_scroll},
+        {.name = "trackpad_click_and_passthrough",
+            .fn = app_replay_test_trackpad_click_and_passthrough},
+        {.name = "trackpad_descriptor_augment", .fn = app_replay_test_trackpad_descriptor_augment},
     };
     const size_t test_count = sizeof(test_cases) / sizeof(test_cases[0]);
     size_t index = 0U;

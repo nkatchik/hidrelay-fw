@@ -60,6 +60,7 @@ target_link_libraries(diag_capture
 
 add_library(app_replay_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/apple_trackpad.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/bt_manager.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/button_fsm.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/hid_device_map.c
