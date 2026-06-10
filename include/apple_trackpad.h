@@ -29,6 +29,10 @@
 #define APPLE_TRACKPAD_MOUSE_REPORT_ID 0xB1U
 #define APPLE_TRACKPAD_MOUSE_REPORT_LEN 8U
 
+/* Synthesized keyboard-chord report (gesture shortcuts): id, modifiers, key. */
+#define APPLE_TRACKPAD_CHORD_REPORT_ID 0xB2U
+#define APPLE_TRACKPAD_CHORD_REPORT_LEN 3U
+
 #define APPLE_TRACKPAD_MAX_OUT_REPORTS 4U
 #define APPLE_TRACKPAD_OUT_REPORT_MAX_LEN 8U
 #define APPLE_TRACKPAD_MAX_TOUCH 16U
@@ -104,6 +108,18 @@ typedef struct {
     uint8_t click_buttons; /* mapping latched while the physical button is down */
     uint8_t pending_release_buttons; /* tap pulse awaiting its timed release */
     uint32_t tap_release_deadline_ms;
+    /* Two-finger mode (scroll vs pinch), classified once per episode from
+     * whether parallel motion or spread change dominates. */
+    uint8_t two_finger_mode;
+    int32_t two_finger_parallel_acc;
+    int32_t two_finger_spread_acc;
+    bool two_finger_spread_valid;
+    int32_t two_finger_prev_spread;
+    int32_t pinch_rem; /* spread change accumulated toward the next zoom step */
+    /* Three-finger swipe accumulation; one chord per three-finger segment. */
+    int32_t swipe_acc_x;
+    int32_t swipe_acc_y;
+    bool swipe_fired;
 } apple_trackpad_state_t;
 
 void apple_trackpad_state_init(

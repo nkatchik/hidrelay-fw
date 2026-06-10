@@ -62,6 +62,36 @@ enum {
     APPLE_TRACKPAD_TAP_PULSE_MS = 30
 };
 
+/* Two-finger mode: undecided until enough motion to classify the episode. */
+enum {
+    APPLE_TRACKPAD_TWO_FINGER_UNDECIDED = 0U,
+    APPLE_TRACKPAD_TWO_FINGER_SCROLL = 1U,
+    APPLE_TRACKPAD_TWO_FINGER_PINCH = 2U
+};
+
+/*
+ * Chord-gesture thresholds. Classification fires after ~2.5 mm of dominant
+ * motion; a pinch emits one zoom step per ~5 mm of spread change; a
+ * three-finger swipe fires its shortcut after ~13 mm of travel.
+ */
+enum {
+    APPLE_TRACKPAD_TWO_FINGER_CLASSIFY_THRESHOLD = 120,
+    APPLE_TRACKPAD_PINCH_STEP = 250,
+    APPLE_TRACKPAD_SWIPE_THRESHOLD = 600
+};
+
+/* HID keyboard usages/modifiers for synthesized gesture chords. */
+enum {
+    APPLE_TRACKPAD_KEY_RIGHT_ARROW = 0x4FU,
+    APPLE_TRACKPAD_KEY_LEFT_ARROW = 0x50U,
+    APPLE_TRACKPAD_KEY_DOWN_ARROW = 0x51U,
+    APPLE_TRACKPAD_KEY_UP_ARROW = 0x52U,
+    APPLE_TRACKPAD_KEY_EQUAL = 0x2EU, /* '=' / '+' */
+    APPLE_TRACKPAD_KEY_MINUS = 0x2DU,
+    APPLE_TRACKPAD_MOD_LEFT_CTRL = 0x01U,
+    APPLE_TRACKPAD_MOD_LEFT_GUI = 0x08U /* Command */
+};
+
 static uint8_t apple_trackpad_family_for_pid(uint16_t product_id) {
     switch (product_id) {
         case 0x030EU: /* Magic Trackpad (A1339) */
@@ -200,6 +230,54 @@ static const uint8_t k_apple_trackpad_mouse_descriptor[] = {
     0xC0 /* End Collection                      */
 };
 
+/*
+ * Keyboard collection for synthesized gesture chords (three-finger swipes
+ * map to the Mission Control / Spaces shortcuts, pinch to Command +/-).
+ * One modifier byte plus a single key array slot.
+ */
+static const uint8_t k_apple_trackpad_chord_descriptor[] = {
+    0x05,
+    0x01, /* Usage Page (Generic Desktop)        */
+    0x09,
+    0x06, /* Usage (Keyboard)                    */
+    0xA1,
+    0x01, /* Collection (Application)            */
+    0x85,
+    APPLE_TRACKPAD_CHORD_REPORT_ID, /* Report ID (0xB2)  */
+    0x05,
+    0x07, /*   Usage Page (Keyboard/Keypad)      */
+    0x19,
+    0xE0, /*   Usage Minimum (Left Control)      */
+    0x29,
+    0xE7, /*   Usage Maximum (Right GUI)         */
+    0x15,
+    0x00, /*   Logical Minimum (0)               */
+    0x25,
+    0x01, /*   Logical Maximum (1)               */
+    0x75,
+    0x01, /*   Report Size (1)                   */
+    0x95,
+    0x08, /*   Report Count (8)                  */
+    0x81,
+    0x02, /*   Input (Data,Var,Abs)  modifiers   */
+    0x19,
+    0x00, /*   Usage Minimum (0)                 */
+    0x29,
+    0xFF, /*   Usage Maximum (255)               */
+    0x15,
+    0x00, /*   Logical Minimum (0)               */
+    0x26,
+    0xFF,
+    0x00, /*   Logical Maximum (255)             */
+    0x75,
+    0x08, /*   Report Size (8)                   */
+    0x95,
+    0x01, /*   Report Count (1)                  */
+    0x81,
+    0x00, /*   Input (Data,Array)    key slot    */
+    0xC0 /* End Collection                      */
+};
+
 uint16_t apple_trackpad_augment_descriptor(
     uint16_t product_id,
     const uint8_t * base_descriptor,
@@ -207,7 +285,8 @@ uint16_t apple_trackpad_augment_descriptor(
     uint8_t * out_buf,
     uint16_t out_cap
 ) {
-    const uint16_t aux_len = (uint16_t)sizeof(k_apple_trackpad_mouse_descriptor);
+    const uint16_t mouse_len = (uint16_t)sizeof(k_apple_trackpad_mouse_descriptor);
+    const uint16_t chord_len = (uint16_t)sizeof(k_apple_trackpad_chord_descriptor);
     uint16_t total = 0U;
 
     if ((base_descriptor == NULL) || (out_buf == NULL)) {
@@ -217,7 +296,7 @@ uint16_t apple_trackpad_augment_descriptor(
         return 0U;
     }
 
-    total = (uint16_t)(base_len + aux_len);
+    total = (uint16_t)(base_len + mouse_len + chord_len);
     if (total > out_cap) {
         return 0U;
     }
@@ -225,7 +304,8 @@ uint16_t apple_trackpad_augment_descriptor(
     if (base_len > 0U) {
         (void)memcpy(out_buf, base_descriptor, base_len);
     }
-    (void)memcpy(&out_buf[base_len], k_apple_trackpad_mouse_descriptor, aux_len);
+    (void)memcpy(&out_buf[base_len], k_apple_trackpad_mouse_descriptor, mouse_len);
+    (void)memcpy(&out_buf[base_len + mouse_len], k_apple_trackpad_chord_descriptor, chord_len);
     return total;
 }
 
@@ -359,6 +439,23 @@ static int32_t apple_trackpad_abs_i32(int32_t value) {
     return (value < 0) ? -value : value;
 }
 
+/* Emit a gesture chord as an immediate press + release pair. */
+static void apple_trackpad_emit_chord(
+    apple_trackpad_out_t * out,
+    uint8_t modifiers,
+    uint8_t keycode
+) {
+    uint8_t report[APPLE_TRACKPAD_CHORD_REPORT_LEN] = {0};
+
+    report[0] = APPLE_TRACKPAD_CHORD_REPORT_ID;
+    report[1] = modifiers;
+    report[2] = keycode;
+    apple_trackpad_out_push(out, report, (uint8_t)sizeof(report));
+    report[1] = 0U;
+    report[2] = 0U;
+    apple_trackpad_out_push(out, report, (uint8_t)sizeof(report));
+}
+
 /* One finger taps/clicks left, two right, three or more middle. */
 static uint8_t apple_trackpad_buttons_for_fingers(uint8_t fingers) {
     if (fingers >= 3U) {
@@ -475,6 +572,14 @@ bool apple_trackpad_process_report(
         state->move_rem_y = 0;
         state->scroll_rem_x = 0;
         state->scroll_rem_y = 0;
+        state->two_finger_mode = APPLE_TRACKPAD_TWO_FINGER_UNDECIDED;
+        state->two_finger_parallel_acc = 0;
+        state->two_finger_spread_acc = 0;
+        state->two_finger_spread_valid = false;
+        state->pinch_rem = 0;
+        state->swipe_acc_x = 0;
+        state->swipe_acc_y = 0;
+        state->swipe_fired = false;
     }
 
     /* Touch-episode bookkeeping for tap detection. */
@@ -506,19 +611,130 @@ bool apple_trackpad_process_report(
         dy = state->move_rem_y / APPLE_TRACKPAD_POINTER_DIV;
         state->move_rem_x -= dx * APPLE_TRACKPAD_POINTER_DIV;
         state->move_rem_y -= dy * APPLE_TRACKPAD_POINTER_DIV;
-    } else if ((finger_count == 2U) && (matched > 0U)) {
-        state->scroll_rem_x += sum_dx / (int32_t)matched;
-        state->scroll_rem_y += sum_dy / (int32_t)matched;
+    } else if (finger_count == 2U) {
+        /* Runs on the touch-down frame too (matched == 0) so the spread
+         * baseline exists before any motion is classified. */
+        const int32_t avg_dx = (matched > 0U) ? (sum_dx / (int32_t)matched) : 0;
+        const int32_t avg_dy = (matched > 0U) ? (sum_dy / (int32_t)matched) : 0;
+        const apple_trackpad_record_t * first = NULL;
+        const apple_trackpad_record_t * second = NULL;
+        int32_t dspread = 0;
+
+        /* Spread = Manhattan distance between the two fingers; its change
+         * versus parallel motion separates pinch from scroll. */
+        for (i = 0U; i < record_count; i++) {
+            if (!record[i].down) {
+                continue;
+            }
+            if (first == NULL) {
+                first = &record[i];
+            } else {
+                second = &record[i];
+                break;
+            }
+        }
+        if (second != NULL) {
+            const int32_t spread = apple_trackpad_abs_i32((int32_t)first->x - (int32_t)second->x)
+                + apple_trackpad_abs_i32((int32_t)first->y - (int32_t)second->y);
+
+            if (state->two_finger_spread_valid) {
+                dspread = spread - state->two_finger_prev_spread;
+            }
+            state->two_finger_prev_spread = spread;
+            state->two_finger_spread_valid = true;
+        }
+
+        if (state->two_finger_mode == APPLE_TRACKPAD_TWO_FINGER_UNDECIDED) {
+            state->two_finger_parallel_acc +=
+                apple_trackpad_abs_i32(avg_dx) + apple_trackpad_abs_i32(avg_dy);
+            state->two_finger_spread_acc += apple_trackpad_abs_i32(dspread);
+            if ((state->two_finger_parallel_acc >= APPLE_TRACKPAD_TWO_FINGER_CLASSIFY_THRESHOLD)
+                || (state->two_finger_spread_acc >= APPLE_TRACKPAD_TWO_FINGER_CLASSIFY_THRESHOLD)) {
+                if (state->two_finger_spread_acc > state->two_finger_parallel_acc) {
+                    state->two_finger_mode = APPLE_TRACKPAD_TWO_FINGER_PINCH;
+                    state->scroll_rem_x = 0;
+                    state->scroll_rem_y = 0;
+                    state->pinch_rem = 0;
+                } else {
+                    state->two_finger_mode = APPLE_TRACKPAD_TWO_FINGER_SCROLL;
+                }
+                /* A classified gesture is never a tap, even if the average
+                 * position barely moved (a symmetric pinch). */
+                state->episode_moved = true;
+            }
+        }
+
+        if (state->two_finger_mode != APPLE_TRACKPAD_TWO_FINGER_PINCH) {
+            state->scroll_rem_x += avg_dx;
+            state->scroll_rem_y += avg_dy;
+        }
+
+        if (state->two_finger_mode == APPLE_TRACKPAD_TWO_FINGER_SCROLL) {
+            /*
+             * Traditional wheel semantics: fingers moving up (negative dy)
+             * scroll up (positive wheel), fingers moving right pan right. A
+             * host with "natural" scrolling enabled inverts these itself,
+             * landing on the native finger-follows-content feel.
+             */
+            wheel = -(state->scroll_rem_y / APPLE_TRACKPAD_SCROLL_DIV);
+            pan = state->scroll_rem_x / APPLE_TRACKPAD_SCROLL_DIV;
+            state->scroll_rem_y += wheel * APPLE_TRACKPAD_SCROLL_DIV;
+            state->scroll_rem_x -= pan * APPLE_TRACKPAD_SCROLL_DIV;
+        } else if (state->two_finger_mode == APPLE_TRACKPAD_TWO_FINGER_PINCH) {
+            /*
+             * Pinch approximates zoom as Command +/- steps -- macOS has no
+             * generic smooth-zoom input from a non-Apple device. One chord
+             * pair per frame keeps the output queue bounded.
+             */
+            state->pinch_rem += dspread;
+            if (state->pinch_rem >= APPLE_TRACKPAD_PINCH_STEP) {
+                apple_trackpad_emit_chord(
+                    out,
+                    APPLE_TRACKPAD_MOD_LEFT_GUI,
+                    APPLE_TRACKPAD_KEY_EQUAL
+                );
+                state->pinch_rem -= APPLE_TRACKPAD_PINCH_STEP;
+            } else if (state->pinch_rem <= -APPLE_TRACKPAD_PINCH_STEP) {
+                apple_trackpad_emit_chord(
+                    out,
+                    APPLE_TRACKPAD_MOD_LEFT_GUI,
+                    APPLE_TRACKPAD_KEY_MINUS
+                );
+                state->pinch_rem += APPLE_TRACKPAD_PINCH_STEP;
+            }
+        }
+    } else if ((finger_count == 3U) && (matched > 0U)) {
         /*
-         * Traditional wheel semantics: fingers moving up (negative dy)
-         * scroll up (positive wheel), fingers moving right pan right. A host
-         * with "natural" scrolling enabled inverts these itself, landing on
-         * the native finger-follows-content feel.
+         * Three-finger swipes fire the macOS shortcut equivalents once per
+         * three-finger segment: horizontally the Spaces switch (fingers
+         * moving left go to the space on the right, matching the native
+         * content-follows-fingers direction), vertically Mission Control
+         * (up) and App Expose (down) via their default Ctrl+arrow bindings.
          */
-        wheel = -(state->scroll_rem_y / APPLE_TRACKPAD_SCROLL_DIV);
-        pan = state->scroll_rem_x / APPLE_TRACKPAD_SCROLL_DIV;
-        state->scroll_rem_y += wheel * APPLE_TRACKPAD_SCROLL_DIV;
-        state->scroll_rem_x -= pan * APPLE_TRACKPAD_SCROLL_DIV;
+        state->swipe_acc_x += sum_dx / (int32_t)matched;
+        state->swipe_acc_y += sum_dy / (int32_t)matched;
+        if (!state->swipe_fired) {
+            const int32_t travel_x = apple_trackpad_abs_i32(state->swipe_acc_x);
+            const int32_t travel_y = apple_trackpad_abs_i32(state->swipe_acc_y);
+
+            if ((travel_x >= APPLE_TRACKPAD_SWIPE_THRESHOLD) && (travel_x >= travel_y)) {
+                apple_trackpad_emit_chord(
+                    out,
+                    APPLE_TRACKPAD_MOD_LEFT_CTRL,
+                    (state->swipe_acc_x < 0) ? APPLE_TRACKPAD_KEY_RIGHT_ARROW
+                                             : APPLE_TRACKPAD_KEY_LEFT_ARROW
+                );
+                state->swipe_fired = true;
+            } else if ((travel_y >= APPLE_TRACKPAD_SWIPE_THRESHOLD) && (travel_y > travel_x)) {
+                apple_trackpad_emit_chord(
+                    out,
+                    APPLE_TRACKPAD_MOD_LEFT_CTRL,
+                    (state->swipe_acc_y < 0) ? APPLE_TRACKPAD_KEY_UP_ARROW
+                                             : APPLE_TRACKPAD_KEY_DOWN_ARROW
+                );
+                state->swipe_fired = true;
+            }
+        }
     }
 
     apple_trackpad_emit_mouse(state, out, buttons, dx, dy, wheel, pan);

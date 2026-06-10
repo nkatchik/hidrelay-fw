@@ -2494,6 +2494,135 @@ static bool app_replay_test_trackpad_multi_finger_physical_click(void) {
     return app_replay_expect_u32_eq(out.bytes[0][1], 0U, "click release should clear buttons");
 }
 
+static bool app_replay_test_trackpad_pinch_zoom_chords(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touches[2] = {
+        {.x = -500, .y = 0, .touch_id = 0U, .down = true},
+        {.x = 500, .y = 0, .touch_id = 1U, .down = true},
+    };
+
+    apple_trackpad_state_init(&state, 0x0265U);
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+
+    /* Fingers spread apart symmetrically: classified as pinch, zoom in. */
+    touches[0].x = -800;
+    touches[1].x = 800;
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 10U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 2U, "pinch out should emit a chord pair")) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            (out.bytes[0][0] == APPLE_TRACKPAD_CHORD_REPORT_ID)
+                && (out.bytes[0][1] == 0x08U)
+                && (out.bytes[0][2] == 0x2EU),
+            "pinch out should press Command+'='"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            (out.bytes[1][1] == 0U) && (out.bytes[1][2] == 0U),
+            "chord should be released immediately"
+        )) {
+        return false;
+    }
+
+    /* Fingers close back together: zoom out. */
+    touches[0].x = -300;
+    touches[1].x = 300;
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 20U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 2U, "pinch in should emit a chord pair")) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            (out.bytes[0][1] == 0x08U) && (out.bytes[0][2] == 0x2DU),
+            "pinch in should press Command+'-'"
+        )) {
+        return false;
+    }
+
+    /* A symmetric pinch must never double as a two-finger tap. */
+    frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 30U, &out);
+    return app_replay_expect_u32_eq(out.count, 0U, "pinch liftoff should not click");
+}
+
+static bool app_replay_test_trackpad_three_finger_swipes(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    uint8_t i = 0U;
+    app_replay_trackpad_touch_t touches[3] = {
+        {.x = 0, .y = 0, .touch_id = 0U, .down = true},
+        {.x = 500, .y = 0, .touch_id = 1U, .down = true},
+        {.x = 1000, .y = 0, .touch_id = 2U, .down = true},
+    };
+
+    /* Swipe left: switch to the space on the right (Ctrl+Right). */
+    apple_trackpad_state_init(&state, 0x0265U);
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 3U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+    for (i = 0U; i < 3U; i++) {
+        touches[i].x = (int16_t)(touches[i].x - 700);
+    }
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 3U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 10U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 2U, "three-finger swipe should emit a chord pair")) {
+        return false;
+    }
+    if (!app_replay_expect_true(
+            (out.bytes[0][0] == APPLE_TRACKPAD_CHORD_REPORT_ID)
+                && (out.bytes[0][1] == 0x01U)
+                && (out.bytes[0][2] == 0x4FU),
+            "swipe left should press Ctrl+Right"
+        )) {
+        return false;
+    }
+
+    /* Continuing the swipe must not re-fire within the same segment. */
+    for (i = 0U; i < 3U; i++) {
+        touches[i].x = (int16_t)(touches[i].x - 700);
+    }
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 3U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 20U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 0U, "swipe should fire once per segment")) {
+        return false;
+    }
+
+    /* Swipe up: Mission Control (Ctrl+Up). */
+    apple_trackpad_state_init(&state, 0x0265U);
+    touches[0].x = 0;
+    touches[1].x = 500;
+    touches[2].x = 1000;
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 3U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+    for (i = 0U; i < 3U; i++) {
+        touches[i].y = -700;
+    }
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 3U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 10U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 2U, "swipe up should emit a chord pair")) {
+        return false;
+    }
+    return app_replay_expect_true(
+        (out.bytes[0][1] == 0x01U) && (out.bytes[0][2] == 0x52U),
+        "swipe up should press Ctrl+Up"
+    );
+}
+
 static bool app_replay_test_trackpad_descriptor_augment(void) {
     const uint8_t base[5] = {0x05U, 0x01U, 0x09U, 0x02U, 0xC0U};
     uint8_t out_buf[512] = {0};
@@ -2620,6 +2749,9 @@ int main(void) {
         {.name = "trackpad_tap_suppression", .fn = app_replay_test_trackpad_tap_suppression},
         {.name = "trackpad_multi_finger_physical_click",
             .fn = app_replay_test_trackpad_multi_finger_physical_click},
+        {.name = "trackpad_pinch_zoom_chords", .fn = app_replay_test_trackpad_pinch_zoom_chords},
+        {.name = "trackpad_three_finger_swipes",
+            .fn = app_replay_test_trackpad_three_finger_swipes},
     };
     const size_t test_count = sizeof(test_cases) / sizeof(test_cases[0]);
     size_t index = 0U;
