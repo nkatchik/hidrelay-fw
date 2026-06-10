@@ -157,6 +157,16 @@ typedef struct {
     bool used;
     hci_con_handle_t con_handle;
     uint16_t hid_cid;
+    /*
+     * USB Device ID (VID/PID) of this device, resolved from its SDP Device ID
+     * (PnP Information) record after the HID connection opens. Drives
+     * recognition of supported Apple devices (descriptor augmentation,
+     * relay-side report rewriting). Per-connection so a recognized keyboard
+     * and a recognized trackpad can be connected at the same time.
+     */
+    bool usb_id_valid;
+    uint16_t usb_vendor_id;
+    uint16_t usb_product_id;
 } transport_stack_classic_session_t;
 
 static uint8_t g_btstack_classic_hid_descriptor_storage[1024] = {0};
@@ -216,25 +226,18 @@ enum {
 };
 
 /*
- * USB Device ID (VID/PID) of the connected Classic HID device, read from its SDP
- * Device ID (PnP Information) record after the HID connection opens. Used to
- * recognize supported Apple keyboards (apple_keyboard_is_supported), whose report
- * descriptor is then augmented so the relay-side top-row remap can emit the
- * usages macOS honors. Cleared on disconnect. Single-device scope.
+ * product_id of the recognized Apple device whose augmented descriptor is
+ * currently presented to USB on each interface (0 = none/un-augmented).
+ * Re-enumeration to swap in the augmented descriptor is requested only when
+ * this would change, so reconnecting the same device does not re-enumerate.
+ * Reset whenever the interface topology changes (transport_stack_set_usb_plan)
+ * so the augmentation is re-applied against the new presentation.
  */
-static bool g_btstack_hid_usb_id_valid = false;
-static uint16_t g_btstack_hid_usb_vendor_id = 0U;
-static uint16_t g_btstack_hid_usb_product_id = 0U;
-/*
- * product_id of the recognized Apple keyboard whose augmented descriptor is
- * currently presented to USB (0 = none/un-augmented). Re-enumeration to swap in
- * the augmented descriptor is requested only when this would change, so
- * reconnecting the same keyboard does not re-enumerate. Reset whenever the
- * interface topology changes (transport_stack_set_usb_plan) so the augmentation is
- * re-applied against the new presentation.
- */
-static uint16_t g_btstack_presented_product_id = 0U;
+static uint16_t g_btstack_presented_product_id[HID_TRANSPORT_MAX_INTERFACE] = {0};
 static bd_addr_t g_btstack_device_id_query_addr = {0};
+/* Connection the in-flight Device ID query belongs to, so its result lands on
+ * the right session when more than one device is connected. */
+static uint16_t g_btstack_device_id_query_hid_cid = 0U;
 static uint16_t g_btstack_device_id_vendor_source = 0U;
 static uint16_t g_btstack_device_id_vendor_id = 0U;
 static uint16_t g_btstack_device_id_product_id = 0U;
@@ -508,6 +511,12 @@ static void transport_stack_remember_classic_session(
 
         if ((g_btstack_classic_session[index].hid_cid == hid_cid)
             || (g_btstack_classic_session[index].con_handle == con_handle)) {
+            /* A partial match means a new session reusing the slot, not the
+             * same one re-remembered; its resolved USB ID no longer applies. */
+            if ((g_btstack_classic_session[index].hid_cid != hid_cid)
+                || (g_btstack_classic_session[index].con_handle != con_handle)) {
+                g_btstack_classic_session[index].usb_id_valid = false;
+            }
             g_btstack_classic_session[index].hid_cid = hid_cid;
             g_btstack_classic_session[index].con_handle = con_handle;
             return;
@@ -522,12 +531,14 @@ static void transport_stack_remember_classic_session(
         g_btstack_classic_session[index].used = true;
         g_btstack_classic_session[index].hid_cid = hid_cid;
         g_btstack_classic_session[index].con_handle = con_handle;
+        g_btstack_classic_session[index].usb_id_valid = false;
         return;
     }
 
     g_btstack_classic_session[0].used = true;
     g_btstack_classic_session[0].hid_cid = hid_cid;
     g_btstack_classic_session[0].con_handle = con_handle;
+    g_btstack_classic_session[0].usb_id_valid = false;
 }
 
 static void transport_stack_forget_classic_session_by_hid_cid(uint16_t hid_cid) {
@@ -570,6 +581,48 @@ static bool transport_stack_find_classic_hid_cid_by_con_handle(
     }
 
     return false;
+}
+
+static transport_stack_classic_session_t * transport_stack_classic_session_by_hid_cid(
+    uint16_t hid_cid
+) {
+    uint8_t index = 0U;
+
+    if (hid_cid == 0U) {
+        return NULL;
+    }
+
+    for (index = 0U; index < TRANSPORT_STACK_MAX_USB_INTERFACE; index++) {
+        if (g_btstack_classic_session[index].used
+            && (g_btstack_classic_session[index].hid_cid == hid_cid)) {
+            return &g_btstack_classic_session[index];
+        }
+    }
+
+    return NULL;
+}
+
+/* Resolved USB VID/PID for the Classic connection, once its Device ID query
+ * has completed. False until then (or for an unknown vendor source). */
+static bool transport_stack_classic_session_usb_id(
+    uint16_t hid_cid,
+    uint16_t * out_vendor_id,
+    uint16_t * out_product_id
+) {
+    const transport_stack_classic_session_t * session =
+        transport_stack_classic_session_by_hid_cid(hid_cid);
+
+    if ((session == NULL) || !session->usb_id_valid) {
+        return false;
+    }
+
+    if (out_vendor_id != NULL) {
+        *out_vendor_id = session->usb_vendor_id;
+    }
+    if (out_product_id != NULL) {
+        *out_product_id = session->usb_product_id;
+    }
+    return true;
 }
 
 static uint8_t transport_stack_active_connection_count(void) {
@@ -1338,12 +1391,6 @@ static void transport_stack_handle_connect_success(void) {
      * the working keyboard.
      */
     g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
-    /*
-     * New HID session: drop the previous device's USB VID/PID until this
-     * device's SDP Device ID query (kicked off on CONNECTION_OPENED) resolves,
-     * so recognition never keys off a stale device.
-     */
-    g_btstack_hid_usb_id_valid = false;
     transport_stack_clear_unconnected_le_pending();
     g_btstack_pairing_auth_attempted = false;
     transport_stack_clear_pairing_failure_phase();
@@ -1428,8 +1475,6 @@ static void transport_stack_emit_classic_close_by_hid_cid(uint16_t hid_cid) {
     event.type = HID_TRANSPORT_EVENT_BT_HID_CLOSE;
     event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
     event.hid_cid = hid_cid;
-    /* Device gone; clear its resolved USB VID/PID so recognition resets. */
-    g_btstack_hid_usb_id_valid = false;
     if (g_btstack_device_id_query_deferred && (g_btstack_device_id_deferred_hid_cid == hid_cid)) {
         g_btstack_device_id_query_deferred = false;
         g_btstack_device_id_deferred_hid_cid = 0U;
@@ -1516,16 +1561,20 @@ static void transport_stack_emit_classic_report_event(uint8_t * packet) {
      * The transform may also emit a second aux report on press/release, so both
      * are pushed as separate USB reports on the same interface.
      */
-    if (g_btstack_hid_usb_id_valid
-        && apple_keyboard_is_supported(g_btstack_hid_usb_vendor_id, g_btstack_hid_usb_product_id)) {
+    uint16_t usb_vendor_id = 0U;
+    uint16_t usb_product_id = 0U;
+    const bool usb_id_valid =
+        transport_stack_classic_session_usb_id(hid_cid, &usb_vendor_id, &usb_product_id);
+
+    if (usb_id_valid && apple_keyboard_is_supported(usb_vendor_id, usb_product_id)) {
         uint8_t kbd[HID_TRANSPORT_REPORT_MAX_LEN];
         uint8_t aux[APPLE_KEYBOARD_AUX_REPORT_LEN];
         uint16_t kbd_len = 0U;
         uint16_t aux_len = 0U;
 
         if (!g_apple_keyboard_state.initialized
-            || (g_apple_keyboard_state.product_id != g_btstack_hid_usb_product_id)) {
-            apple_keyboard_state_init(&g_apple_keyboard_state, g_btstack_hid_usb_product_id);
+            || (g_apple_keyboard_state.product_id != usb_product_id)) {
+            apple_keyboard_state_init(&g_apple_keyboard_state, usb_product_id);
         }
 
         if (apple_keyboard_process_report(
@@ -2307,24 +2356,47 @@ static void transport_stack_device_id_sdp_handler(
                  */
                 break;
             }
-            g_btstack_hid_usb_vendor_id = usb_vendor_id;
-            g_btstack_hid_usb_product_id = g_btstack_device_id_product_id;
-            g_btstack_hid_usb_id_valid = true;
             {
+                transport_stack_classic_session_t * session =
+                    transport_stack_classic_session_by_hid_cid(g_btstack_device_id_query_hid_cid);
+                const uint16_t resolved_product = g_btstack_device_id_product_id;
+                uint8_t iface = 0U;
+
+                if (session == NULL) {
+                    /* Connection closed while the query was in flight. */
+                    break;
+                }
+                session->usb_vendor_id = usb_vendor_id;
+                session->usb_product_id = resolved_product;
+                session->usb_id_valid = true;
+
                 /*
                  * Re-enumerate to swap in the augmented descriptor only when the
-                 * recognized keyboard actually changes -- reconnecting the same
-                 * one presents the identical descriptor, so skipping the re-
-                 * enumeration keeps the interface mounted and avoids the churn
-                 * that wedged the HID endpoint on a fast off/on.
+                 * recognized device on this interface actually changes --
+                 * reconnecting the same one presents the identical descriptor,
+                 * so skipping the re-enumeration keeps the interface mounted and
+                 * avoids the churn that wedged the HID endpoint on a fast off/on.
                  */
-                const uint16_t desired_product =
-                    apple_keyboard_is_supported(usb_vendor_id, g_btstack_device_id_product_id)
-                    ? g_btstack_device_id_product_id
-                    : 0U;
-                if (desired_product != g_btstack_presented_product_id) {
-                    g_btstack_presented_product_id = desired_product;
-                    usb_runtime_request_reenumeration();
+                for (iface = 0U; iface < HID_TRANSPORT_MAX_INTERFACE; iface++) {
+                    hid_transport_usb_interface_plan_t plan = {0};
+                    uint16_t desired_product = 0U;
+
+                    if (!hid_transport_runtime_usb_interface_plan_get(
+                            &g_transport_runtime,
+                            iface,
+                            &plan
+                        )
+                        || (plan.hid_cid != session->hid_cid)) {
+                        continue;
+                    }
+                    if (apple_keyboard_is_supported(usb_vendor_id, resolved_product)) {
+                        desired_product = resolved_product;
+                    }
+                    if (desired_product != g_btstack_presented_product_id[iface]) {
+                        g_btstack_presented_product_id[iface] = desired_product;
+                        usb_runtime_request_reenumeration();
+                    }
+                    break;
                 }
             }
         } break;
@@ -2343,16 +2415,22 @@ static void transport_stack_device_id_start_query(void * context) {
 }
 
 /*
- * Queue an SDP Device ID query against the connected keyboard. Run after the
+ * Queue an SDP Device ID query against the connected device. Run after the
  * HID connection opens (the SDP client is free again by then). Resets the
  * partial-result fields; registering the callback is a no-op if a query is
- * already queued.
+ * already queued. Single query slot: should a second device's query be
+ * requested while one is in flight, the first result is dropped (its session
+ * just stays unrecognized until it reconnects).
  */
-static void transport_stack_request_device_id(const uint8_t * addr) {
+static void transport_stack_request_device_id(
+    const uint8_t * addr,
+    uint16_t hid_cid
+) {
     if (addr == NULL) {
         return;
     }
     (void)memcpy(g_btstack_device_id_query_addr, addr, sizeof(g_btstack_device_id_query_addr));
+    g_btstack_device_id_query_hid_cid = hid_cid;
     g_btstack_device_id_vendor_source = 0U;
     g_btstack_device_id_vendor_id = 0U;
     g_btstack_device_id_product_id = 0U;
@@ -2630,7 +2708,10 @@ static void transport_stack_packet_handler(
                         && (descriptor_hid_cid == g_btstack_device_id_deferred_hid_cid)) {
                         g_btstack_device_id_query_deferred = false;
                         g_btstack_device_id_deferred_hid_cid = 0U;
-                        transport_stack_request_device_id(g_btstack_device_id_deferred_addr);
+                        transport_stack_request_device_id(
+                            g_btstack_device_id_deferred_addr,
+                            descriptor_hid_cid
+                        );
                     }
                     /*
                      * If this device's descriptor bytes have never been served to
@@ -2723,10 +2804,10 @@ bool transport_stack_init(void) {
     g_btstack_pairing_attempt_consumed = false;
     g_btstack_pairing_auth_attempted = false;
     g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
-    g_btstack_hid_usb_id_valid = false;
-    g_btstack_presented_product_id = 0U;
+    (void)memset(g_btstack_presented_product_id, 0, sizeof(g_btstack_presented_product_id));
     g_btstack_device_id_query_deferred = false;
     g_btstack_device_id_deferred_hid_cid = 0U;
+    g_btstack_device_id_query_hid_cid = 0U;
     (void)memset(g_btstack_descriptor_cache, 0, sizeof(g_btstack_descriptor_cache));
     g_btstack_pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     g_btstack_inquiry_active = false;
@@ -2957,10 +3038,10 @@ void transport_stack_set_usb_plan(
          * The exported interface topology changed (a device connected, was
          * dropped after its warm grace expired, or its base descriptor changed),
          * so the host re-reads descriptors. Clear the presented-augmentation
-         * signature so a recognized keyboard re-applies its augmented descriptor
+         * signatures so recognized devices re-apply their augmented descriptors
          * against the new presentation.
          */
-        g_btstack_presented_product_id = 0U;
+        (void)memset(g_btstack_presented_product_id, 0, sizeof(g_btstack_presented_product_id));
         usb_runtime_request_reenumeration();
     }
 }
@@ -3003,8 +3084,6 @@ void transport_stack_set_pairing(
         g_btstack_pairing_attempt_consumed = false;
         g_btstack_pairing_auth_attempted = false;
         g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
-        g_btstack_hid_usb_id_valid = false;
-        g_btstack_presented_product_id = 0U;
         g_btstack_pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         transport_stack_clear_pairing_failure_phase();
         transport_stack_clear_reconnect_state();
@@ -3398,15 +3477,20 @@ const uint8_t * transport_stack_usb_report_descriptor(
                  * so the relay-side top-row remap can emit usages macOS honors
                  * (the keyboard's native BT descriptor declares none of them).
                  */
+                uint16_t usb_vendor_id = 0U;
+                uint16_t usb_product_id = 0U;
+                const bool usb_id_valid = transport_stack_classic_session_usb_id(
+                    hid_cid,
+                    &usb_vendor_id,
+                    &usb_product_id
+                );
+
                 if ((bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC)
-                    && g_btstack_hid_usb_id_valid
-                    && apple_keyboard_is_supported(
-                        g_btstack_hid_usb_vendor_id,
-                        g_btstack_hid_usb_product_id
-                    )) {
+                    && usb_id_valid
+                    && apple_keyboard_is_supported(usb_vendor_id, usb_product_id)) {
                     static uint8_t aug_descriptor[1024];
                     const uint16_t aug_len = apple_keyboard_augment_descriptor(
-                        g_btstack_hid_usb_product_id,
+                        usb_product_id,
                         descriptor,
                         descriptor_len,
                         aug_descriptor,
