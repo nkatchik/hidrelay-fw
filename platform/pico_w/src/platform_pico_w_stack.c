@@ -2454,58 +2454,15 @@ static void pico_w_btstack_packet_handler(
                          * when app-level reconnect backoff is active.
                          */
                         accept = true;
-                    } else if (g_btstack_connect_pending
-                        && g_btstack_reconnect_pending
-                        && ((g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_CLASSIC)
-                            || (g_btstack_connect_mode
-                                == PICO_W_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING))
-                        && (memcmp(
-                                incoming_addr,
-                                g_btstack_candidate_addr,
-                                sizeof(g_btstack_candidate_addr)
-                            )
-                            == 0)) {
-                        /*
-                         * Reconnect deadlock breaker. We are reconnecting to this
-                         * exact device (outgoing Classic page) and it is paging us
-                         * at the same time. The branches above decline an incoming
-                         * page while a connect is pending, so neither side wins:
-                         * the keyboard reconnects (LED cue) but stays mute, and the
-                         * stale attempt holds the connection slot so a second
-                         * keyboard cannot connect either.
-                         *
-                         * Yield to the device -- but never accept its page while
-                         * our own outgoing hid_host_connect is already in flight:
-                         * two connection objects for one address collide and trip
-                         * a BTstack assert (a hard freeze). Split on whether the
-                         * connect command has been issued to the controller yet:
-                         *   - not issued: no outgoing object exists, so it is safe
-                         *     to drop the attempt and accept the incoming page now.
-                         *   - already issued: tear the outgoing attempt down
-                         *     (drop its ACL if one formed; errors its paging/SDP so
-                         *     BTstack finalizes it) and decline this page. The relay
-                         *     is now idle, so the device's next page is accepted by
-                         *     the normal path above without a collision.
-                         * reconnect_pending is left set so the eventual
-                         * CONNECTION_OPENED still reports the reconnect result.
-                         */
-                        if (!g_btstack_connect_command_issued) {
-                            g_btstack_connect_pending = false;
-                            g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
-                            g_btstack_connect_pending_since_ms = 0U;
-                            accept = true;
-                        } else {
-                            if (g_btstack_classic_candidate_con_handle != HCI_CON_HANDLE_INVALID) {
-                                (void)gap_disconnect(g_btstack_classic_candidate_con_handle);
-                                g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
-                            }
-                            g_btstack_connect_pending = false;
-                            g_btstack_connect_command_issued = false;
-                            g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
-                            g_btstack_connect_pending_since_ms = 0U;
-                        }
                     }
 
+                    /*
+                     * No arbitration with our own outgoing attempts is needed
+                     * here: the relay never pages Classic devices to reconnect
+                     * them (they reconnect themselves -- see the reconnect
+                     * scheduler), so an incoming page cannot collide with an
+                     * outgoing one for the same address.
+                     */
                     if (accept) {
                         (void)hid_host_accept_connection(
                             hid_subevent_incoming_connection_get_hid_cid(packet),

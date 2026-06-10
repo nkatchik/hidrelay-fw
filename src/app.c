@@ -143,6 +143,18 @@ static bool app_get_reconnect_candidate(
             continue;
         }
 
+        /*
+         * Classic HID devices own their reconnection: a bonded keyboard pages
+         * the host itself on power-on, wake, and link loss, and the relay is
+         * always page-scannable to accept it. Relay-initiated paging would only
+         * collide with the device's own page (two simultaneous connection
+         * attempts to/from one address), which delays or breaks the reconnect.
+         * The relay initiates only for LE, where the central must connect.
+         */
+        if (entry->last_bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC) {
+            continue;
+        }
+
         if ((entry->reconnect_allowed == 0U)
             || ((int32_t)(now_ms - entry->reconnect_retry_after_ms) < 0)) {
             continue;
