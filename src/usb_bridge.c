@@ -20,6 +20,67 @@ static bool usb_bridge_device_id_equal(
     return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
 }
 
+static bool usb_bridge_device_id_is_zero(const pair_device_id_t * device_id) {
+    pair_device_id_t zero = {0};
+
+    if (device_id == NULL) {
+        return true;
+    }
+
+    return memcmp(device_id->bytes, zero.bytes, sizeof(zero.bytes)) == 0;
+}
+
+static bool usb_bridge_time_reached(
+    uint32_t now_ms,
+    uint32_t target_ms
+) {
+    return (int32_t)(now_ms - target_ms) >= 0;
+}
+
+/* True when a device is currently connected (HID open) under the given id. */
+static bool usb_bridge_device_is_active(
+    const bt_manager_t * manager,
+    const pair_device_id_t * device_id,
+    bt_hid_device_t * out_device
+) {
+    uint8_t count = 0U;
+    uint8_t index = 0U;
+
+    if ((manager == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    count = bt_manager_active_count(manager);
+    for (index = 0U; (index < count) && (index < USB_BRIDGE_MAX_INTERFACE); index++) {
+        bt_hid_device_t device = {0};
+
+        if (bt_manager_active_get(manager, index, &device)
+            && usb_bridge_device_id_equal(&device.device_id, device_id)) {
+            if (out_device != NULL) {
+                *out_device = device;
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void usb_bridge_fill_slot_from_device(
+    usb_bridge_interface_t * slot,
+    const bt_hid_device_t * device
+) {
+    slot->used = true;
+    slot->hid_cid = device->hid_cid;
+    slot->bt_link_type = device->bt_link_type;
+    slot->report_descriptor_len = device->report_descriptor_len;
+    slot->vendor_id = device->vendor_id;
+    slot->product_id = device->product_id;
+    slot->protocol_mode = device->protocol_mode;
+    slot->device_id = device->device_id;
+    slot->warm_deadline_ms = 0U;
+}
+
 static uint8_t usb_bridge_next_tx_queue_index(uint8_t index) {
     return (uint8_t)((index + 1U) % USB_BRIDGE_TX_QUEUE_SIZE);
 }
@@ -401,14 +462,27 @@ void usb_bridge_sync_from_pair_db(
     usb_bridge_mark_descriptor_dirty_if_changed(bridge, previous_slot, previous_count);
 }
 
+/*
+ * Rebuild the exported USB interface set from the connected Bluetooth devices,
+ * but hold a recently-disconnected device's interface "warm" for a grace window
+ * so a brief flap (fast off/on) reuses the same interface instead of churning
+ * the USB presentation. Slots are carried forward in their existing order so a
+ * device's interface_number stays stable across active<->warm transitions;
+ * only a genuine change (new device, a device dropped after its grace expires,
+ * descriptor/protocol change) alters the topology and triggers re-enumeration.
+ */
 void usb_bridge_sync_from_bt_manager(
     usb_bridge_t * bridge,
-    const bt_manager_t * manager
+    const bt_manager_t * manager,
+    uint32_t now_ms
 ) {
     usb_bridge_interface_t previous_slot[USB_BRIDGE_MAX_INTERFACE] = {0};
     hid_device_map_state_t previous_map_state[USB_BRIDGE_MAX_INTERFACE] = {0};
+    usb_bridge_interface_t next_slot[USB_BRIDGE_MAX_INTERFACE] = {0};
+    hid_device_map_state_t next_map_state[USB_BRIDGE_MAX_INTERFACE] = {0};
     uint8_t previous_count = 0U;
     uint8_t manager_count = 0U;
+    uint8_t next_count = 0U;
     uint8_t index = 0U;
 
     if ((bridge == NULL) || (manager == NULL)) {
@@ -420,42 +494,88 @@ void usb_bridge_sync_from_bt_manager(
     previous_count = bridge->exported_interface_count;
     manager_count = bt_manager_active_count(manager);
 
-    usb_bridge_clear_topology(bridge);
-
-    for (index = 0U; (index < manager_count) && (index < USB_BRIDGE_MAX_INTERFACE); index++) {
-        usb_bridge_interface_t * slot = &bridge->interface_slot[index];
+    /*
+     * Pass 1: carry forward each previously real (non-placeholder) interface in
+     * order -- as active if its device is still connected, otherwise warm until
+     * its grace window expires.
+     */
+    for (index = 0U; index < previous_count; index++) {
+        const usb_bridge_interface_t * prev = &previous_slot[index];
         bt_hid_device_t active_device = {0};
+
+        if (!prev->used || usb_bridge_device_id_is_zero(&prev->device_id)) {
+            continue;
+        }
+
+        if (usb_bridge_device_is_active(manager, &prev->device_id, &active_device)) {
+            next_slot[next_count] = *prev;
+            usb_bridge_fill_slot_from_device(&next_slot[next_count], &active_device);
+        } else {
+            uint32_t deadline = (prev->warm_deadline_ms != 0U)
+                ? prev->warm_deadline_ms
+                : (now_ms + USB_BRIDGE_WARM_GRACE_MS);
+
+            if (usb_bridge_time_reached(now_ms, deadline)) {
+                continue; /* grace expired: drop the interface */
+            }
+            next_slot[next_count] = *prev;
+            next_slot[next_count].hid_cid = 0U;
+            next_slot[next_count].warm_deadline_ms = deadline;
+        }
+        next_map_state[next_count] = previous_map_state[index];
+        next_count = (uint8_t)(next_count + 1U);
+    }
+
+    /* Pass 2: append newly-connected devices that weren't carried forward. */
+    for (index = 0U; (index < manager_count) && (index < USB_BRIDGE_MAX_INTERFACE); index++) {
+        bt_hid_device_t active_device = {0};
+        uint8_t existing = 0U;
+        bool already_present = false;
 
         if (!bt_manager_active_get(manager, index, &active_device)) {
             continue;
         }
+        for (existing = 0U; existing < next_count; existing++) {
+            if (usb_bridge_device_id_equal(
+                    &next_slot[existing].device_id,
+                    &active_device.device_id
+                )) {
+                already_present = true;
+                break;
+            }
+        }
+        if (already_present || (next_count >= USB_BRIDGE_MAX_INTERFACE)) {
+            continue;
+        }
 
-        slot->used = true;
-        slot->interface_number = index;
-        slot->endpoint_out = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_OUT + index);
-        slot->endpoint_in = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_IN + index);
-        slot->hid_cid = active_device.hid_cid;
-        slot->bt_link_type = active_device.bt_link_type;
-        slot->report_descriptor_len = active_device.report_descriptor_len;
-        slot->vendor_id = active_device.vendor_id;
-        slot->product_id = active_device.product_id;
-        slot->protocol_mode = active_device.protocol_mode;
-        slot->device_id = active_device.device_id;
+        usb_bridge_fill_slot_from_device(&next_slot[next_count], &active_device);
         if (!usb_bridge_copy_previous_map_state(
                 previous_slot,
                 previous_map_state,
                 previous_count,
-                &slot->device_id,
-                &bridge->map_state[index]
+                &active_device.device_id,
+                &next_map_state[next_count]
             )) {
             hid_device_map_state_reset(
-                &bridge->map_state[index],
-                slot->vendor_id,
-                slot->product_id
+                &next_map_state[next_count],
+                active_device.vendor_id,
+                active_device.product_id
             );
         }
-        bridge->exported_interface_count = (uint8_t)(bridge->exported_interface_count + 1U);
+        next_count = (uint8_t)(next_count + 1U);
     }
+
+    /* Assign stable interface numbers and endpoints by final position. */
+    for (index = 0U; index < next_count; index++) {
+        next_slot[index].interface_number = index;
+        next_slot[index].endpoint_out = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_OUT + index);
+        next_slot[index].endpoint_in = (uint8_t)(USB_BRIDGE_ENDPOINT_BASE_IN + index);
+    }
+
+    usb_bridge_clear_topology(bridge);
+    (void)memcpy(bridge->interface_slot, next_slot, sizeof(bridge->interface_slot));
+    (void)memcpy(bridge->map_state, next_map_state, sizeof(bridge->map_state));
+    bridge->exported_interface_count = next_count;
 
     if (bridge->exported_interface_count == 0U) {
         usb_bridge_publish_placeholder_interface(bridge);

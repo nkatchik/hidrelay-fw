@@ -212,12 +212,52 @@ enum {
 static bool g_btstack_hid_usb_id_valid = false;
 static uint16_t g_btstack_hid_usb_vendor_id = 0U;
 static uint16_t g_btstack_hid_usb_product_id = 0U;
+/*
+ * product_id of the recognized Apple keyboard whose augmented descriptor is
+ * currently presented to USB (0 = none/un-augmented). Re-enumeration to swap in
+ * the augmented descriptor is requested only when this would change, so
+ * reconnecting the same keyboard does not re-enumerate. Reset whenever the
+ * interface topology changes (pico_w_stack_set_usb_plan) so the augmentation is
+ * re-applied against the new presentation.
+ */
+static uint16_t g_btstack_presented_product_id = 0U;
 static bd_addr_t g_btstack_device_id_query_addr = {0};
 static uint16_t g_btstack_device_id_vendor_source = 0U;
 static uint16_t g_btstack_device_id_vendor_id = 0U;
 static uint16_t g_btstack_device_id_product_id = 0U;
 static uint8_t g_btstack_device_id_attribute[16] = {0};
 static btstack_context_callback_registration_t g_btstack_device_id_sdp_request;
+/*
+ * The Device ID query is deferred from CONNECTION_OPENED to DESCRIPTOR_AVAILABLE
+ * for the same connection. BTstack fetches the HID report descriptor over its
+ * single SDP client after an incoming connection opens; issuing our Device ID
+ * query at open contends with that fetch, and when ours wins the descriptor
+ * never lands -- the keyboard connects but the USB host is shown an empty
+ * descriptor (mute). Once DESCRIPTOR_AVAILABLE fires the SDP client is free by
+ * definition, so the deferred query cannot starve the descriptor.
+ */
+static bool g_btstack_device_id_query_deferred = false;
+static uint16_t g_btstack_device_id_deferred_hid_cid = 0U;
+static bd_addr_t g_btstack_device_id_deferred_addr = {0};
+/*
+ * Last descriptor actually served to the USB host, per exported interface,
+ * stamped with the device it belongs to. Served again whenever the live
+ * BTstack descriptor storage cannot provide one for the same device: during a
+ * warm interface window (link down, interface still exported), after a raced
+ * SDP descriptor fetch on a fast reconnect, or when the host re-reads
+ * descriptors (e.g. resume from sleep) while the link is re-establishing.
+ * Keeping the served bytes stable is what keeps the host's view of the
+ * interface usable across those gaps. Cleared on init and forget.
+ */
+typedef struct {
+    bool valid;
+    pair_device_id_t device_id;
+    uint16_t len;
+    uint8_t bytes[1024];
+} pico_w_stack_descriptor_cache_t;
+static pico_w_stack_descriptor_cache_t g_btstack_descriptor_cache[HID_TRANSPORT_MAX_INTERFACE] = {
+    0
+};
 static pico_w_stack_connect_mode_t g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
 static pico_w_stack_pairing_failure_phase_t g_btstack_pairing_failure_phase =
     PICO_W_STACK_PAIRING_FAILURE_PHASE_NONE;
@@ -1323,6 +1363,10 @@ static void pico_w_stack_emit_classic_close_by_hid_cid(uint16_t hid_cid) {
     event.hid_cid = hid_cid;
     /* Device gone; clear its resolved USB VID/PID so recognition resets. */
     g_btstack_hid_usb_id_valid = false;
+    if (g_btstack_device_id_query_deferred && (g_btstack_device_id_deferred_hid_cid == hid_cid)) {
+        g_btstack_device_id_query_deferred = false;
+        g_btstack_device_id_deferred_hid_cid = 0U;
+    }
     pico_w_stack_forget_classic_session_by_hid_cid(hid_cid);
     (void)pico_w_stack_push_event(&event);
 }
@@ -2159,7 +2203,23 @@ static void pico_w_stack_device_id_sdp_handler(
             g_btstack_hid_usb_vendor_id = usb_vendor_id;
             g_btstack_hid_usb_product_id = g_btstack_device_id_product_id;
             g_btstack_hid_usb_id_valid = true;
-            pico_w_tinyusb_runtime_request_reenumeration();
+            {
+                /*
+                 * Re-enumerate to swap in the augmented descriptor only when the
+                 * recognized keyboard actually changes -- reconnecting the same
+                 * one presents the identical descriptor, so skipping the re-
+                 * enumeration keeps the interface mounted and avoids the churn
+                 * that wedged the HID endpoint on a fast off/on.
+                 */
+                const uint16_t desired_product =
+                    apple_keyboard_is_supported(usb_vendor_id, g_btstack_device_id_product_id)
+                    ? g_btstack_device_id_product_id
+                    : 0U;
+                if (desired_product != g_btstack_presented_product_id) {
+                    g_btstack_presented_product_id = desired_product;
+                    pico_w_tinyusb_runtime_request_reenumeration();
+                }
+            }
         } break;
         default:
             break;
@@ -2374,42 +2434,89 @@ static void pico_w_btstack_packet_handler(
             break;
         case HCI_EVENT_HID_META:
             switch (hci_event_hid_meta_get_subevent_code(packet)) {
-                case HID_SUBEVENT_INCOMING_CONNECTION:
+                case HID_SUBEVENT_INCOMING_CONNECTION: {
+                    bd_addr_t incoming_addr = {0};
+                    link_key_t link_key = {0};
+                    link_key_type_t link_key_type = INVALID_LINK_KEY;
+                    bool accept = false;
+
+                    hid_subevent_incoming_connection_get_address(packet, incoming_addr);
+
                     if (pico_w_stack_security_accept()
                         && !g_btstack_connect_pending
                         && pico_w_stack_connection_capacity_available()) {
+                        accept = true;
+                    } else if (!g_btstack_connect_pending
+                        && pico_w_stack_connection_capacity_available()
+                        && gap_get_link_key_for_bd_addr(incoming_addr, link_key, &link_key_type)) {
+                        /*
+                         * Allow previously bonded keyboards to reconnect even
+                         * when app-level reconnect backoff is active.
+                         */
+                        accept = true;
+                    } else if (g_btstack_connect_pending
+                        && g_btstack_reconnect_pending
+                        && ((g_btstack_connect_mode == PICO_W_STACK_CONNECT_MODE_CLASSIC)
+                            || (g_btstack_connect_mode
+                                == PICO_W_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING))
+                        && (memcmp(
+                                incoming_addr,
+                                g_btstack_candidate_addr,
+                                sizeof(g_btstack_candidate_addr)
+                            )
+                            == 0)) {
+                        /*
+                         * Reconnect deadlock breaker. We are reconnecting to this
+                         * exact device (outgoing Classic page) and it is paging us
+                         * at the same time. The branches above decline an incoming
+                         * page while a connect is pending, so neither side wins:
+                         * the keyboard reconnects (LED cue) but stays mute, and the
+                         * stale attempt holds the connection slot so a second
+                         * keyboard cannot connect either.
+                         *
+                         * Yield to the device -- but never accept its page while
+                         * our own outgoing hid_host_connect is already in flight:
+                         * two connection objects for one address collide and trip
+                         * a BTstack assert (a hard freeze). Split on whether the
+                         * connect command has been issued to the controller yet:
+                         *   - not issued: no outgoing object exists, so it is safe
+                         *     to drop the attempt and accept the incoming page now.
+                         *   - already issued: tear the outgoing attempt down
+                         *     (drop its ACL if one formed; errors its paging/SDP so
+                         *     BTstack finalizes it) and decline this page. The relay
+                         *     is now idle, so the device's next page is accepted by
+                         *     the normal path above without a collision.
+                         * reconnect_pending is left set so the eventual
+                         * CONNECTION_OPENED still reports the reconnect result.
+                         */
+                        if (!g_btstack_connect_command_issued) {
+                            g_btstack_connect_pending = false;
+                            g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
+                            g_btstack_connect_pending_since_ms = 0U;
+                            accept = true;
+                        } else {
+                            if (g_btstack_classic_candidate_con_handle != HCI_CON_HANDLE_INVALID) {
+                                (void)gap_disconnect(g_btstack_classic_candidate_con_handle);
+                                g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
+                            }
+                            g_btstack_connect_pending = false;
+                            g_btstack_connect_command_issued = false;
+                            g_btstack_connect_mode = PICO_W_STACK_CONNECT_MODE_NONE;
+                            g_btstack_connect_pending_since_ms = 0U;
+                        }
+                    }
+
+                    if (accept) {
                         (void)hid_host_accept_connection(
                             hid_subevent_incoming_connection_get_hid_cid(packet),
                             HID_PROTOCOL_MODE_REPORT
                         );
                     } else {
-                        bd_addr_t incoming_addr = {0};
-                        link_key_t link_key = {0};
-                        link_key_type_t link_key_type = INVALID_LINK_KEY;
-
-                        hid_subevent_incoming_connection_get_address(packet, incoming_addr);
-                        if (!g_btstack_connect_pending
-                            && pico_w_stack_connection_capacity_available()
-                            && gap_get_link_key_for_bd_addr(
-                                incoming_addr,
-                                link_key,
-                                &link_key_type
-                            )) {
-                            /*
-                             * Allow previously bonded keyboards to reconnect
-                             * even when app-level reconnect backoff is active.
-                             */
-                            (void)hid_host_accept_connection(
-                                hid_subevent_incoming_connection_get_hid_cid(packet),
-                                HID_PROTOCOL_MODE_REPORT
-                            );
-                        } else {
-                            (void)hid_host_decline_connection(
-                                hid_subevent_incoming_connection_get_hid_cid(packet)
-                            );
-                        }
+                        (void)hid_host_decline_connection(
+                            hid_subevent_incoming_connection_get_hid_cid(packet)
+                        );
                     }
-                    break;
+                } break;
                 case HID_SUBEVENT_CONNECTION_OPENED: {
                     const uint8_t status = hid_subevent_connection_opened_get_status(packet);
 
@@ -2422,20 +2529,76 @@ static void pico_w_btstack_packet_handler(
                             hid_subevent_connection_opened_get_hid_cid(packet)
                         );
                         /*
-                         * Read the keyboard's USB VID/PID so a supported Apple
-                         * keyboard can be recognized and its descriptor
-                         * augmented. The SDP client is free now that the HID
-                         * connection is up.
+                         * The keyboard's USB VID/PID (for Apple-keyboard
+                         * recognition) is read with a Device ID SDP query, but
+                         * deferred until DESCRIPTOR_AVAILABLE so it cannot
+                         * contend with BTstack's own report-descriptor fetch on
+                         * the shared SDP client (see the deferred-query state).
                          */
                         hid_subevent_connection_opened_get_bd_addr(packet, opened_addr);
-                        pico_w_stack_request_device_id(opened_addr);
+                        (void)memcpy(
+                            g_btstack_device_id_deferred_addr,
+                            opened_addr,
+                            sizeof(g_btstack_device_id_deferred_addr)
+                        );
+                        g_btstack_device_id_deferred_hid_cid =
+                            hid_subevent_connection_opened_get_hid_cid(packet);
+                        g_btstack_device_id_query_deferred = true;
                     } else {
                         pico_w_stack_handle_connect_failure(status);
                     }
                 } break;
-                case HID_SUBEVENT_DESCRIPTOR_AVAILABLE:
+                case HID_SUBEVENT_DESCRIPTOR_AVAILABLE: {
+                    const uint16_t descriptor_hid_cid =
+                        hid_subevent_descriptor_available_get_hid_cid(packet);
+
                     pico_w_stack_emit_classic_descriptor_event(packet);
-                    break;
+                    /*
+                     * BTstack's descriptor SDP transaction is finished for this
+                     * connection (whatever its status), so the deferred Device ID
+                     * query can run without starving the descriptor fetch.
+                     */
+                    if (g_btstack_device_id_query_deferred
+                        && (descriptor_hid_cid == g_btstack_device_id_deferred_hid_cid)) {
+                        g_btstack_device_id_query_deferred = false;
+                        g_btstack_device_id_deferred_hid_cid = 0U;
+                        pico_w_stack_request_device_id(g_btstack_device_id_deferred_addr);
+                    }
+                    /*
+                     * If this device's descriptor bytes have never been served to
+                     * the host (no cache entry), the host may have enumerated the
+                     * interface while the descriptor was still in flight and read
+                     * nothing. Re-enumerate once so it reads the real bytes; on a
+                     * reconnect of a known device the cache is already valid and
+                     * no re-enumeration happens.
+                     */
+                    {
+                        uint8_t iface = 0U;
+
+                        for (iface = 0U; iface < HID_TRANSPORT_MAX_INTERFACE; iface++) {
+                            hid_transport_usb_interface_plan_t plan = {0};
+
+                            if (!hid_transport_runtime_usb_interface_plan_get(
+                                    &g_transport_runtime,
+                                    iface,
+                                    &plan
+                                )
+                                || (plan.hid_cid != descriptor_hid_cid)) {
+                                continue;
+                            }
+                            if (!g_btstack_descriptor_cache[iface].valid
+                                || (memcmp(
+                                        g_btstack_descriptor_cache[iface].device_id.bytes,
+                                        plan.device_id.bytes,
+                                        sizeof(plan.device_id.bytes)
+                                    )
+                                    != 0)) {
+                                pico_w_tinyusb_runtime_request_reenumeration();
+                            }
+                            break;
+                        }
+                    }
+                } break;
                 case HID_SUBEVENT_GET_PROTOCOL_RESPONSE:
                     if (hid_subevent_get_protocol_response_get_handshake_status(packet)
                         == HID_HANDSHAKE_PARAM_TYPE_SUCCESSFUL) {
@@ -2494,6 +2657,10 @@ bool pico_w_stack_init(bool radio_ready) {
     g_btstack_pairing_auth_attempted = false;
     g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
     g_btstack_hid_usb_id_valid = false;
+    g_btstack_presented_product_id = 0U;
+    g_btstack_device_id_query_deferred = false;
+    g_btstack_device_id_deferred_hid_cid = 0U;
+    (void)memset(g_btstack_descriptor_cache, 0, sizeof(g_btstack_descriptor_cache));
     g_btstack_pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     g_btstack_inquiry_active = false;
     g_btstack_scan_active = false;
@@ -2717,6 +2884,14 @@ void pico_w_stack_set_usb_plan(
     }
 
     if (descriptor_changed) {
+        /*
+         * The exported interface topology changed (a device connected, was
+         * dropped after its warm grace expired, or its base descriptor changed),
+         * so the host re-reads descriptors. Clear the presented-augmentation
+         * signature so a recognized keyboard re-applies its augmented descriptor
+         * against the new presentation.
+         */
+        g_btstack_presented_product_id = 0U;
         pico_w_tinyusb_runtime_request_reenumeration();
     }
 }
@@ -2760,6 +2935,7 @@ void pico_w_stack_set_pairing(
         g_btstack_pairing_auth_attempted = false;
         g_btstack_classic_candidate_con_handle = HCI_CON_HANDLE_INVALID;
         g_btstack_hid_usb_id_valid = false;
+        g_btstack_presented_product_id = 0U;
         g_btstack_pairing_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         pico_w_stack_clear_pairing_failure_phase();
         pico_w_stack_clear_reconnect_state();
@@ -3011,6 +3187,26 @@ bool pico_w_stack_forget_device(const pair_device_id_t * device_id) {
         }
     }
 
+    {
+        uint8_t cache_index = 0U;
+
+        for (cache_index = 0U; cache_index < HID_TRANSPORT_MAX_INTERFACE; cache_index++) {
+            if (g_btstack_descriptor_cache[cache_index].valid
+                && (memcmp(
+                        g_btstack_descriptor_cache[cache_index].device_id.bytes,
+                        device_id->bytes,
+                        sizeof(device_id->bytes)
+                    )
+                    == 0)) {
+                (void)memset(
+                    &g_btstack_descriptor_cache[cache_index],
+                    0,
+                    sizeof(g_btstack_descriptor_cache[cache_index])
+                );
+            }
+        }
+    }
+
     gap_drop_link_key_for_bd_addr(device_addr);
     gap_delete_bonding(BD_ADDR_TYPE_ACL, device_addr);
     gap_delete_bonding(BD_ADDR_TYPE_LE_PUBLIC, device_addr);
@@ -3042,6 +3238,36 @@ bool pico_w_stack_forget_device(const pair_device_id_t * device_id) {
 
 uint8_t pico_w_stack_usb_interface_count(void) {
     return hid_transport_runtime_usb_interface_count(&g_transport_runtime);
+}
+
+static void pico_w_stack_descriptor_cache_store(
+    uint8_t interface_number,
+    const pair_device_id_t * device_id,
+    const uint8_t * bytes,
+    uint16_t len
+) {
+    pico_w_stack_descriptor_cache_t * slot = NULL;
+
+    if ((interface_number >= HID_TRANSPORT_MAX_INTERFACE)
+        || !pico_w_stack_device_id_valid(device_id)
+        || (bytes == NULL)
+        || (len == 0U)
+        || (len > (uint16_t)sizeof(g_btstack_descriptor_cache[0].bytes))) {
+        return;
+    }
+
+    slot = &g_btstack_descriptor_cache[interface_number];
+    if (slot->valid
+        && (slot->len == len)
+        && (memcmp(slot->device_id.bytes, device_id->bytes, sizeof(slot->device_id.bytes)) == 0)
+        && (memcmp(slot->bytes, bytes, len) == 0)) {
+        return;
+    }
+
+    slot->device_id = *device_id;
+    (void)memcpy(slot->bytes, bytes, len);
+    slot->len = len;
+    slot->valid = true;
 }
 
 const uint8_t * pico_w_stack_usb_report_descriptor(
@@ -3111,6 +3337,12 @@ const uint8_t * pico_w_stack_usb_report_descriptor(
                     );
 
                     if (aug_len > 0U) {
+                        pico_w_stack_descriptor_cache_store(
+                            interface_number,
+                            &interface_plan.device_id,
+                            aug_descriptor,
+                            aug_len
+                        );
                         if (out_len != NULL) {
                             *out_len = aug_len;
                         }
@@ -3118,12 +3350,44 @@ const uint8_t * pico_w_stack_usb_report_descriptor(
                     }
                 }
 
+                pico_w_stack_descriptor_cache_store(
+                    interface_number,
+                    &interface_plan.device_id,
+                    descriptor,
+                    descriptor_len
+                );
                 if (out_len != NULL) {
                     *out_len = descriptor_len;
                 }
 
                 return descriptor;
             }
+        }
+    }
+
+    /*
+     * No live descriptor (link down during a warm interface window, or the
+     * descriptor SDP fetch has not landed for this connection): serve the bytes
+     * last served for the same device on this interface, so the host's view of
+     * the interface stays consistent instead of collapsing to an empty
+     * descriptor.
+     */
+    if (interface_number < HID_TRANSPORT_MAX_INTERFACE) {
+        const pico_w_stack_descriptor_cache_t * cache =
+            &g_btstack_descriptor_cache[interface_number];
+
+        if (cache->valid
+            && (cache->len > 0U)
+            && (memcmp(
+                    cache->device_id.bytes,
+                    interface_plan.device_id.bytes,
+                    sizeof(cache->device_id.bytes)
+                )
+                == 0)) {
+            if (out_len != NULL) {
+                *out_len = cache->len;
+            }
+            return cache->bytes;
         }
     }
 #endif

@@ -21,6 +21,13 @@
 #ifdef APP_PICO_HAS_TINYUSB
 enum {
     PICO_W_TINYUSB_REENUM_DISCONNECT_MS = 120U,
+    /*
+     * After (re)attaching, give the host this long to finish enumerating
+     * (reach the mounted state) before honoring another re-enumeration
+     * request. Detaching mid-enumeration is what wedges the host's view of
+     * the device; the timeout is the escape hatch when the host never mounts.
+     */
+    PICO_W_TINYUSB_ENUM_GRACE_MS = 2000U,
     PICO_W_TINYUSB_IN_REPORT_QUEUE_SIZE = 32U,
 };
 
@@ -32,9 +39,9 @@ typedef struct {
 
 static bool g_pico_w_tinyusb_initialized = false;
 static bool g_pico_w_tinyusb_reenum_pending = false;
-static bool g_pico_w_tinyusb_reenum_again = false;
 static bool g_pico_w_tinyusb_reenum_disconnected = false;
 static uint32_t g_pico_w_tinyusb_reenum_resume_ms = 0U;
+static uint32_t g_pico_w_tinyusb_attach_ms = 0U;
 static uint32_t g_pico_w_tinyusb_descriptor_activity_count = 0U;
 static pico_w_tinyusb_in_report_t
     g_pico_w_tinyusb_in_report_queue[PICO_W_TINYUSB_IN_REPORT_QUEUE_SIZE] = {0};
@@ -77,7 +84,21 @@ static void pico_w_tinyusb_runtime_reenumeration_tick(void) {
     if (!g_pico_w_tinyusb_reenum_disconnected) {
         if (!tud_connected() && !tud_mounted()) {
             g_pico_w_tinyusb_reenum_pending = false;
-            g_pico_w_tinyusb_reenum_again = false;
+            return;
+        }
+
+        /*
+         * The host is still enumerating the device (attached but not yet
+         * mounted): let that finish before detaching again, or the host can be
+         * left with a half-enumerated, unresponsive view of the device. The
+         * pending request is not lost -- it runs on mount or after the grace
+         * timeout.
+         */
+        if (!tud_mounted()
+            && !pico_w_tinyusb_runtime_time_reached(
+                now_ms,
+                g_pico_w_tinyusb_attach_ms + PICO_W_TINYUSB_ENUM_GRACE_MS
+            )) {
             return;
         }
 
@@ -92,20 +113,10 @@ static void pico_w_tinyusb_runtime_reenumeration_tick(void) {
     }
 
     tud_connect();
+    g_pico_w_tinyusb_attach_ms = now_ms;
     g_pico_w_tinyusb_reenum_pending = false;
     g_pico_w_tinyusb_reenum_disconnected = false;
     g_pico_w_tinyusb_reenum_resume_ms = 0U;
-
-    if (g_pico_w_tinyusb_reenum_again) {
-        /*
-         * A re-enumeration was requested while this one was in flight (e.g. the
-         * report descriptor was augmented mid-cycle, after the host had already
-         * read it). Run another so the host re-reads the descriptors with the
-         * latest state.
-         */
-        g_pico_w_tinyusb_reenum_again = false;
-        pico_w_tinyusb_runtime_request_reenumeration();
-    }
 }
 
 static bool pico_w_tinyusb_runtime_try_send_in_report(
@@ -192,6 +203,8 @@ bool pico_w_tinyusb_runtime_init(void) {
     g_pico_w_tinyusb_descriptor_activity_count = 0U;
     pico_w_tinyusb_runtime_clear_in_report_queue();
     g_pico_w_tinyusb_initialized = tusb_init();
+    /* Boot-time attach starts the host's first enumeration of the device. */
+    g_pico_w_tinyusb_attach_ms = to_ms_since_boot(get_absolute_time());
     return g_pico_w_tinyusb_initialized;
 #else
     return true;
@@ -271,11 +284,10 @@ void pico_w_tinyusb_runtime_request_reenumeration(void) {
 #ifdef APP_PICO_HAS_TINYUSB
     if (g_pico_w_tinyusb_reenum_pending) {
         /*
-         * A re-enumeration is already running; record that another is needed so
-         * a state change landing mid-cycle (e.g. a newly augmented descriptor)
-         * is not lost to the in-progress cycle.
+         * A cycle is already pending: the host reads descriptors only after the
+         * upcoming re-attach, so any state change landing before then is picked
+         * up by that same cycle -- nothing to record.
          */
-        g_pico_w_tinyusb_reenum_again = true;
         return;
     }
 

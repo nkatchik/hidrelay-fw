@@ -527,7 +527,7 @@ void app_tick(
     }
 
     bt_manager_tick(&app->bt_manager, input->now_ms);
-    usb_bridge_sync_from_bt_manager(&app->usb_bridge, &app->bt_manager);
+    usb_bridge_sync_from_bt_manager(&app->usb_bridge, &app->bt_manager, input->now_ms);
     usb_bridge_tick(&app->usb_bridge, input->now_ms);
 
     bt_state = bt_manager_state(&app->bt_manager);

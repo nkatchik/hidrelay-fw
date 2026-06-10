@@ -12,6 +12,14 @@
 #define USB_BRIDGE_MAX_INTERFACE BT_MANAGER_MAX_ACTIVE_DEVICE
 #define USB_BRIDGE_TX_QUEUE_SIZE 32U
 
+/*
+ * How long a disconnected device's USB interface is held "warm" (presented to
+ * the host unchanged) before it is dropped. A reconnect within this window
+ * reuses the same interface, so a brief Bluetooth flap causes no USB re-
+ * enumeration; only a disconnect longer than this reverts the presentation.
+ */
+#define USB_BRIDGE_WARM_GRACE_MS 8000U
+
 typedef struct {
     bool used;
     uint8_t interface_number;
@@ -24,6 +32,9 @@ typedef struct {
     uint16_t product_id;
     uint8_t protocol_mode;
     pair_device_id_t device_id;
+    /* Nonzero while the device is disconnected but the interface is held warm;
+     * the absolute time (ms) the warm window expires. Zero when active. */
+    uint32_t warm_deadline_ms;
 } usb_bridge_interface_t;
 
 typedef struct {
@@ -62,7 +73,8 @@ void usb_bridge_sync_from_pair_db(
 );
 void usb_bridge_sync_from_bt_manager(
     usb_bridge_t * bridge,
-    const bt_manager_t * manager
+    const bt_manager_t * manager,
+    uint32_t now_ms
 );
 bool usb_bridge_ingest_bt_report(
     usb_bridge_t * bridge,
