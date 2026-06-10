@@ -29,7 +29,10 @@ enum {
     PICO_W_HANG_SCRATCH_BT = 2U,
     PICO_W_HANG_SCRATCH_MAIN = 3U,
     PICO_W_SDK_SCRATCH_REBOOT_MAGIC = 4U,
-    PICO_W_WATCHDOG_TIMEOUT_MS = 5000U
+    /* RP2040 hardware ceiling: 24-bit microsecond load counter that
+     * decrements twice per tick (errata RP2040-E1) caps the watchdog at
+     * ~8.39 s. 8 s is the longest timeout this chip can enforce. */
+    PICO_W_WATCHDOG_TIMEOUT_MS = 8000U
 };
 
 /* XIP flash window: panic format strings are literals living here, so the
