@@ -3,6 +3,7 @@
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/usb_reset_interface.h"
+#include "platform_pico_w_hw.h"
 #include "platform_usb_port.h"
 #include "tusb.h"
 
@@ -138,6 +139,7 @@ static bool pico_w_resetd_control_xfer_cb(
     if ((g_reset_pending_request == PICO_W_RESET_REQUEST_BOOTSEL)
         && (request->bRequest == RESET_REQUEST_BOOTSEL)) {
         g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+        pico_w_hw_disarm_hang_report();
         reset_usb_boot(0U, (uint32_t)g_reset_pending_bootsel_activity_mask);
         return true;
     }
@@ -145,6 +147,7 @@ static bool pico_w_resetd_control_xfer_cb(
     if ((g_reset_pending_request == PICO_W_RESET_REQUEST_FLASH)
         && (request->bRequest == RESET_REQUEST_FLASH)) {
         g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;
+        pico_w_hw_disarm_hang_report();
         watchdog_reboot(0U, 0U, 0U);
         return true;
     }

@@ -29,6 +29,7 @@
 #include "apple_keyboard.h"
 #include "apple_trackpad.h"
 #include "hid_transport_runtime.h"
+#include "platform_api.h"
 #include "usb_runtime.h"
 
 enum {
@@ -63,6 +64,21 @@ static void transport_stack_unlock(void) {
     platform_bt_port_unlock();
 #endif
 }
+
+/*
+ * Hang-checkpoint markers written from the Bluetooth stack's execution
+ * context (platform_hang_checkpoint_bt): the value frozen across a watchdog
+ * recovery is the last marker passed before the wedge.
+ */
+enum {
+    TRANSPORT_STACK_HANG_BT_REPORT_PATH = 1U,
+    TRANSPORT_STACK_HANG_BT_TRACKPAD_PROCESS = 2U,
+    TRANSPORT_STACK_HANG_BT_TRACKPAD_DONE = 3U,
+    TRANSPORT_STACK_HANG_BT_DEVICE_ID_SDP = 4U,
+    TRANSPORT_STACK_HANG_BT_RECOGNITION = 5U,
+    TRANSPORT_STACK_HANG_BT_MT_ENABLE_SEND = 6U,
+    TRANSPORT_STACK_HANG_BT_MT_ENABLE_DONE = 7U
+};
 
 static bool transport_stack_push_event(const hid_transport_event_t * event) {
     return hid_transport_runtime_push_event(&g_transport_runtime, event);
@@ -699,6 +715,7 @@ static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t
 
     session->mt_enable_attempts = (uint8_t)(session->mt_enable_attempts + 1U);
     session->mt_enable_next_attempt_ms = g_btstack_now_ms + TRANSPORT_STACK_MT_ENABLE_RETRY_MS;
+    platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_MT_ENABLE_SEND);
     (void)hid_host_send_set_report(
         session->hid_cid,
         HID_REPORT_TYPE_FEATURE,
@@ -706,6 +723,7 @@ static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t
         session->mt_enable_payload,
         session->mt_enable_payload_len
     );
+    platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_MT_ENABLE_DONE);
 }
 
 static uint8_t transport_stack_active_connection_count(void) {
@@ -1616,6 +1634,8 @@ static void transport_stack_emit_classic_report_event(uint8_t * packet) {
     uint16_t report_len = 0U;
     uint16_t hid_cid = 0U;
 
+    platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_REPORT_PATH);
+
     if (packet == NULL) {
         return;
     }
@@ -1667,13 +1687,17 @@ static void transport_stack_emit_classic_report_event(uint8_t * packet) {
             apple_trackpad_state_init(&g_apple_trackpad_state, usb_product_id);
         }
 
-        if (apple_trackpad_process_report(
-                &g_apple_trackpad_state,
-                report,
-                report_len,
-                g_btstack_now_ms,
-                &trackpad_out
-            )) {
+        platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_TRACKPAD_PROCESS);
+        const bool trackpad_consumed = apple_trackpad_process_report(
+            &g_apple_trackpad_state,
+            report,
+            report_len,
+            g_btstack_now_ms,
+            &trackpad_out
+        );
+        platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_TRACKPAD_DONE);
+
+        if (trackpad_consumed) {
             uint8_t out_index = 0U;
 
             g_apple_trackpad_hid_cid = hid_cid;
@@ -2432,6 +2456,8 @@ static void transport_stack_device_id_sdp_handler(
         return;
     }
 
+    platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_DEVICE_ID_SDP);
+
     switch (hci_event_packet_get_type(packet)) {
         case SDP_EVENT_QUERY_ATTRIBUTE_VALUE:
             attribute_id = sdp_event_query_attribute_byte_get_attribute_id(packet);
@@ -2474,6 +2500,8 @@ static void transport_stack_device_id_sdp_handler(
             break;
         case SDP_EVENT_QUERY_COMPLETE: {
             uint16_t usb_vendor_id = 0U;
+
+            platform_hang_checkpoint_bt(TRANSPORT_STACK_HANG_BT_RECOGNITION);
 
             if (g_btstack_device_id_vendor_id == 0U) {
                 break;
@@ -3121,6 +3149,12 @@ void transport_stack_poll(uint32_t now_ms) {
 #ifdef APP_HAS_BTSTACK
     uint8_t le_index = 0U;
 
+    /*
+     * Main-thread hang markers 7/8 (main.c owns 1-6): distinguish a wedge
+     * while waiting for / holding the stack lock from one inside the USB
+     * poll below.
+     */
+    platform_hang_checkpoint_main(7U);
     transport_stack_lock();
     g_btstack_now_ms = now_ms;
     transport_stack_sync_hci_ready();
@@ -3192,6 +3226,7 @@ void transport_stack_poll(uint32_t now_ms) {
     transport_stack_unlock();
 #endif
 
+    platform_hang_checkpoint_main(8U);
     usb_runtime_poll();
 }
 

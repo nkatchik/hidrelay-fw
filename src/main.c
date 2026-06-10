@@ -15,6 +15,64 @@ enum {
     MAIN_DIAG_EMIT_INTERVAL_MS = 50U,
 };
 
+/* Main-thread hang-checkpoint markers (see platform_hang_checkpoint_main).
+ * Markers 7-8 are written from inside transport_stack_poll (lock wait /
+ * USB poll). */
+enum {
+    MAIN_HANG_MARKER_POLL = 1U,
+    MAIN_HANG_MARKER_POLL_DONE = 2U,
+    MAIN_HANG_MARKER_APP_TICK = 3U,
+    MAIN_HANG_MARKER_APPLY_OUTPUT = 4U,
+    MAIN_HANG_MARKER_PAIR_STORE_SAVE = 5U,
+    MAIN_HANG_MARKER_LOOP_DONE = 6U
+};
+
+enum {
+    MAIN_HANG_BLINK_ON_MS = 350U,
+    MAIN_HANG_BLINK_OFF_MS = 350U,
+    MAIN_HANG_BLINK_GROUP_GAP_MS = 1500U
+};
+
+static void main_hang_blink_delay_ms(uint32_t delay_ms) {
+    uint32_t elapsed = 0U;
+
+    for (elapsed = 0U; elapsed < delay_ms; elapsed += 10U) {
+        platform_sleep_us(10U * 1000U);
+    }
+}
+
+static void main_hang_blink_group(uint8_t blink_count) {
+    uint8_t blink = 0U;
+
+    for (blink = 0U; blink < blink_count; blink++) {
+        platform_set_led(true);
+        main_hang_blink_delay_ms(MAIN_HANG_BLINK_ON_MS);
+        platform_set_led(false);
+        main_hang_blink_delay_ms(MAIN_HANG_BLINK_OFF_MS);
+    }
+}
+
+/*
+ * After a watchdog recovery from a firmware hang, blink the two frozen
+ * checkpoint markers before normal startup: first group = Bluetooth-context
+ * marker + 1, gap, second group = main-thread marker + 1 (so a marker of 0
+ * still produces one blink). Localizes the wedge without any tooling.
+ */
+static void main_report_hang_if_any(void) {
+    uint8_t bt_marker = 0U;
+    uint8_t main_marker = 0U;
+
+    if (!platform_take_hang_report(&bt_marker, &main_marker)) {
+        return;
+    }
+
+    main_hang_blink_delay_ms(MAIN_HANG_BLINK_GROUP_GAP_MS);
+    main_hang_blink_group((uint8_t)(bt_marker + 1U));
+    main_hang_blink_delay_ms(MAIN_HANG_BLINK_GROUP_GAP_MS);
+    main_hang_blink_group((uint8_t)(main_marker + 1U));
+    main_hang_blink_delay_ms(MAIN_HANG_BLINK_GROUP_GAP_MS);
+}
+
 /*
  * MCU default stacks are small; keep large app state out of main() frame to
  * avoid early boot stack overflow.
@@ -281,9 +339,13 @@ int main(void) {
         return 1;
     }
 
+    main_report_hang_if_any();
+
     if (!transport_stack_init()) {
         return 1;
     }
+
+    platform_watchdog_enable();
 
     app_diag_init();
     app_init(&g_app, has_initial_pair_db ? &g_initial_pair_db : NULL);
@@ -295,10 +357,13 @@ int main(void) {
         app_input_t app_input = {0};
         bool pair_db_changed = false;
 
+        platform_watchdog_feed();
         app_input.button_pressed = platform_button_pressed();
         app_input.now_ms = platform_uptime_ms();
         app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
+        platform_hang_checkpoint_main(MAIN_HANG_MARKER_POLL);
         transport_stack_poll(app_input.now_ms);
+        platform_hang_checkpoint_main(MAIN_HANG_MARKER_POLL_DONE);
         main_flush_pending_transport_tx();
         app_input.usb_tx_blocked = g_pending_usb_tx.valid;
         app_input.bt_tx_blocked = g_pending_bt_tx.valid;
@@ -307,9 +372,11 @@ int main(void) {
             app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
         }
 
+        platform_hang_checkpoint_main(MAIN_HANG_MARKER_APP_TICK);
         app_tick(&g_app, &app_input, &g_app_output);
         pair_db_changed = memcmp(&g_app.pair_db, &g_persisted_pair_db, sizeof(g_app.pair_db)) != 0;
 
+        platform_hang_checkpoint_main(MAIN_HANG_MARKER_APPLY_OUTPUT);
         main_apply_output(&g_app_output);
 
         if (pair_db_changed && !pair_db_save_pending) {
@@ -342,11 +409,14 @@ int main(void) {
             if ((debounce_elapsed || max_stale_elapsed) && retry_elapsed) {
                 pair_db_last_save_attempt_ms = app_input.now_ms;
 
+                platform_hang_checkpoint_main(MAIN_HANG_MARKER_PAIR_STORE_SAVE);
                 if (pair_store_save(&g_app.pair_db)) {
                     g_persisted_pair_db = g_app.pair_db;
                     pair_db_save_pending = false;
                 }
             }
         }
+
+        platform_hang_checkpoint_main(MAIN_HANG_MARKER_LOOP_DONE);
     }
 }
