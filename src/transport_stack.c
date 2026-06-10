@@ -35,6 +35,7 @@ enum {
     TRANSPORT_STACK_MAX_ACTIVE_CONNECTION = 2U,
     TRANSPORT_STACK_INQUIRY_DURATION_UNITS = 0x08U,
     TRANSPORT_STACK_MAJOR_CLASS_PERIPHERAL = 0x05U,
+    TRANSPORT_STACK_COD_MINOR_KEYBOARD_BIT = 0x40U,
 };
 
 static hid_transport_runtime_t g_transport_runtime = {0};
@@ -179,6 +180,15 @@ static uint32_t g_btstack_now_ms = 0U;
 static uint32_t g_btstack_connect_pending_since_ms = 0U;
 static bd_addr_t g_btstack_candidate_addr = {0};
 static bd_addr_type_t g_btstack_candidate_addr_type = BD_ADDR_TYPE_UNKNOWN;
+/*
+ * Whether the in-flight Classic pairing candidate gets MITM-protected
+ * bonding. Decided from the inquiry Class of Device keyboard bit: keyboards
+ * can complete an authenticated association and Apple Magic Keyboard even
+ * requires one, while NoInputNoOutput peers (trackpads, mice) can never
+ * provide MITM -- requesting it makes BTstack abort the pairing locally with
+ * INSUFFICIENT_SECURITY before the peer is even consulted.
+ */
+static bool g_btstack_candidate_mitm_required = true;
 /*
  * Classic ACL handle for the in-flight pairing/connect candidate. The Classic
  * flow bonds via gap_dedicated_bonding and -- through ENABLE_EXPLICIT_DEDICATED_-
@@ -1239,9 +1249,23 @@ static void transport_stack_request_le_pairing_before_hids(transport_stack_le_se
     sm_request_pairing(session->con_handle);
 }
 
+/*
+ * Restore the boot-time SSP authentication requirement after a dedicated
+ * bonding attempt may have relaxed it for a NoInputNoOutput candidate, so
+ * inbound re-pairing from a bonded keyboard still negotiates an
+ * authenticated association (Magic Keyboard rejects unauthenticated keys).
+ */
+static void transport_stack_restore_default_ssp_auth_requirement(void) {
+    gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_REQUIRED_GENERAL_BONDING);
+}
+
 static void transport_stack_handle_connect_failure(uint8_t status_code) {
     const bool auth_attempted =
         g_btstack_reconnect_auth_attempted || g_btstack_pairing_auth_attempted;
+
+    if (g_btstack_connect_mode == TRANSPORT_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING) {
+        transport_stack_restore_default_ssp_auth_requirement();
+    }
 
     if ((g_btstack_connect_mode
             == TRANSPORT_STACK_CONNECT_MODE_LE
@@ -1648,8 +1672,22 @@ static void transport_stack_try_connect_candidate(void) {
          * reported via GAP_EVENT_DEDICATED_BONDING_COMPLETED -- on success
          * we re-schedule the same candidate as plain CLASSIC so
          * hid_host_connect runs against a now-bonded peer.
+         *
+         * The SSP authentication requirement advertised in our IO Capability
+         * Reply is aligned with the per-candidate MITM decision for the
+         * duration of the attempt (restored when the attempt concludes), so
+         * we never declare a MITM requirement the association model cannot
+         * meet for a NoInputNoOutput peer.
          */
-        connect_status = (uint8_t)gap_dedicated_bonding(g_btstack_candidate_addr, 1);
+        gap_ssp_set_authentication_requirement(
+            g_btstack_candidate_mitm_required
+                ? SSP_IO_AUTHREQ_MITM_PROTECTION_REQUIRED_GENERAL_BONDING
+                : SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING
+        );
+        connect_status = (uint8_t)gap_dedicated_bonding(
+            g_btstack_candidate_addr,
+            g_btstack_candidate_mitm_required ? 1 : 0
+        );
     } else if (g_btstack_connect_mode == TRANSPORT_STACK_CONNECT_MODE_LE) {
         connect_status = gap_connect(g_btstack_candidate_addr, g_btstack_candidate_addr_type);
     } else if (g_btstack_connect_mode == TRANSPORT_STACK_CONNECT_MODE_LE_WHITELIST) {
@@ -1790,6 +1828,19 @@ static void transport_stack_handle_hci_inquiry_result(
         TRANSPORT_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING,
         false
     );
+
+    /*
+     * schedule_candidate early-returns on a number of conditions; connect
+     * pending was false on entry, so it being set now means this candidate
+     * was accepted. Keyboards (CoD minor keyboard bit) bond with MITM so
+     * Apple Magic Keyboard negotiates Numeric Comparison; pointing devices
+     * bond Just Works -- the same trust model a host OS uses for them.
+     */
+    if (g_btstack_connect_pending
+        && (g_btstack_connect_mode == TRANSPORT_STACK_CONNECT_MODE_CLASSIC_DEDICATED_BONDING)) {
+        g_btstack_candidate_mitm_required =
+            (class_of_device & TRANSPORT_STACK_COD_MINOR_KEYBOARD_BIT) != 0U;
+    }
 }
 
 static void transport_stack_handle_gap_advertising_report(uint8_t * packet) {
@@ -2444,6 +2495,7 @@ static void transport_stack_packet_handler(
 
             gap_event_dedicated_bonding_completed_get_address(packet, bonded_addr);
 
+            transport_stack_restore_default_ssp_auth_requirement();
             g_btstack_connect_pending = false;
             g_btstack_connect_command_issued = false;
             g_btstack_connect_mode = TRANSPORT_STACK_CONNECT_MODE_NONE;
@@ -2688,6 +2740,7 @@ bool transport_stack_init(void) {
     transport_stack_clear_reconnect_state();
     (void)memset(g_btstack_candidate_addr, 0, sizeof(g_btstack_candidate_addr));
     g_btstack_candidate_addr_type = BD_ADDR_TYPE_UNKNOWN;
+    g_btstack_candidate_mitm_required = true;
     transport_stack_clear_pairing_failure_phase();
     transport_stack_reset_le_sessions();
     transport_stack_reset_classic_session();
@@ -2731,6 +2784,14 @@ bool transport_stack_init(void) {
      * HCI_EVENT_USER_CONFIRMATION_REQUEST below, so no UI is needed -- the
      * resulting bond is authenticated even though we never display the
      * value to a human.
+     *
+     * MITM-required is only the boot-time default, kept for inbound
+     * re-pairing from bonded keyboards. Outgoing dedicated bonding overrides
+     * it per candidate (transport_stack_try_connect_candidate): a
+     * NoInputNoOutput peer such as a trackpad or mouse can never produce an
+     * authenticated key, and requesting MITM makes BTstack abort the pairing
+     * with INSUFFICIENT_SECURITY -- the trackpad-side twin of the Magic
+     * Keyboard failure above. Those candidates bond Just Works.
      */
     gap_ssp_set_io_capability(SSP_IO_CAPABILITY_DISPLAY_YES_NO);
     gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_REQUIRED_GENERAL_BONDING);
