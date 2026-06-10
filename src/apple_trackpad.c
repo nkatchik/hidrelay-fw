@@ -24,6 +24,7 @@ enum {
 enum {
     APPLE_TRACKPAD_MT1_REPORT_ID = 0x28U,
     APPLE_TRACKPAD_MT2_REPORT_ID = 0x31U,
+    APPLE_TRACKPAD_DOUBLE_REPORT_ID = 0xF7U, /* wraps two concatenated frames */
     APPLE_TRACKPAD_FRAME_PREFIX_LEN = 4U,
     APPLE_TRACKPAD_TOUCH_RECORD_LEN = 9U,
     APPLE_TRACKPAD_BUTTON_BYTE = 1U,
@@ -110,6 +111,22 @@ bool apple_trackpad_is_supported(
 ) {
     return (vendor_id == APPLE_TRACKPAD_USB_VENDOR_ID)
         && (apple_trackpad_family_for_pid(product_id) != APPLE_TRACKPAD_FAMILY_NONE);
+}
+
+bool apple_trackpad_is_vendor_report(
+    uint16_t product_id,
+    uint8_t report_id
+) {
+    switch (apple_trackpad_family_for_pid(product_id)) {
+        case APPLE_TRACKPAD_FAMILY_MT1:
+            return (report_id == APPLE_TRACKPAD_MT1_REPORT_ID)
+                || (report_id == APPLE_TRACKPAD_DOUBLE_REPORT_ID);
+        case APPLE_TRACKPAD_FAMILY_MT2:
+            return (report_id == APPLE_TRACKPAD_MT2_REPORT_ID)
+                || (report_id == APPLE_TRACKPAD_DOUBLE_REPORT_ID);
+        default:
+            return false;
+    }
 }
 
 bool apple_trackpad_mt_enable_report(

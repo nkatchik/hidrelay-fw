@@ -2175,9 +2175,28 @@ static bool app_replay_test_trackpad_recognition(void) {
         )) {
         return false;
     }
+    if (!app_replay_expect_true(
+            (report_id == 0xD7U) && (payload_len == 1U) && (payload[0] == 0x01U),
+            "original Magic Trackpad enable report should be D7 01"
+        )) {
+        return false;
+    }
+
+    /* Vendor multitouch frame IDs (never forwarded raw) per family. */
+    if (!app_replay_expect_true(
+            apple_trackpad_is_vendor_report(0x0265U, 0x31U)
+                && apple_trackpad_is_vendor_report(0x0265U, 0xF7U)
+                && apple_trackpad_is_vendor_report(0x030EU, 0x28U)
+                && apple_trackpad_is_vendor_report(0x030EU, 0xF7U),
+            "multitouch frame IDs should classify as vendor reports"
+        )) {
+        return false;
+    }
     return app_replay_expect_true(
-        (report_id == 0xD7U) && (payload_len == 1U) && (payload[0] == 0x01U),
-        "original Magic Trackpad enable report should be D7 01"
+        !apple_trackpad_is_vendor_report(0x0265U, 0x02U)
+            && !apple_trackpad_is_vendor_report(0x0265U, 0x28U)
+            && !apple_trackpad_is_vendor_report(0x0267U, 0x31U),
+        "plain-mouse, foreign-family, and non-trackpad IDs should not classify"
     );
 }
 

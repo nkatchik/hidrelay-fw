@@ -182,6 +182,14 @@ typedef struct {
     bool mt_enable_pending;
     uint8_t mt_enable_attempts;
     uint32_t mt_enable_next_attempt_ms;
+    /*
+     * SET_REPORT payload storage: BTstack's hid_host_send_set_report keeps
+     * only the POINTER and copies the bytes later from the L2CAP
+     * can-send-now context, so the buffer must outlive the call -- a
+     * stack-local payload is garbage by then.
+     */
+    uint8_t mt_enable_payload[4];
+    uint8_t mt_enable_payload_len;
 } transport_stack_classic_session_t;
 
 static uint8_t g_btstack_classic_hid_descriptor_storage[1024] = {0};
@@ -648,8 +656,6 @@ static bool transport_stack_classic_session_usb_id(
  */
 static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t * session) {
     uint8_t report_id = 0U;
-    uint8_t payload[4] = {0};
-    uint8_t payload_len = 0U;
 
     if ((session == NULL)
         || !session->used
@@ -663,8 +669,8 @@ static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t
         || !apple_trackpad_mt_enable_report(
             session->usb_product_id,
             &report_id,
-            payload,
-            &payload_len
+            session->mt_enable_payload,
+            &session->mt_enable_payload_len
         )
         || (session->mt_enable_attempts >= TRANSPORT_STACK_MT_ENABLE_MAX_ATTEMPTS)) {
         session->mt_enable_pending = false;
@@ -677,8 +683,8 @@ static void transport_stack_try_send_mt_enable(transport_stack_classic_session_t
         session->hid_cid,
         HID_REPORT_TYPE_FEATURE,
         report_id,
-        payload,
-        payload_len
+        session->mt_enable_payload,
+        session->mt_enable_payload_len
     );
 }
 
@@ -1615,29 +1621,23 @@ static void transport_stack_emit_classic_report_event(uint8_t * packet) {
         report_len = (uint16_t)(report_len - 1U);
     }
 
-    if (report_len > HID_TRANSPORT_REPORT_MAX_LEN) {
-        report_len = HID_TRANSPORT_REPORT_MAX_LEN;
-    }
-
     hid_cid = hid_subevent_report_get_hid_cid(packet);
 
-    /*
-     * Recognized Apple keyboards: rewrite the top row onto the augmented
-     * Apple-vendor/consumer collection (see transport_stack_usb_report_descriptor).
-     * The transform may also emit a second aux report on press/release, so both
-     * are pushed as separate USB reports on the same interface.
-     */
     uint16_t usb_vendor_id = 0U;
     uint16_t usb_product_id = 0U;
     const bool usb_id_valid =
         transport_stack_classic_session_usb_id(hid_cid, &usb_vendor_id, &usb_product_id);
 
     /*
-     * Recognized Apple trackpads: consume vendor multitouch frames and emit
-     * the synthesized standard reports declared by the augmented descriptor
-     * (pointer, buttons, scroll). Reports that are not multitouch frames --
-     * plain-mouse reports before the multitouch enable lands -- fall through
-     * and are forwarded raw.
+     * Recognized Apple trackpads: consume vendor multitouch frames -- at
+     * their full Bluetooth length, BEFORE the USB-event truncation below,
+     * since a many-finger frame exceeds HID_TRANSPORT_REPORT_MAX_LEN -- and
+     * emit the synthesized standard reports declared by the augmented
+     * descriptor (pointer, buttons, scroll, gesture chords). Vendor frames
+     * the engine cannot parse are dropped rather than forwarded: they are
+     * gesture input, not host-consumable reports. Anything else (the
+     * plain-mouse reports before the multitouch enable lands) falls through
+     * and is forwarded raw.
      */
     if (usb_id_valid && apple_trackpad_is_supported(usb_vendor_id, usb_product_id)) {
         apple_trackpad_out_t trackpad_out = {0};
@@ -1666,8 +1666,22 @@ static void transport_stack_emit_classic_report_event(uint8_t * packet) {
             }
             return;
         }
+
+        if ((report_len > 0U) && apple_trackpad_is_vendor_report(usb_product_id, report[0])) {
+            return;
+        }
     }
 
+    if (report_len > HID_TRANSPORT_REPORT_MAX_LEN) {
+        report_len = HID_TRANSPORT_REPORT_MAX_LEN;
+    }
+
+    /*
+     * Recognized Apple keyboards: rewrite the top row onto the augmented
+     * Apple-vendor/consumer collection (see transport_stack_usb_report_descriptor).
+     * The transform may also emit a second aux report on press/release, so both
+     * are pushed as separate USB reports on the same interface.
+     */
     if (usb_id_valid && apple_keyboard_is_supported(usb_vendor_id, usb_product_id)) {
         uint8_t kbd[HID_TRANSPORT_REPORT_MAX_LEN];
         uint8_t aux[APPLE_KEYBOARD_AUX_REPORT_LEN];

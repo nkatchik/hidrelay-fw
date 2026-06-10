@@ -57,6 +57,16 @@ bool apple_trackpad_mt_enable_report(
 );
 
 /*
+ * True for this model's vendor multitouch report IDs (including the 0xF7
+ * double-frame wrapper). Such frames are gesture-engine input only and must
+ * never be forwarded to the USB host raw, parseable or not.
+ */
+bool apple_trackpad_is_vendor_report(
+    uint16_t product_id,
+    uint8_t report_id
+);
+
+/*
  * Build base_descriptor + the synthesized-report collections into out_buf.
  * Returns the total length, or 0 if product_id is unsupported or out_buf is
  * too small.
