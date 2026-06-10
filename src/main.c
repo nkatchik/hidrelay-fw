@@ -3,7 +3,10 @@
 
 #include "app.h"
 #include "app_diag.h"
+#include "pair_store.h"
 #include "platform_api.h"
+#include "transport_stack.h"
+#include "usb_runtime.h"
 
 enum {
     MAIN_PAIR_DB_SAVE_DEBOUNCE_MS = 2000U,
@@ -13,7 +16,7 @@ enum {
 };
 
 /*
- * RP2040 default stack is small; keep large app state out of main() frame to
+ * MCU default stacks are small; keep large app state out of main() frame to
  * avoid early boot stack overflow.
  */
 static app_t g_app = {0};
@@ -75,7 +78,7 @@ static bool main_time_elapsed(
 
 static void main_merge_transport_diag(
     hid_transport_diag_snapshot_t * diag,
-    const platform_transport_state_t * transport_state
+    const transport_stack_state_t * transport_state
 ) {
     if ((diag == NULL) || (transport_state == NULL)) {
         return;
@@ -120,7 +123,7 @@ static void main_publish_diag(const hid_transport_diag_snapshot_t * diag) {
 
     frame_len = app_diag_encode_frame(diag, g_diag_frame, sizeof(g_diag_frame));
     if (frame_len > 0U) {
-        (void)platform_diag_write(g_diag_frame, frame_len);
+        (void)usb_runtime_diag_write(g_diag_frame, frame_len);
     }
 }
 
@@ -129,7 +132,7 @@ static bool main_send_usb_tx(const hid_transport_usb_tx_t * tx) {
         return true;
     }
 
-    return platform_transport_send_usb_report(tx->interface_number, tx->report, tx->report_len);
+    return transport_stack_send_usb_report(tx->interface_number, tx->report, tx->report_len);
 }
 
 static bool main_send_bt_tx(const hid_transport_bt_tx_t * tx) {
@@ -137,7 +140,7 @@ static bool main_send_bt_tx(const hid_transport_bt_tx_t * tx) {
         return true;
     }
 
-    return platform_transport_send_bt_report(
+    return transport_stack_send_bt_report(
         tx->hid_cid,
         tx->bt_link_type,
         tx->protocol_mode,
@@ -198,7 +201,7 @@ static void main_run_factory_reset_sequence(void) {
 }
 
 static void main_apply_output(const app_output_t * output) {
-    platform_transport_state_t transport_state = {0};
+    transport_stack_state_t transport_state = {0};
     bool have_transport_state = false;
     hid_transport_diag_snapshot_t diag = {0};
     uint32_t sleep_us = 0U;
@@ -207,11 +210,11 @@ static void main_apply_output(const app_output_t * output) {
         return;
     }
 
-    have_transport_state = platform_transport_state_get(&transport_state);
+    have_transport_state = transport_stack_state_get(&transport_state);
     sleep_us = output->sleep_us;
 
     if (output->forget_request.valid) {
-        (void)platform_transport_forget_device(&output->forget_request.device_id);
+        (void)transport_stack_forget_device(&output->forget_request.device_id);
     }
 
     if (output->usb_descriptor_generation != g_applied_usb_descriptor_generation) {
@@ -219,15 +222,15 @@ static void main_apply_output(const app_output_t * output) {
         g_applied_usb_descriptor_generation = output->usb_descriptor_generation;
     }
 
-    platform_transport_set_usb_plan(
+    transport_stack_set_usb_plan(
         output->usb_interface_count,
         output->usb_descriptor_generation,
         output->usb_interface_plan
     );
-    platform_transport_set_pairing(output->pairing_active, output->pairing_link_type);
+    transport_stack_set_pairing(output->pairing_active, output->pairing_link_type);
 
     if (output->reconnect_request.valid) {
-        (void)platform_transport_request_reconnect(
+        (void)transport_stack_request_reconnect(
             &output->reconnect_request.device_id,
             output->reconnect_request.bt_link_type,
             output->reconnect_request.bt_addr_type
@@ -254,6 +257,11 @@ static void main_apply_output(const app_output_t * output) {
     main_publish_diag(&diag);
 
     platform_set_led(output->led_on);
+#if defined(APP_HAS_TINYUSB)
+    if (sleep_us > USB_RUNTIME_MAX_POLL_SLEEP_US) {
+        sleep_us = USB_RUNTIME_MAX_POLL_SLEEP_US;
+    }
+#endif
     platform_sleep_us(sleep_us);
 }
 
@@ -265,12 +273,16 @@ int main(void) {
      */
     (void)platform_factory_reset_erase_persistent_data();
 #endif
-    const bool has_initial_pair_db = platform_pair_db_load(&g_initial_pair_db);
+    const bool has_initial_pair_db = pair_store_load(&g_initial_pair_db);
     bool pair_db_save_pending = false;
     uint32_t pair_db_pending_since_ms = 0U;
     uint32_t pair_db_last_save_attempt_ms = 0U;
 
     if (!platform_init()) {
+        return 1;
+    }
+
+    if (!transport_stack_init()) {
         return 1;
     }
 
@@ -287,12 +299,12 @@ int main(void) {
         app_input.button_pressed = platform_button_pressed();
         app_input.now_ms = platform_uptime_ms();
         app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
-        platform_transport_poll(app_input.now_ms);
+        transport_stack_poll(app_input.now_ms);
         main_flush_pending_transport_tx();
         app_input.usb_tx_blocked = g_pending_usb_tx.valid;
         app_input.bt_tx_blocked = g_pending_bt_tx.valid;
 
-        if (!platform_transport_take_event(&app_input.transport_event)) {
+        if (!transport_stack_take_event(&app_input.transport_event)) {
             app_input.transport_event.type = HID_TRANSPORT_EVENT_NONE;
         }
 
@@ -331,7 +343,7 @@ int main(void) {
             if ((debounce_elapsed || max_stale_elapsed) && retry_elapsed) {
                 pair_db_last_save_attempt_ms = app_input.now_ms;
 
-                if (platform_pair_db_save(&g_app.pair_db)) {
+                if (pair_store_save(&g_app.pair_db)) {
                     g_persisted_pair_db = g_app.pair_db;
                     pair_db_save_pending = false;
                 }

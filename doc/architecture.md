@@ -57,9 +57,17 @@ Common logic never imports Pico-specific SDK headers.
   - keeps Pico stack callbacks focused on SDK I/O instead of generic queue/plan bookkeeping
 - `app_diag`:
   - shared diagnostics snapshot queue and CDC frame encoder
+- `transport_stack`:
+  - portable BTstack-based Bluetooth HID host (pairing, reconnect strategies, LE/Classic sessions, descriptor caching) plus USB-plan handoff
+  - platform supplies only radio/TLV bring-up via `platform_bt_port_init`
+- `usb_runtime`:
+  - portable TinyUSB device runtime: polling, IN-report queueing, controlled re-enumeration, diagnostics CDC writes
+- `usb_descriptors.c`:
+  - dynamic TinyUSB device/configuration/string descriptor callbacks; platform-specific extra interfaces appended via `platform_usb_port_*` hooks
+- `pair_store`:
+  - versioned, checksummed Pair DB blob format with dual-slot rotation and v3/v4 migration, on top of raw platform storage slots
 - `platform_api`:
-  - platform boundary: hardware primitives, transport primitives, diagnostics writes, reset, and sleep
-  - persistence hooks: `platform_pair_db_load` / `platform_pair_db_save`
+  - platform boundary: hardware primitives (button, LED, time, sleep, reboot), factory-reset erase, and raw persistent-storage slot access
 
 ## Pico W Platform Glue
 
@@ -72,17 +80,15 @@ Common logic never imports Pico-specific SDK headers.
   - `cmake/target.cmake`
 - Pico SDK import/init wiring
 - `platform_api` implementation for:
-  - CYW43 status LED
+  - CYW43 radio init and status LED
   - BOOTSEL button input
-  - tick pacing via `sleep_ms`
-  - thin transport/reset/diagnostics write wrappers
+  - tick pacing, uptime, watchdog reboot
 - split runtime glue modules:
   - `platform_pico_w_state.*`
   - `platform_pico_w_hw.*`
-  - `platform_pico_w_pair_store.*` (flash-backed Pair DB load/save)
-  - `platform_pico_w_stack.*` (TinyUSB/BTstack bring-up hooks backed by shared transport runtime)
-  - `platform_pico_w_tinyusb_runtime.*` (TinyUSB runtime calls isolated from BTstack includes)
-  - `platform_pico_w_tinyusb_desc.c` (dynamic HID configuration descriptor callbacks)
+  - `platform_pico_w_storage.c` (raw flash slot read/write + factory-reset erase backing the common pair store)
+  - `platform_pico_w_bt_port.c` (`platform_bt_port_init`: BTstack-over-CYW43 transport bring-up + TLV flash bank)
+  - `platform_pico_w_usb_reset.c` (picotool reset interface: TinyUSB vendor class driver + `platform_usb_port_*` descriptor hooks)
 - platform-local stack config headers:
   - `include/tusb_config.h`
   - `include/btstack_config.h`
@@ -99,7 +105,7 @@ Pico-specific linkage is isolated under this directory.
 
 - TinyUSB stack is enabled by default for Pico W and built with a baseline HID device configuration.
 - BTstack libraries are enabled by default for Pico W using project-local `btstack_config.h`.
-- Platform runtime initializes Pico W stacks from `platform_pico_w_stack`.
+- Main loop initializes the common `transport_stack`, which brings up BTstack/TinyUSB through platform port hooks.
 - Common `bt_manager` now models active HID sessions, not only pair count.
 - `usb_bridge` composes a per-interface plan from active sessions and increments descriptor generation on topology changes.
 - TinyUSB descriptor callbacks now build a configuration descriptor dynamically (0..8 HID interfaces).
@@ -168,8 +174,8 @@ No global Pico SDK or global Arm cross toolchain is required.
 - Pico W implementation stores Pair DB in two alternating sectors ahead of BTstack storage
   (`PICO_FLASH_SIZE_BYTES - PICO_W_BTSTACK_FLASH_BANK_TOTAL_SIZE - (2 * FLASH_SECTOR_SIZE)`).
 - BTstack TLV persistence uses two sectors at the end of flash for link-key and LE device data.
-- On boot, `platform_pair_db_load` seeds app state if the stored blob validates.
-- On Pair DB mutation, the main loop coalesces writes before `platform_pair_db_save` (2s debounce, 15s max stale, 5s retry backoff).
+- On boot, `pair_store_load` seeds app state if the stored blob validates.
+- On Pair DB mutation, the main loop coalesces writes before `pair_store_save` (2s debounce, 15s max stale, 5s retry backoff).
 - Current on-flash schema version is `5`; schema mismatches fall back to an empty DB.
 - Legacy schema `4` (dual-slot) and schema `3` (single-slot legacy offset) blobs are accepted on boot and migrated in-memory.
 - Factory reset erases both Pair DB sectors and BTstack TLV sectors together, then reboots to clear runtime stack state.

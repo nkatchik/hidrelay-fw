@@ -1,8 +1,9 @@
-#ifdef APP_PICO_HAS_TINYUSB
+#ifdef APP_HAS_TINYUSB
 
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/usb_reset_interface.h"
+#include "platform_usb_port.h"
 #include "tusb.h"
 
 #undef TU_ATTR_WEAK
@@ -17,7 +18,43 @@ enum {
     PICO_W_RESET_REQUEST_NONE = 0U,
     PICO_W_RESET_REQUEST_BOOTSEL = 1U,
     PICO_W_RESET_REQUEST_FLASH = 2U,
+    PICO_W_RESET_DESCRIPTOR_LEN = 9U,
+    PICO_W_RESET_STRING_INDEX = 0U,
 };
+
+/*
+ * The picotool reset interface is exported as the platform's extra USB
+ * interface, appended after the relay's HID interfaces.
+ */
+uint8_t platform_usb_port_extra_interface_count(void) {
+    return 1U;
+}
+
+uint16_t platform_usb_port_extra_descriptor_len(void) {
+    return PICO_W_RESET_DESCRIPTOR_LEN;
+}
+
+uint16_t platform_usb_port_append_extra_descriptor(
+    uint8_t * buffer,
+    uint16_t offset,
+    uint8_t first_interface_number
+) {
+    if (buffer == NULL) {
+        return offset;
+    }
+
+    buffer[offset++] = PICO_W_RESET_DESCRIPTOR_LEN;
+    buffer[offset++] = TUSB_DESC_INTERFACE;
+    buffer[offset++] = first_interface_number;
+    buffer[offset++] = 0U;
+    buffer[offset++] = 0U;
+    buffer[offset++] = TUSB_CLASS_VENDOR_SPECIFIC;
+    buffer[offset++] = RESET_INTERFACE_SUBCLASS;
+    buffer[offset++] = RESET_INTERFACE_PROTOCOL;
+    buffer[offset++] = PICO_W_RESET_STRING_INDEX;
+
+    return offset;
+}
 
 static void pico_w_resetd_init(void) {
     g_reset_pending_request = PICO_W_RESET_REQUEST_NONE;

@@ -165,13 +165,13 @@ Implemented now:
 - USB bridge interface-plan model with descriptor-generation tracking
 - dynamic TinyUSB HID configuration descriptor composition from interface count
 - TinyUSB runtime re-enumeration trigger on descriptor-generation changes (controlled disconnect/reconnect window)
-- platform stack USB-plan handoff and TinyUSB runtime isolation (`platform_pico_w_tinyusb_runtime.*`)
+- transport-stack USB-plan handoff and TinyUSB runtime isolation (`src/usb_runtime.c`)
 - BTstack HID open/close/report event ingestion into app transport events
 - BTstack HID descriptor/protocol event ingestion into app transport events
 - TinyUSB output-report callback ingestion into app transport events
 - bidirectional queued report forwarding with protocol-aware BT send path
 - queue backpressure telemetry (depth/high-water/drop counters) in `usb_bridge`
-- flash-backed Pair DB load/save on Pico W (`platform_pico_w_pair_store.*`) with session metadata schema v5 and dual-slot A/B journal (two sectors reserved ahead of BTstack TLV banks)
+- flash-backed Pair DB load/save (`src/pair_store.c` over raw platform storage slots) with session metadata schema v5 and dual-slot A/B journal (on Pico W: two sectors reserved ahead of BTstack TLV banks)
 - Pair DB load path now migrates schema v4/v3 data into v5 in-memory layout (including reconnect transport hints defaulting when absent)
 - Pair DB save path now suppresses no-op writes and uses sequence-based latest-slot selection
 - main loop coalesces Pair DB persistence writes (2s debounce, 15s max stale, 5s retry backoff) to reduce flash wear

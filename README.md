@@ -146,7 +146,7 @@ The repository includes working starter configs in:
 
 With default Pico W stack settings:
 
-- `platform_pico_w_stack` initializes BTstack and TinyUSB
+- the common `transport_stack` initializes BTstack and TinyUSB through platform port hooks
 - BTstack HID open/close/report events are bridged into common app transport events
 - BTstack HID descriptor/protocol events are bridged into common app transport events
 - TinyUSB `set_report` callbacks are bridged into common app transport events

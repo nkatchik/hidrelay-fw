@@ -15,13 +15,12 @@ pico_sdk_init()
 
 add_executable(hidrelay_fw
     ${CMAKE_SOURCE_DIR}/src/main.c
+    ${APP_TRANSPORT_STACK_SOURCES}
     src/platform_api_pico_w.c
+    src/platform_pico_w_bt_port.c
     src/platform_pico_w_hw.c
-    src/platform_pico_w_pair_store.c
-    src/platform_pico_w_stack.c
     src/platform_pico_w_state.c
-    src/platform_pico_w_tinyusb_desc.c
-    src/platform_pico_w_tinyusb_runtime.c
+    src/platform_pico_w_storage.c
     src/platform_pico_w_usb_reset.c
 )
 

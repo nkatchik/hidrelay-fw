@@ -25,7 +25,7 @@ extern "C" {
 #define CFG_TUD_ENDPOINT0_SIZE 64
 #endif
 
-#if defined(APP_PICO_HAS_DIAG_CDC) && APP_PICO_HAS_DIAG_CDC
+#if defined(APP_HAS_DIAG_CDC) && APP_HAS_DIAG_CDC
 #define CFG_TUD_CDC 1
 #define CFG_TUD_CDC_EP_BUFSIZE 64
 #define CFG_TUD_CDC_RX_BUFSIZE 256

@@ -36,8 +36,18 @@ add_library(hidrelay_core STATIC
     src/apple_keyboard.c
     src/hid_transport_runtime.c
     src/hid_device_map.c
+    src/pair_store.c
     src/usb_bridge.c
     src/util/cleanup.c
+)
+
+# Portable transport-stack sources built into each platform executable; they
+# sit on top of vendor stacks (Bluetooth, USB device) that the platform
+# toolchain provides, so they cannot live in the standalone core library.
+set(APP_TRANSPORT_STACK_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/transport_stack.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/usb_descriptors.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/usb_runtime.c
 )
 
 target_include_directories(hidrelay_core

@@ -1,19 +1,15 @@
-#ifdef APP_PICO_HAS_TINYUSB
+#ifdef APP_HAS_TINYUSB
 
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "hid_report_policy.h"
-#include "pico/usb_reset_interface.h"
-#include "platform_pico_w_stack.h"
+#include "platform_usb_port.h"
+#include "transport_stack.h"
 #include "tusb.h"
 
-#define HIDRELAY_RESET_DESCRIPTOR_LEN 9U
-#define HIDRELAY_RESET_INTERFACE_COUNT 1U
-#define HIDRELAY_RESET_STRING_INDEX 0U
-
-#if defined(APP_PICO_HAS_DIAG_CDC)
+#if defined(APP_HAS_DIAG_CDC)
 #define HIDRELAY_CDC_DESCRIPTOR_LEN (8U + 9U + 5U + 5U + 4U + 5U + 7U + 9U + 7U + 7U)
 #define HIDRELAY_CDC_INTERFACE_COUNT 2U
 #else
@@ -29,7 +25,7 @@ enum {
     HIDRELAY_HID_EP_OUT = 0x01U,
     HIDRELAY_HID_EP_SIZE = 64U,
     HIDRELAY_HID_EP_INTERVAL_MS = 1U,
-#if defined(APP_PICO_HAS_DIAG_CDC)
+#if defined(APP_HAS_DIAG_CDC)
     HIDRELAY_CDC_EP_NOTIF = 0x89U,
     HIDRELAY_CDC_EP_OUT = 0x09U,
     HIDRELAY_CDC_EP_IN = 0x8AU,
@@ -47,7 +43,7 @@ enum {
 static uint8_t g_config_desc
     [HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
         + (HIDRELAY_MAX_INTERFACE * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)
-        + HIDRELAY_RESET_DESCRIPTOR_LEN
+        + PLATFORM_USB_PORT_EXTRA_DESCRIPTOR_MAX_LEN
         + HIDRELAY_CDC_DESCRIPTOR_LEN] = {0};
 static uint16_t g_config_desc_len = HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN;
 
@@ -229,8 +225,8 @@ static uint8_t const * hidrelay_report_descriptor_for_interface(
         effective_len = &ignored_len;
     }
 
-    descriptor = pico_w_stack_usb_report_descriptor(instance, effective_len);
-    protocol_mode = pico_w_stack_usb_protocol_mode(instance);
+    descriptor = transport_stack_usb_report_descriptor(instance, effective_len);
+    protocol_mode = transport_stack_usb_protocol_mode(instance);
     hid_report_policy_decide(descriptor, *effective_len, protocol_mode, &decision);
 
     if (decision.source == HID_REPORT_DESCRIPTOR_SOURCE_NATIVE) {
@@ -252,29 +248,7 @@ static void hidrelay_descriptor_put_u16(
     buffer[1] = (uint8_t)((value >> 8U) & 0xFFU);
 }
 
-static uint16_t hidrelay_append_reset_descriptor(
-    uint8_t * buffer,
-    uint16_t offset,
-    uint8_t reset_interface_number
-) {
-    if (buffer == NULL) {
-        return offset;
-    }
-
-    buffer[offset++] = HIDRELAY_RESET_DESCRIPTOR_LEN;
-    buffer[offset++] = TUSB_DESC_INTERFACE;
-    buffer[offset++] = reset_interface_number;
-    buffer[offset++] = 0U;
-    buffer[offset++] = 0U;
-    buffer[offset++] = TUSB_CLASS_VENDOR_SPECIFIC;
-    buffer[offset++] = RESET_INTERFACE_SUBCLASS;
-    buffer[offset++] = RESET_INTERFACE_PROTOCOL;
-    buffer[offset++] = HIDRELAY_RESET_STRING_INDEX;
-
-    return offset;
-}
-
-#if defined(APP_PICO_HAS_DIAG_CDC)
+#if defined(APP_HAS_DIAG_CDC)
 static uint16_t hidrelay_append_cdc_descriptor(
     uint8_t * buffer,
     uint16_t offset,
@@ -381,6 +355,13 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
     uint8_t index = 0U;
     uint8_t total_interface_count = 0U;
     uint16_t total_length = 0U;
+    uint8_t extra_interface_count = platform_usb_port_extra_interface_count();
+    uint16_t extra_descriptor_len = platform_usb_port_extra_descriptor_len();
+
+    if (extra_descriptor_len > PLATFORM_USB_PORT_EXTRA_DESCRIPTOR_MAX_LEN) {
+        extra_interface_count = 0U;
+        extra_descriptor_len = 0U;
+    }
 
     if (interface_count > HIDRELAY_MAX_INTERFACE) {
         interface_count = HIDRELAY_MAX_INTERFACE;
@@ -389,10 +370,10 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
     total_interface_count = (uint8_t)(interface_count + HIDRELAY_CDC_INTERFACE_COUNT);
     total_length = (uint16_t)(HIDRELAY_CONFIG_DESCRIPTOR_BASE_LEN
         + (interface_count * HIDRELAY_HID_INTERFACE_DESCRIPTOR_LEN)
-        + HIDRELAY_RESET_DESCRIPTOR_LEN
+        + extra_descriptor_len
         + HIDRELAY_CDC_DESCRIPTOR_LEN);
 
-    total_interface_count = (uint8_t)(total_interface_count + HIDRELAY_RESET_INTERFACE_COUNT);
+    total_interface_count = (uint8_t)(total_interface_count + extra_interface_count);
 
     g_config_desc[offset++] = 9U;
     g_config_desc[offset++] = TUSB_DESC_CONFIGURATION;
@@ -448,11 +429,13 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
         g_config_desc[offset++] = HIDRELAY_HID_EP_INTERVAL_MS;
     }
 
-    offset = hidrelay_append_reset_descriptor(g_config_desc, offset, interface_count);
+    if (extra_descriptor_len > 0U) {
+        offset = platform_usb_port_append_extra_descriptor(g_config_desc, offset, interface_count);
+    }
     offset = hidrelay_append_cdc_descriptor(
         g_config_desc,
         offset,
-        (uint8_t)(interface_count + HIDRELAY_RESET_INTERFACE_COUNT)
+        (uint8_t)(interface_count + extra_interface_count)
     );
 
     return offset;
@@ -472,7 +455,7 @@ uint8_t const * tud_descriptor_configuration_cb(uint8_t index) {
     uint8_t interface_count = 0U;
 
     (void)index;
-    interface_count = pico_w_stack_usb_interface_count();
+    interface_count = transport_stack_usb_interface_count();
     g_config_desc_len = hidrelay_build_config_descriptor(interface_count);
     (void)g_config_desc_len;
     return g_config_desc;
@@ -487,7 +470,7 @@ uint16_t const * tud_descriptor_string_cb(
         "hidrelay-fw",
         "HID Relay Hub",
         "00000001",
-#if defined(APP_PICO_HAS_DIAG_CDC)
+#if defined(APP_HAS_DIAG_CDC)
         "Diag CDC",
 #endif
     };
@@ -546,7 +529,7 @@ void tud_hid_set_report_cb(
     (void)report_id;
     (void)report_type;
 
-    pico_w_stack_ingest_usb_report(instance, buffer, bufsize);
+    transport_stack_ingest_usb_report(instance, buffer, bufsize);
 }
 
 #endif
