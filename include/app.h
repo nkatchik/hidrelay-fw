@@ -39,7 +39,6 @@ typedef struct {
     hid_transport_diag_snapshot_t diag;
     hid_transport_usb_tx_t usb_tx;
     hid_transport_bt_tx_t bt_tx;
-    bool pair_db_dirty;
     bool factory_reset_requested;
 } app_output_t;
 

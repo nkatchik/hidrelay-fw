@@ -85,7 +85,7 @@ static void hid_report_policy_parse(
     uint16_t descriptor_len,
     hid_report_policy_parse_result_t * out_result
 ) {
-    bool report_id_seen[256] = {false};
+    uint8_t report_id_seen[256U / 8U] = {0};
     uint16_t offset = 0U;
     uint8_t collection_depth = 0U;
     uint8_t global_stack_depth = 0U;
@@ -198,8 +198,10 @@ static void hid_report_policy_parse(
 
                     out_result->has_report_id = true;
 
-                    if (!report_id_seen[report_id]) {
-                        report_id_seen[report_id] = true;
+                    if ((report_id_seen[report_id >> 3U] & (uint8_t)(1U << (report_id & 0x07U)))
+                        == 0U) {
+                        report_id_seen[report_id >> 3U] = (uint8_t)(report_id_seen[report_id >> 3U]
+                            | (uint8_t)(1U << (report_id & 0x07U)));
                         out_result->report_id_count = (uint8_t)(out_result->report_id_count + 1U);
                     }
 

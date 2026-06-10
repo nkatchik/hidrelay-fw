@@ -584,6 +584,29 @@ void usb_bridge_sync_from_bt_manager(
     usb_bridge_mark_descriptor_dirty_if_changed(bridge, previous_slot, previous_count);
 }
 
+bool usb_bridge_sync_pending(const usb_bridge_t * bridge) {
+    uint8_t index = 0U;
+
+    if (bridge == NULL) {
+        return false;
+    }
+
+    /* Nothing exported yet: the first sync publishes the placeholder. */
+    if (bridge->exported_interface_count == 0U) {
+        return true;
+    }
+
+    /* A warm interface needs time-based syncs until its grace window expires. */
+    for (index = 0U; index < bridge->exported_interface_count; index++) {
+        if (bridge->interface_slot[index].used
+            && (bridge->interface_slot[index].warm_deadline_ms != 0U)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool usb_bridge_ingest_bt_report(
     usb_bridge_t * bridge,
     uint16_t hid_cid,

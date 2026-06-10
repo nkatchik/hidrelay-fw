@@ -105,6 +105,13 @@ void usb_bridge_tick(
     usb_bridge_t * bridge,
     uint32_t now_ms
 );
+/*
+ * True when sync_from_bt_manager must run even without a new transport event
+ * or button command: nothing exported yet, or a warm interface is waiting for
+ * its grace window to expire. Lets callers skip the (comparatively expensive)
+ * full sync on quiescent ticks.
+ */
+bool usb_bridge_sync_pending(const usb_bridge_t * bridge);
 uint8_t usb_bridge_interface_count(const usb_bridge_t * bridge);
 uint32_t usb_bridge_descriptor_generation(const usb_bridge_t * bridge);
 bool usb_bridge_interface_get(

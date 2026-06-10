@@ -302,10 +302,15 @@ static void app_reconnect_mark_failure(
 
 static bool app_handle_transport_event(
     app_t * app,
-    const app_input_t * input
+    const app_input_t * input,
+    bool * out_open_ingested
 ) {
     const hid_transport_event_t * event = NULL;
     bool close_ingested = false;
+
+    if (out_open_ingested != NULL) {
+        *out_open_ingested = false;
+    }
 
     if ((app == NULL) || (input == NULL)) {
         return false;
@@ -314,8 +319,8 @@ static bool app_handle_transport_event(
     event = &input->transport_event;
 
     switch (event->type) {
-        case HID_TRANSPORT_EVENT_BT_HID_OPEN:
-            (void)bt_manager_ingest_hid_open(
+        case HID_TRANSPORT_EVENT_BT_HID_OPEN: {
+            const bool open_ingested = bt_manager_ingest_hid_open(
                 &app->bt_manager,
                 &event->device_id,
                 event->hid_cid,
@@ -326,7 +331,11 @@ static bool app_handle_transport_event(
                 event->report_descriptor_len,
                 input->now_ms
             );
-            break;
+
+            if (out_open_ingested != NULL) {
+                *out_open_ingested = open_ingested;
+            }
+        } break;
         case HID_TRANSPORT_EVENT_BT_HID_CLOSE: {
             if (event->hid_cid != 0U) {
                 close_ingested = bt_manager_ingest_hid_close(
@@ -423,7 +432,6 @@ void app_tick(
     app_output_t * output
 ) {
     button_command_t command = BUTTON_COMMAND_NONE;
-    pair_db_t pair_db_before = {0};
     hid_transport_forget_request_t forget_request = {.valid = false, .device_id = {.bytes = {0}}};
     usb_bridge_telemetry_t bridge_telemetry = {0};
     bt_manager_state_t bt_state = BT_MANAGER_STATE_IDLE;
@@ -433,6 +441,7 @@ void app_tick(
     uint8_t reconnect_index = 0U;
     uint8_t interface_index = 0U;
     bool disconnect_event_cue = false;
+    bool open_event_ingested = false;
     bool pairing_attempt_started = false;
     bool pairing_mode_command = false;
     bool pairing_success_cue = false;
@@ -447,7 +456,6 @@ void app_tick(
         app->startup_cue_pending = false;
     }
 
-    pair_db_before = app->pair_db;
     command = button_fsm_update(&app->button_fsm, input->button_pressed, input->now_ms);
 
     if (command == BUTTON_COMMAND_PAIR_BLE) {
@@ -507,7 +515,7 @@ void app_tick(
         }
     }
 
-    disconnect_event_cue = app_handle_transport_event(app, input);
+    disconnect_event_cue = app_handle_transport_event(app, input, &open_event_ingested);
     (void)pair_db_reconnect_recover_expired(&app->pair_db, input->now_ms);
     if (pairing_attempt_error_blinks > 0U) {
         (void)bt_manager_cancel_pair_any(&app->bt_manager);
@@ -539,7 +547,18 @@ void app_tick(
     }
 
     bt_manager_tick(&app->bt_manager, input->now_ms);
-    usb_bridge_sync_from_bt_manager(&app->usb_bridge, &app->bt_manager, input->now_ms);
+    /*
+     * The full bridge sync copies and compares every interface slot. The
+     * manager's active set only changes via transport events or button
+     * commands, so on quiescent ticks (the common case at the 5us connected
+     * poll rate) skip it unless a warm grace window still needs time-based
+     * processing.
+     */
+    if ((input->transport_event.type != HID_TRANSPORT_EVENT_NONE)
+        || (command != BUTTON_COMMAND_NONE)
+        || usb_bridge_sync_pending(&app->usb_bridge)) {
+        usb_bridge_sync_from_bt_manager(&app->usb_bridge, &app->bt_manager, input->now_ms);
+    }
     usb_bridge_tick(&app->usb_bridge, input->now_ms);
 
     bt_state = bt_manager_state(&app->bt_manager);
@@ -562,6 +581,17 @@ void app_tick(
     );
     led_ui_set_state(&app->led_ui, app_led_state_from_bt_state(bt_state), input->now_ms);
     if (pairing_success_cue) {
+        led_ui_trigger_connected_cue(&app->led_ui, input->now_ms);
+    }
+    /*
+     * A device (re)connecting while others stay connected leaves the manager
+     * in ACTIVE, so the IDLE->CONNECTED transition that normally produces the
+     * connected cue never happens. Trigger it explicitly for that case --
+     * symmetric to the disconnect cue below, which is also event-driven.
+     */
+    if (open_event_ingested
+        && (bt_state_before_event == BT_MANAGER_STATE_ACTIVE)
+        && (bt_state == BT_MANAGER_STATE_ACTIVE)) {
         led_ui_trigger_connected_cue(&app->led_ui, input->now_ms);
     }
     if (disconnect_event_cue
@@ -696,6 +726,4 @@ void app_tick(
         output->factory_reset_requested = true;
         app->factory_reset_armed = false;
     }
-
-    output->pair_db_dirty = memcmp(&pair_db_before, &app->pair_db, sizeof(pair_db_before)) != 0;
 }

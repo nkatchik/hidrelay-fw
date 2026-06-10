@@ -18,23 +18,43 @@ static bool hid_transport_runtime_device_id_equal(
 }
 
 static uint8_t hid_transport_runtime_report_remap_profile(
-    const hid_transport_runtime_t * runtime,
+    hid_transport_runtime_t * runtime,
     uint8_t interface_number,
     hid_transport_runtime_descriptor_fn_t descriptor_fn,
     void * descriptor_context
 ) {
     const uint8_t * descriptor = NULL;
     uint16_t descriptor_len = 0U;
-    const uint8_t protocol_mode =
-        hid_transport_runtime_usb_protocol_mode(runtime, interface_number);
+    uint8_t protocol_mode = HID_TRANSPORT_PROTOCOL_UNKNOWN;
     hid_report_policy_decision_t decision = {0};
+    uint8_t profile = 0U;
+    const bool cacheable = (runtime != NULL) && (interface_number < HID_TRANSPORT_MAX_INTERFACE);
+
+    /*
+     * The policy decision below re-parses the full report descriptor (and the
+     * descriptor callback may rebuild it); doing that per relayed report
+     * dominates the per-report cost. Serve the cached profile; set_usb_plan
+     * invalidates it whenever the descriptor or protocol mode can change.
+     */
+    if (cacheable && runtime->remap_profile_valid[interface_number]) {
+        return runtime->remap_profile[interface_number];
+    }
+
+    protocol_mode = hid_transport_runtime_usb_protocol_mode(runtime, interface_number);
 
     if (descriptor_fn != NULL) {
         descriptor = descriptor_fn(interface_number, &descriptor_len, descriptor_context);
     }
 
     hid_report_policy_decide(descriptor, descriptor_len, protocol_mode, &decision);
-    return hid_report_remap_profile_from_policy(&decision);
+    profile = hid_report_remap_profile_from_policy(&decision);
+
+    if (cacheable) {
+        runtime->remap_profile[interface_number] = profile;
+        runtime->remap_profile_valid[interface_number] = true;
+    }
+
+    return profile;
 }
 
 void hid_transport_runtime_init(hid_transport_runtime_t * runtime) {
@@ -86,6 +106,7 @@ bool hid_transport_runtime_set_usb_plan(
 
     runtime->usb_interface_count = interface_count;
     (void)memcpy(runtime->usb_interface_plan, next_plan, sizeof(runtime->usb_interface_plan));
+    (void)memset(runtime->remap_profile_valid, 0, sizeof(runtime->remap_profile_valid));
 
     if (descriptor_changed) {
         runtime->usb_descriptor_generation = descriptor_generation;
@@ -262,7 +283,7 @@ bool hid_transport_runtime_ingest_usb_report(
 }
 
 bool hid_transport_runtime_remap_bt_to_usb(
-    const hid_transport_runtime_t * runtime,
+    hid_transport_runtime_t * runtime,
     uint8_t interface_number,
     const uint8_t * report,
     uint16_t report_len,

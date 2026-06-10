@@ -63,7 +63,6 @@ static app_output_t g_app_output = {
             .protocol_mode = 0U,
             .report_len = 0U,
             .report = {0}},
-    .pair_db_dirty = false,
     .factory_reset_requested = false,
 };
 static uint32_t g_applied_usb_descriptor_generation = 0U;

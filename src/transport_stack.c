@@ -584,6 +584,37 @@ static bool transport_stack_security_accept(void) {
         || (g_btstack_connect_mode != TRANSPORT_STACK_CONNECT_MODE_NONE);
 }
 
+/*
+ * Classic SSP/PIN requests carry the peer address, so gate them per peer:
+ * accept while user-initiated pairing is active, for the in-flight
+ * connect/reconnect candidate, or for an already-bonded peer re-pairing
+ * (e.g. after it dropped its own key). The blanket security_accept() window
+ * would otherwise let an unrelated device bond whenever a reconnect to an
+ * offline paired keyboard happens to be pending.
+ */
+static bool transport_stack_security_accept_for_addr(const bd_addr_t addr) {
+    bd_addr_t addr_copy = {0};
+    link_key_t link_key = {0};
+    link_key_type_t link_key_type = INVALID_LINK_KEY;
+
+    if (addr == NULL) {
+        return false;
+    }
+
+    if (g_btstack_pairing_active) {
+        return true;
+    }
+
+    if ((g_btstack_reconnect_pending
+            || (g_btstack_connect_mode != TRANSPORT_STACK_CONNECT_MODE_NONE))
+        && (memcmp(addr, g_btstack_candidate_addr, sizeof(bd_addr_t)) == 0)) {
+        return true;
+    }
+
+    (void)memcpy(addr_copy, addr, sizeof(addr_copy));
+    return gap_get_link_key_for_bd_addr(addr_copy, link_key, &link_key_type) != 0;
+}
+
 static bool transport_stack_valid_pairing_link_type(uint8_t bt_link_type) {
     return (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_LE)
         || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_CLASSIC);
@@ -2295,13 +2326,12 @@ static void transport_stack_packet_handler(
     switch (hci_event_packet_get_type(packet)) {
         case HCI_EVENT_PIN_CODE_REQUEST: {
             bd_addr_t address = {0};
-            const bool security_accept = transport_stack_security_accept();
+            bool security_accept = false;
 
             hci_event_pin_code_request_get_bd_addr(packet, address);
+            security_accept = transport_stack_security_accept_for_addr(address);
             if (security_accept) {
                 transport_stack_mark_pairing_auth_attempted();
-            }
-            if (security_accept) {
                 (void)gap_pin_code_response(address, "0000");
             } else {
                 (void)gap_pin_code_negative(address);
@@ -2309,13 +2339,12 @@ static void transport_stack_packet_handler(
         } break;
         case HCI_EVENT_USER_CONFIRMATION_REQUEST: {
             bd_addr_t address = {0};
-            const bool security_accept = transport_stack_security_accept();
+            bool security_accept = false;
 
             hci_event_user_confirmation_request_get_bd_addr(packet, address);
+            security_accept = transport_stack_security_accept_for_addr(address);
             if (security_accept) {
                 transport_stack_mark_pairing_auth_attempted();
-            }
-            if (security_accept) {
                 (void)gap_ssp_confirmation_response(address);
             } else {
                 (void)gap_ssp_confirmation_negative(address);
@@ -2330,9 +2359,10 @@ static void transport_stack_packet_handler(
              * legacy/edge cases; respond with 000000 so SSP can't stall.
              */
             bd_addr_t address = {0};
-            const bool security_accept = transport_stack_security_accept();
+            bool security_accept = false;
 
             hci_event_user_passkey_request_get_bd_addr(packet, address);
+            security_accept = transport_stack_security_accept_for_addr(address);
             if (security_accept) {
                 transport_stack_mark_pairing_auth_attempted();
                 (void)gap_ssp_passkey_response(address, 0U);
@@ -2456,17 +2486,21 @@ static void transport_stack_packet_handler(
 
                     hid_subevent_incoming_connection_get_address(packet, incoming_addr);
 
-                    if (transport_stack_security_accept()
+                    /*
+                     * Accept only while user-initiated pairing is active or
+                     * from an already-bonded peer (which covers reconnects
+                     * regardless of app-level backoff). A pending stack-side
+                     * reconnect window must NOT open the door: Classic devices
+                     * reconnect themselves and are bonded, so anything
+                     * unbonded arriving during that window is unrelated.
+                     */
+                    if (g_btstack_pairing_active
                         && !g_btstack_connect_pending
                         && transport_stack_connection_capacity_available()) {
                         accept = true;
                     } else if (!g_btstack_connect_pending
                         && transport_stack_connection_capacity_available()
                         && gap_get_link_key_for_bd_addr(incoming_addr, link_key, &link_key_type)) {
-                        /*
-                         * Allow previously bonded keyboards to reconnect even
-                         * when app-level reconnect backoff is active.
-                         */
                         accept = true;
                     }
 
@@ -2691,7 +2725,13 @@ bool transport_stack_init(void) {
     gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_REQUIRED_GENERAL_BONDING);
     gap_ssp_set_auto_accept(0);
     sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    sm_set_authentication_requirements(SM_AUTHREQ_BONDING);
+    /*
+     * Advertise LE Secure Connections support so SC-capable peripherals pair
+     * with ECDH instead of legacy Just Works (whose TK=0 is passively
+     * sniffable). With NoInputNoOutput IO the association model stays Just
+     * Works either way; non-SC peers fall back to legacy pairing.
+     */
+    sm_set_authentication_requirements(SM_AUTHREQ_SECURE_CONNECTION | SM_AUTHREQ_BONDING);
     gap_set_scan_parameters(
         TRANSPORT_STACK_LE_SCAN_TYPE_ACTIVE,
         TRANSPORT_STACK_LE_SCAN_INTERVAL,
@@ -2760,8 +2800,6 @@ bool transport_stack_init(void) {
      */
     gap_connectable_control(1);
     g_btstack_available = true;
-#else
-    (void)radio_ready;
 #endif
 
     return true;

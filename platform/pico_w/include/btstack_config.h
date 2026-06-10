@@ -12,6 +12,12 @@
 #define ENABLE_LE_PRIVACY_ADDRESS_RESOLUTION
 
 /* Security helpers */
+/*
+ * LE Secure Connections (ECDH pairing): protects new LE bonds against passive
+ * eavesdropping. Peers without SC support fall back to LE legacy pairing and
+ * existing bonds keep working. Micro-ECC provides the P-256 implementation.
+ */
+#define ENABLE_LE_SECURE_CONNECTIONS
 #define ENABLE_MICRO_ECC_FOR_LE_SECURE_CONNECTIONS
 #define ENABLE_SOFTWARE_AES128
 

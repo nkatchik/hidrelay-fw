@@ -24,6 +24,13 @@ typedef struct {
     uint8_t usb_interface_count;
     uint32_t usb_descriptor_generation;
     hid_transport_usb_interface_plan_t usb_interface_plan[HID_TRANSPORT_MAX_INTERFACE];
+    /*
+     * Cached remap profile per interface. The policy decision behind it is a
+     * full report-descriptor parse; its inputs (descriptor bytes, protocol
+     * mode) only change through set_usb_plan, which invalidates this cache.
+     */
+    uint8_t remap_profile[HID_TRANSPORT_MAX_INTERFACE];
+    bool remap_profile_valid[HID_TRANSPORT_MAX_INTERFACE];
     hid_transport_event_t event_queue[HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE];
     uint8_t event_queue_head;
     uint8_t event_queue_tail;
@@ -73,7 +80,7 @@ bool hid_transport_runtime_ingest_usb_report(
     void * descriptor_context
 );
 bool hid_transport_runtime_remap_bt_to_usb(
-    const hid_transport_runtime_t * runtime,
+    hid_transport_runtime_t * runtime,
     uint8_t interface_number,
     const uint8_t * report,
     uint16_t report_len,
