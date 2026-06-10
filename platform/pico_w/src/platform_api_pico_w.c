@@ -11,16 +11,20 @@ static pico_w_state_t g_state = {
 };
 
 /*
- * Hang-watchdog breadcrumbs live in watchdog scratch registers, which
- * survive a watchdog reset but not power-on. scratch[4] holds a magic value
- * while the watchdog is armed; deliberate reboots clear it so only genuine
- * hangs produce a report.
+ * Hang-watchdog breadcrumbs live in watchdog scratch registers 2 and 3,
+ * which survive a watchdog reset but not power-on. Scratch 4-7 belong to
+ * the SDK/bootrom: watchdog_enable() itself stamps scratch[4] with its
+ * non-reboot magic (the first version of this code stored its own armed
+ * marker there and watchdog_enable silently clobbered it -- hang reports
+ * never fired). Armed-ness therefore rides the SDK's own mechanism:
+ * watchdog_enable_caused_reboot() is true exactly when the reset came from
+ * an armed watchdog timing out, and deliberate reboots
+ * (watchdog_reboot/reset paths) overwrite the SDK magic on their own.
  */
 enum {
     PICO_W_HANG_SCRATCH_BT = 2U,
     PICO_W_HANG_SCRATCH_MAIN = 3U,
-    PICO_W_HANG_SCRATCH_ARMED = 4U,
-    PICO_W_HANG_ARMED_MAGIC = 0x48414E47U, /* "HANG" */
+    PICO_W_SDK_SCRATCH_REBOOT_MAGIC = 4U,
     PICO_W_WATCHDOG_TIMEOUT_MS = 5000U
 };
 
@@ -31,7 +35,6 @@ static bool platform_ready(void) {
 void platform_watchdog_enable(void) {
     watchdog_hw->scratch[PICO_W_HANG_SCRATCH_BT] = 0U;
     watchdog_hw->scratch[PICO_W_HANG_SCRATCH_MAIN] = 0U;
-    watchdog_hw->scratch[PICO_W_HANG_SCRATCH_ARMED] = PICO_W_HANG_ARMED_MAGIC;
     watchdog_enable(PICO_W_WATCHDOG_TIMEOUT_MS, true);
 }
 
@@ -51,8 +54,7 @@ bool platform_take_hang_report(
     uint8_t * out_bt_marker,
     uint8_t * out_main_marker
 ) {
-    if (!watchdog_caused_reboot()
-        || (watchdog_hw->scratch[PICO_W_HANG_SCRATCH_ARMED] != PICO_W_HANG_ARMED_MAGIC)) {
+    if (!watchdog_enable_caused_reboot()) {
         return false;
     }
 
@@ -62,7 +64,7 @@ bool platform_take_hang_report(
     if (out_main_marker != NULL) {
         *out_main_marker = (uint8_t)watchdog_hw->scratch[PICO_W_HANG_SCRATCH_MAIN];
     }
-    watchdog_hw->scratch[PICO_W_HANG_SCRATCH_ARMED] = 0U;
+    watchdog_hw->scratch[PICO_W_SDK_SCRATCH_REBOOT_MAGIC] = 0U;
     return true;
 }
 
@@ -109,7 +111,9 @@ void platform_sleep_us(uint32_t sleep_us) {
 }
 
 void pico_w_hw_disarm_hang_report(void) {
-    watchdog_hw->scratch[PICO_W_HANG_SCRATCH_ARMED] = 0U;
+    /* Clearing the SDK's reboot magic makes watchdog_enable_caused_reboot()
+     * false on the next boot, so deliberate resets never blink a report. */
+    watchdog_hw->scratch[PICO_W_SDK_SCRATCH_REBOOT_MAGIC] = 0U;
 }
 
 void platform_reboot(void) {
