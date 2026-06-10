@@ -25,11 +25,17 @@ static pico_w_state_t g_state = {
  */
 enum {
     PICO_W_HANG_SCRATCH_PANIC = 0U,
+    PICO_W_HANG_SCRATCH_PANIC_FMT = 1U,
     PICO_W_HANG_SCRATCH_BT = 2U,
     PICO_W_HANG_SCRATCH_MAIN = 3U,
     PICO_W_SDK_SCRATCH_REBOOT_MAGIC = 4U,
     PICO_W_WATCHDOG_TIMEOUT_MS = 5000U
 };
+
+/* XIP flash window: panic format strings are literals living here, so the
+ * recorded pointer is still readable after the watchdog reset. */
+#define PICO_W_FLASH_BASE 0x10000000U
+#define PICO_W_FLASH_LIMIT 0x10200000U
 
 /* "PAN" tag + class in the low byte (see pico_w_panic). */
 #define PICO_W_PANIC_CODE_BASE 0x50414E00U
@@ -56,6 +62,7 @@ void __attribute__((noreturn)) pico_w_panic(
         }
     }
     watchdog_hw->scratch[PICO_W_HANG_SCRATCH_PANIC] = PICO_W_PANIC_CODE_BASE | panic_class;
+    watchdog_hw->scratch[PICO_W_HANG_SCRATCH_PANIC_FMT] = (uint32_t)fmt;
 
     (void)save_and_disable_interrupts();
     for (;;) {
@@ -69,6 +76,7 @@ static bool platform_ready(void) {
 
 void platform_watchdog_enable(void) {
     watchdog_hw->scratch[PICO_W_HANG_SCRATCH_PANIC] = 0U;
+    watchdog_hw->scratch[PICO_W_HANG_SCRATCH_PANIC_FMT] = 0U;
     watchdog_hw->scratch[PICO_W_HANG_SCRATCH_BT] = 0U;
     watchdog_hw->scratch[PICO_W_HANG_SCRATCH_MAIN] = 0U;
     watchdog_enable(PICO_W_WATCHDOG_TIMEOUT_MS, true);
@@ -89,7 +97,8 @@ void platform_hang_checkpoint_main(uint8_t marker) {
 bool platform_take_hang_report(
     uint8_t * out_bt_marker,
     uint8_t * out_main_marker,
-    uint8_t * out_panic_class
+    uint8_t * out_panic_class,
+    const char ** out_panic_text
 ) {
     if (!watchdog_enable_caused_reboot()) {
         return false;
@@ -107,6 +116,18 @@ bool platform_take_hang_report(
         *out_panic_class = ((panic_code & PICO_W_PANIC_CODE_MASK) == PICO_W_PANIC_CODE_BASE)
             ? (uint8_t)(panic_code & 0xFFU)
             : 0U;
+    }
+    if (out_panic_text != NULL) {
+        const uint32_t fmt_addr = watchdog_hw->scratch[PICO_W_HANG_SCRATCH_PANIC_FMT];
+
+        /*
+         * The panic format string is a flash literal from the very image
+         * still running, so the recorded pointer remains readable -- but
+         * only trust it when it points into the XIP window.
+         */
+        *out_panic_text = ((fmt_addr >= PICO_W_FLASH_BASE) && (fmt_addr < PICO_W_FLASH_LIMIT))
+            ? (const char *)fmt_addr
+            : NULL;
     }
     watchdog_hw->scratch[PICO_W_SDK_SCRATCH_REBOOT_MAGIC] = 0U;
     return true;

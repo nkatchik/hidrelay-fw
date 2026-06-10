@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "app.h"
@@ -76,13 +77,30 @@ static void main_hang_blink_group(uint8_t blink_count) {
  * deadlock. Localizes the wedge without any tooling.
  */
 static void main_report_hang_if_any(void) {
+    static char diag_serial[40] = {0};
     uint8_t bt_marker = 0U;
     uint8_t main_marker = 0U;
     uint8_t panic_class = 0U;
+    const char * panic_text = NULL;
 
-    if (!platform_take_hang_report(&bt_marker, &main_marker, &panic_class)) {
+    if (!platform_take_hang_report(&bt_marker, &main_marker, &panic_class, &panic_text)) {
         return;
     }
+
+    /*
+     * Publish the report as the USB serial-number string too: the panic
+     * message itself is readable host-side (ioreg / System Information)
+     * where blink groups can only carry numbers.
+     */
+    (void)snprintf(
+        diag_serial,
+        sizeof(diag_serial),
+        "B%u M%u %s",
+        (unsigned)bt_marker,
+        (unsigned)main_marker,
+        (panic_text != NULL) ? panic_text : "no-panic"
+    );
+    usb_runtime_set_diag_serial(diag_serial);
 
     main_hang_blink_delay_ms(MAIN_HANG_BLINK_GROUP_GAP_MS);
     main_hang_blink_group((uint8_t)(bt_marker + 1U));

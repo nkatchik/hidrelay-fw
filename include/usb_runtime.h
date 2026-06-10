@@ -28,5 +28,11 @@ bool usb_runtime_diag_write(
     const uint8_t * data,
     uint16_t data_len
 );
+/*
+ * Override the USB serial-number string with diagnostic text (hang report:
+ * frozen markers + panic message), readable host-side via the device's USB
+ * properties. Call before USB init; NULL/empty restores the default.
+ */
+void usb_runtime_set_diag_serial(const char * text);
 
 #endif

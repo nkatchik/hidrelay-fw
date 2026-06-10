@@ -461,6 +461,23 @@ uint8_t const * tud_descriptor_configuration_cb(uint8_t index) {
     return g_config_desc;
 }
 
+/*
+ * Diagnostic override for the USB serial-number string: after a hang
+ * recovery the boot report stuffs the frozen markers and the panic message
+ * here, so the failure can be read from the host (ioreg / System
+ * Information) without any tooling attached.
+ */
+static char g_hidrelay_diag_serial[HIDRELAY_STRING_LIMIT + 1U] = {0};
+
+void usb_runtime_set_diag_serial(const char * text) {
+    if (text == NULL) {
+        g_hidrelay_diag_serial[0] = '\0';
+        return;
+    }
+    (void)strncpy(g_hidrelay_diag_serial, text, HIDRELAY_STRING_LIMIT);
+    g_hidrelay_diag_serial[HIDRELAY_STRING_LIMIT] = '\0';
+}
+
 uint16_t const * tud_descriptor_string_cb(
     uint8_t index,
     uint16_t langid
@@ -490,6 +507,9 @@ uint16_t const * tud_descriptor_string_cb(
     }
 
     text = strings[index - 1U];
+    if ((index == 3U) && (g_hidrelay_diag_serial[0] != '\0')) {
+        text = g_hidrelay_diag_serial;
+    }
     char_count = (uint8_t)strlen(text);
 
     if (char_count > HIDRELAY_STRING_LIMIT) {
@@ -530,6 +550,14 @@ void tud_hid_set_report_cb(
     (void)report_type;
 
     transport_stack_ingest_usb_report(instance, buffer, bufsize);
+}
+
+#else
+
+#include "usb_runtime.h"
+
+void usb_runtime_set_diag_serial(const char * text) {
+    (void)text;
 }
 
 #endif
