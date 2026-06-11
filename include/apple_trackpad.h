@@ -116,20 +116,34 @@ typedef struct {
     bool episode_clicked;
     int32_t episode_travel;
     uint8_t click_buttons; /* mapping latched while the physical button is down */
+    bool tap_to_click; /* synthesize tap clicks (currently shipped disabled) */
     uint8_t pending_release_buttons; /* tap pulse awaiting its timed release */
     uint32_t tap_release_deadline_ms;
     /* Two-finger mode (scroll vs pinch), classified once per episode from
      * whether parallel motion or spread change dominates. */
     uint8_t two_finger_mode;
-    int32_t two_finger_parallel_acc;
+    int32_t two_finger_parallel_acc_x; /* |avg dx| accumulated while undecided */
+    int32_t two_finger_parallel_acc_y;
     int32_t two_finger_spread_acc;
     bool two_finger_spread_valid;
     int32_t two_finger_prev_spread;
+    uint8_t scroll_axis_lock; /* dominant-axis lock for this scroll episode */
     int32_t pinch_rem; /* spread change accumulated toward the next zoom step */
     /* Three-finger swipe accumulation; one chord per three-finger segment. */
     int32_t swipe_acc_x;
     int32_t swipe_acc_y;
     bool swipe_fired;
+    /* Scroll inertia. Finger velocity is averaged while two-finger
+     * scrolling; a fast enough liftoff arms a decaying synthetic wheel tail
+     * flushed from apple_trackpad_tick (the trackpad sends no frames once
+     * fingers are up). Any new touch catches and cancels it. */
+    int32_t scroll_vel_x; /* raw units per frame, running average */
+    int32_t scroll_vel_y;
+    uint32_t scroll_vel_ms; /* last scroll-frame timestamp */
+    bool momentum_active;
+    int32_t momentum_vel_x; /* raw units per step, <<8 fixed point */
+    int32_t momentum_vel_y;
+    uint32_t momentum_next_step_ms;
 } apple_trackpad_state_t;
 
 void apple_trackpad_state_init(

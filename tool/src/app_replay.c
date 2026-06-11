@@ -2240,17 +2240,19 @@ static bool app_replay_test_trackpad_pointer_motion(void) {
         )) {
         return false;
     }
-    /* 240 raw units / pointer divider 4 = 60 counts on both axes. */
+    /* 240 raw units per axis in one frame is far past the fast-speed
+     * anchor: velocity gain clamps at 1.875x, so 240 * 1.875 / divider 3
+     * = 150 counts on both axes. */
     if (!app_replay_expect_u32_eq(
             (uint32_t)(uint16_t)(out.bytes[0][2] | (out.bytes[0][3] << 8U)),
-            60U,
+            150U,
             "x delta should be scaled raw motion"
         )) {
         return false;
     }
     return app_replay_expect_u32_eq(
         (uint32_t)(uint16_t)(out.bytes[0][4] | (out.bytes[0][5] << 8U)),
-        60U,
+        150U,
         "y delta should be scaled raw motion"
     );
 }
@@ -2273,7 +2275,9 @@ static bool app_replay_test_trackpad_two_finger_scroll(void) {
         return false;
     }
 
-    /* Both fingers move up 128 units: wheel +10 (traditional scroll-up). */
+    /* Both fingers move up 128 units: velocity gain at that speed is
+     * 84/64 (1.3125x), so 128 * 1.3125 / scroll divider 3 = wheel +56
+     * (traditional scroll-up). */
     touches[0].y = -128;
     touches[1].y = -128;
     frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
@@ -2287,7 +2291,7 @@ static bool app_replay_test_trackpad_two_finger_scroll(void) {
     if (!app_replay_expect_u32_eq(out.count, 1U, "scroll should emit one mouse report")) {
         return false;
     }
-    if (!app_replay_expect_u32_eq(out.bytes[0][6], 10U, "fingers up should be wheel +10")) {
+    if (!app_replay_expect_u32_eq(out.bytes[0][6], 56U, "fingers up should be wheel +56")) {
         return false;
     }
     if (!app_replay_expect_true(
@@ -2306,6 +2310,179 @@ static bool app_replay_test_trackpad_two_finger_scroll(void) {
     out.count = 0U;
     (void)apple_trackpad_process_report(&state, frame, frame_len, 20U, &out);
     return app_replay_expect_u32_eq(out.count, 0U, "finger-count change should emit nothing");
+}
+
+/* Drive one fast two-finger flick: touch down at t0, then move frames every
+ * 10 ms shifting both fingers dy raw units per frame, then full liftoff. */
+static void app_replay_trackpad_flick(
+    apple_trackpad_state_t * state,
+    uint32_t t0,
+    int16_t dy,
+    uint8_t move_frames,
+    uint32_t * out_lift_ms
+) {
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touches[2] = {
+        {.x = 0, .y = 0, .touch_id = 0U, .down = true},
+        {.x = 500, .y = 0, .touch_id = 1U, .down = true},
+    };
+    uint32_t now_ms = t0;
+    uint8_t i = 0U;
+
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    (void)apple_trackpad_process_report(state, frame, frame_len, now_ms, &out);
+    for (i = 0U; i < move_frames; i++) {
+        now_ms += 10U;
+        touches[0].y = (int16_t)(touches[0].y + dy);
+        touches[1].y = (int16_t)(touches[1].y + dy);
+        frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+        out.count = 0U;
+        (void)apple_trackpad_process_report(state, frame, frame_len, now_ms, &out);
+    }
+    now_ms += 10U;
+    touches[0].down = false;
+    touches[1].down = false;
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(state, frame, frame_len, now_ms, &out);
+    *out_lift_ms = now_ms;
+}
+
+static bool app_replay_test_trackpad_scroll_momentum(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touch = {.x = 0, .y = 0, .touch_id = 0U, .down = true};
+    uint32_t now_ms = 0U;
+    uint32_t lift_ms = 0U;
+    uint32_t total_wheel = 0U;
+    uint32_t coast_reports = 0U;
+    int32_t first_wheel = 0;
+
+    apple_trackpad_state_init(&state, 0x0265U);
+
+    /* Fast upward flick (fingers up = positive wheel): coasting follows. */
+    app_replay_trackpad_flick(&state, 0U, -60, 5U, &lift_ms);
+    if (!app_replay_expect_true(state.momentum_active, "fast flick should arm momentum")) {
+        return false;
+    }
+
+    for (now_ms = lift_ms + 10U; now_ms < (lift_ms + 3000U); now_ms += 10U) {
+        out.count = 0U;
+        apple_trackpad_tick(&state, now_ms, &out);
+        if (out.count > 0U) {
+            const int32_t wheel = (int32_t)(int8_t)out.bytes[0][6];
+
+            if (!app_replay_expect_true(wheel > 0, "coasting wheel should keep direction")) {
+                return false;
+            }
+            if (coast_reports == 0U) {
+                first_wheel = wheel;
+            }
+            total_wheel += (uint32_t)wheel;
+            coast_reports = (uint32_t)(coast_reports + 1U);
+        }
+        if (!state.momentum_active) {
+            break;
+        }
+    }
+    if (!app_replay_expect_true(first_wheel >= 3, "tail should start near flick speed")) {
+        return false;
+    }
+    if (!app_replay_expect_true(total_wheel >= 50U, "tail should scroll a meaningful distance")) {
+        return false;
+    }
+    if (!app_replay_expect_true(!state.momentum_active, "momentum should decay to a stop")) {
+        return false;
+    }
+
+    /* A new touch catches the tail: arm again, touch, expect silence. */
+    app_replay_trackpad_flick(&state, 10000U, -60, 5U, &lift_ms);
+    if (!app_replay_expect_true(state.momentum_active, "second flick should arm momentum")) {
+        return false;
+    }
+    touch.down = true;
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, lift_ms + 20U, &out);
+    if (!app_replay_expect_true(!state.momentum_active, "touch should catch the tail")) {
+        return false;
+    }
+    out.count = 0U;
+    apple_trackpad_tick(&state, lift_ms + 40U, &out);
+    return app_replay_expect_u32_eq(out.count, 0U, "caught tail should emit nothing");
+}
+
+static bool app_replay_test_trackpad_scroll_axis_lock(void) {
+    apple_trackpad_state_t state = {0};
+    apple_trackpad_out_t out = {0};
+    uint8_t frame[64] = {0};
+    uint16_t frame_len = 0U;
+    app_replay_trackpad_touch_t touches[2] = {
+        {.x = 0, .y = 0, .touch_id = 0U, .down = true},
+        {.x = 500, .y = 0, .touch_id = 1U, .down = true},
+    };
+    uint32_t now_ms = 0U;
+    bool saw_both_axes = false;
+    uint8_t i = 0U;
+
+    apple_trackpad_state_init(&state, 0x0265U);
+
+    /* Near-vertical scroll with sideways jitter: pan must stay zero. */
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, now_ms, &out);
+    for (i = 0U; i < 6U; i++) {
+        now_ms += 10U;
+        touches[0].y = (int16_t)(touches[0].y - 60);
+        touches[1].y = (int16_t)(touches[1].y - 60);
+        touches[0].x = (int16_t)(touches[0].x - 10);
+        touches[1].x = (int16_t)(touches[1].x - 10);
+        frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+        out.count = 0U;
+        (void)apple_trackpad_process_report(&state, frame, frame_len, now_ms, &out);
+        if ((out.count > 0U)
+            && !app_replay_expect_u32_eq(
+                out.bytes[0][7],
+                0U,
+                "locked vertical scroll should not pan"
+            )) {
+            return false;
+        }
+    }
+    if (!app_replay_expect_u32_eq(
+            state.scroll_axis_lock,
+            1U, /* APPLE_TRACKPAD_AXIS_VERTICAL */
+            "near-vertical scroll should lock to the vertical axis"
+        )) {
+        return false;
+    }
+
+    /* A clearly diagonal scroll stays free on both axes. */
+    apple_trackpad_state_init(&state, 0x0265U);
+    touches[0].x = 0;
+    touches[0].y = 0;
+    touches[1].x = 500;
+    touches[1].y = 0;
+    now_ms = 1000U;
+    frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, now_ms, &out);
+    for (i = 0U; i < 6U; i++) {
+        now_ms += 10U;
+        touches[0].x = (int16_t)(touches[0].x - 40);
+        touches[1].x = (int16_t)(touches[1].x - 40);
+        touches[0].y = (int16_t)(touches[0].y - 40);
+        touches[1].y = (int16_t)(touches[1].y - 40);
+        frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
+        out.count = 0U;
+        (void)apple_trackpad_process_report(&state, frame, frame_len, now_ms, &out);
+        if ((out.count > 0U) && (out.bytes[0][6] != 0U) && (out.bytes[0][7] != 0U)) {
+            saw_both_axes = true;
+        }
+    }
+    return app_replay_expect_true(saw_both_axes, "diagonal scroll should keep both axes");
 }
 
 static bool app_replay_test_trackpad_click_and_passthrough(void) {
@@ -2363,13 +2540,24 @@ static bool app_replay_test_trackpad_tap_to_click(void) {
 
     apple_trackpad_state_init(&state, 0x0265U);
 
+    /* Tap-to-click ships disabled: the same tap must emit nothing. */
     frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
     (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
+    frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
+    out.count = 0U;
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 100U, &out);
+    if (!app_replay_expect_u32_eq(out.count, 0U, "tap should emit nothing while disabled")) {
+        return false;
+    }
+
+    state.tap_to_click = true;
+    frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 200U, &out);
 
     /* All fingers up after 100 ms with no movement: tap press is emitted. */
     frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
     out.count = 0U;
-    (void)apple_trackpad_process_report(&state, frame, frame_len, 100U, &out);
+    (void)apple_trackpad_process_report(&state, frame, frame_len, 300U, &out);
     if (!app_replay_expect_u32_eq(out.count, 1U, "tap liftoff should emit the click press")) {
         return false;
     }
@@ -2379,12 +2567,12 @@ static bool app_replay_test_trackpad_tap_to_click(void) {
 
     /* Release is timed: nothing before the pulse deadline, release after. */
     out.count = 0U;
-    apple_trackpad_tick(&state, 110U, &out);
+    apple_trackpad_tick(&state, 310U, &out);
     if (!app_replay_expect_u32_eq(out.count, 0U, "tap release should wait for the pulse")) {
         return false;
     }
     out.count = 0U;
-    apple_trackpad_tick(&state, 140U, &out);
+    apple_trackpad_tick(&state, 340U, &out);
     if (!app_replay_expect_u32_eq(out.count, 1U, "tap release should fire after the pulse")) {
         return false;
     }
@@ -2404,6 +2592,7 @@ static bool app_replay_test_trackpad_multi_finger_taps(void) {
 
     /* Two-finger tap = right click. */
     apple_trackpad_state_init(&state, 0x0265U);
+    state.tap_to_click = true;
     frame_len = app_replay_trackpad_frame(frame, 0U, touches, 2U);
     (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
     frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
@@ -2423,6 +2612,7 @@ static bool app_replay_test_trackpad_multi_finger_taps(void) {
 
     /* Three-finger tap = middle click. */
     apple_trackpad_state_init(&state, 0x0265U);
+    state.tap_to_click = true;
     frame_len = app_replay_trackpad_frame(frame, 0U, touches, 3U);
     (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
     frame_len = app_replay_trackpad_frame(frame, 0U, NULL, 0U);
@@ -2443,6 +2633,7 @@ static bool app_replay_test_trackpad_tap_suppression(void) {
 
     /* A touch that moved is not a tap. */
     apple_trackpad_state_init(&state, 0x0265U);
+    state.tap_to_click = true;
     frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
     (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
     touch.x = 400;
@@ -2457,6 +2648,7 @@ static bool app_replay_test_trackpad_tap_suppression(void) {
 
     /* A touch that stayed down too long is not a tap. */
     apple_trackpad_state_init(&state, 0x0265U);
+    state.tap_to_click = true;
     touch.x = 0;
     frame_len = app_replay_trackpad_frame(frame, 0U, &touch, 1U);
     (void)apple_trackpad_process_report(&state, frame, frame_len, 0U, &out);
@@ -2760,6 +2952,8 @@ int main(void) {
         {.name = "trackpad_recognition", .fn = app_replay_test_trackpad_recognition},
         {.name = "trackpad_pointer_motion", .fn = app_replay_test_trackpad_pointer_motion},
         {.name = "trackpad_two_finger_scroll", .fn = app_replay_test_trackpad_two_finger_scroll},
+        {.name = "trackpad_scroll_momentum", .fn = app_replay_test_trackpad_scroll_momentum},
+        {.name = "trackpad_scroll_axis_lock", .fn = app_replay_test_trackpad_scroll_axis_lock},
         {.name = "trackpad_click_and_passthrough",
             .fn = app_replay_test_trackpad_click_and_passthrough},
         {.name = "trackpad_descriptor_augment", .fn = app_replay_test_trackpad_descriptor_augment},
