@@ -11,6 +11,18 @@
             "command": "shellCommand.execute",
             "id": "appPlatform",
             "type": "command"
+        },
+        {
+            "args": {
+                "command": "if [ -d \"${workspaceFolder}/build\" ]; then find \"${workspaceFolder}/build\" -mindepth 1 -maxdepth 1 -type d ! -name tool -exec basename {} \\; | LC_ALL=C sort; fi",
+                "description": "Select built target to flash",
+                "rememberPrevious": true,
+                "taskId": "flashPlatform",
+                "useSingleResult": true
+            },
+            "command": "shellCommand.execute",
+            "id": "flashPlatform",
+            "type": "command"
         }
     ],
     "tasks": [
@@ -56,20 +68,20 @@
             },
             "type": "shell"
         },
-        {
-            "command": "make build APP_PLATFORM=${input:appPlatform} APP_DEBUG_WIPE_ALL_ON_BOOT=1 tool-cache-probe tool-diag-capture && echo '✅ Build successful' || echo '❌ Build failed'",
-            "group": {
-                "isDefault": true,
-                "kind": "build"
-            },
-            "label": "🛠️🐞 Build",
-            "presentation": {
-                "clear": true,
-                "echo": false,
-                "showReuseMessage": false
-            },
-            "type": "shell"
-        },
+        // {
+        //     "command": "make build APP_PLATFORM=${input:appPlatform} APP_DEBUG_WIPE_ALL_ON_BOOT=1 tool-cache-probe tool-diag-capture && echo '✅ Build successful' || echo '❌ Build failed'",
+        //     "group": {
+        //         "isDefault": true,
+        //         "kind": "build"
+        //     },
+        //     "label": "🛠️🐞 Build",
+        //     "presentation": {
+        //         "clear": true,
+        //         "echo": false,
+        //         "showReuseMessage": false
+        //     },
+        //     "type": "shell"
+        // },
         {
             "command": "make test-host && echo '✅ Tests clear' || echo '❌ Tests failed'",
             "group": {
@@ -85,7 +97,7 @@
             "type": "shell"
         },
         {
-            "command": "flash",
+            "command": "flash \"${input:flashPlatform}\" && echo '✅ Flash successful' || echo '❌ Flash failed'",
             "group": {
                 "isDefault": false,
                 "kind": "none"

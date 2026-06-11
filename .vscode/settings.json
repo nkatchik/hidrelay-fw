@@ -22,12 +22,12 @@
     ],
     "rust-analyzer.showDependenciesExplorer": false,
     "terminal.integrated.env.linux": {
-        "PATH": "${workspaceFolder}/.vscode/bin:${env:PATH}"
+        "PATH": "${workspaceFolder}/bin:${env:PATH}"
     },
     "terminal.integrated.env.osx": {
-        "PATH": "${workspaceFolder}/.vscode/bin:${env:PATH}"
+        "PATH": "${workspaceFolder}/bin:${env:PATH}"
     },
     "terminal.integrated.env.windows": {
-        "Path": "${workspaceFolder}\\.vscode\\bin;${env:Path}"
+        "Path": "${workspaceFolder}\\bin;${env:Path}"
     }
 }

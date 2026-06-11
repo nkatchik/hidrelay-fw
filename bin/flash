@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "${script_dir}/.." && pwd)"
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: flash <build-target> [platform-flash-args...]" >&2
+    exit 2
+fi
+
+selected_build="$1"
+shift
+
+read_cache_value() {
+    local cache_path="$1"
+    local cache_key="$2"
+    local line
+
+    if [[ ! -f "${cache_path}" ]]; then
+        return 1
+    fi
+
+    while IFS= read -r line; do
+        case "${line}" in
+            "${cache_key}":*=*)
+                printf '%s\n' "${line#*=}"
+                return 0
+                ;;
+        esac
+    done < "${cache_path}"
+
+    return 1
+}
+
+build_dir="${repo_root}/build/${selected_build}"
+cache_path="${build_dir}/CMakeCache.txt"
+if [[ ! -d "${build_dir}" ]]; then
+    echo "❌ Build target not found: build/${selected_build}" >&2
+    exit 1
+fi
+
+app_platform="$(read_cache_value "${cache_path}" APP_PLATFORM || true)"
+if [[ -z "${app_platform}" ]]; then
+    echo "❌ Could not resolve APP_PLATFORM from build/${selected_build}/CMakeCache.txt" >&2
+    exit 1
+fi
+
+platform_flash_script="${repo_root}/platform/${app_platform}/bin/flash"
+if [[ ! -x "${platform_flash_script}" ]]; then
+    echo "❌ Missing platform flash script: platform/${app_platform}/bin/flash" >&2
+    exit 1
+fi
+
+echo "Using build target: build/${selected_build} (platform: ${app_platform})"
+"${platform_flash_script}" "${repo_root}" "${app_platform}" "${build_dir}" "$@"

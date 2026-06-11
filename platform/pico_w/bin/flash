@@ -2,14 +2,24 @@
 set -euo pipefail
 
 if [[ $# -gt 3 ]]; then
-    echo "Usage: flash [repo-root] [platform] [uf2-path]" >&2
+    echo "Usage: flash [repo-root] [platform] [build-dir-or-uf2-path]" >&2
     exit 2
 fi
 
 repo_root="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 app_platform="${2:-pico_w}"
+build_dir="${repo_root}/build/${app_platform}"
 
-uf2_path="${3:-${repo_root}/build/${app_platform}/platform/${app_platform}/hidrelay_fw.uf2}"
+if [[ $# -ge 3 ]]; then
+    if [[ -d "$3" ]]; then
+        build_dir="$3"
+        uf2_path="${build_dir}/platform/${app_platform}/hidrelay_fw.uf2"
+    else
+        uf2_path="$3"
+    fi
+else
+    uf2_path="${build_dir}/platform/${app_platform}/hidrelay_fw.uf2"
+fi
 if [[ ! -f "${uf2_path}" ]]; then
     if [[ $# -ge 3 ]]; then
         echo "❌ UF2 artifact not found: ${uf2_path}" >&2
