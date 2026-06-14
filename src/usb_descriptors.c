@@ -484,8 +484,8 @@ uint16_t const * tud_descriptor_string_cb(
 ) {
     static uint16_t descriptor[HIDRELAY_STRING_LIMIT + 1U];
     static const char * const strings[] = {
-        "hidrelay-fw",
-        "HID Relay Hub",
+        "HID Relay",
+        "Hub",
         "00000001",
 #if defined(APP_HAS_DIAG_CDC)
         "Diag CDC",
