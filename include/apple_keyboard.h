@@ -58,6 +58,7 @@ typedef struct {
     uint8_t layout;
     bool media_default; /* true: top row = media, Fn = literal F-keys */
     bool toggle_chord_active; /* Fn+Esc rising-edge tracking */
+    bool esc_suppress_latched; /* swallow this Esc press for its whole duration */
     uint8_t prev_aux[2]; /* last emitted aux payload, for press/release diffing */
 } apple_keyboard_state_t;
 

@@ -361,9 +361,18 @@ bool apple_keyboard_process_report(
 
         if (key == APPLE_KEYBOARD_KEY_ESC) {
             esc_held = true;
-            /* Fn+Esc is our private mode toggle; never forward that Esc. */
-            if (fn_held) {
+            /*
+             * Fn+Esc is our private mode toggle; that Esc must never reach the
+             * host. Suppression latches for the whole physical Esc press: the
+             * keyboard does not transition the Fn status bit and the Esc keycode
+             * atomically, so on chord release the Fn bit can clear a report
+             * before Esc leaves the keycode array. Keying suppression off the
+             * current report's Fn bit alone would leak that trailing Esc as a
+             * real Escape (an intermittent keystroke into the focused app).
+             */
+            if (fn_held || state->esc_suppress_latched) {
                 out_kbd[i] = 0U;
+                state->esc_suppress_latched = true;
             }
             continue;
         }
@@ -411,6 +420,11 @@ bool apple_keyboard_process_report(
         state->toggle_chord_active = true;
     } else {
         state->toggle_chord_active = false;
+    }
+
+    /* Release the Esc-suppression latch once the key is physically up. */
+    if (!esc_held) {
+        state->esc_suppress_latched = false;
     }
 
     /* Emit the aux report only when it changed, so each mapped key produces one
