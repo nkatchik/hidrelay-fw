@@ -34,6 +34,8 @@ enum {
     APPLE_KEYBOARD_KEY_F1 = 0x3AU,
     APPLE_KEYBOARD_KEY_F12 = 0x45U,
     APPLE_KEYBOARD_KEY_ESC = 0x29U,
+    APPLE_KEYBOARD_KEY_DELETE_BACKSPACE = 0x2AU,
+    APPLE_KEYBOARD_KEY_DELETE_FORWARD = 0x4CU,
     APPLE_KEYBOARD_KEY_UP_ARROW = 0x52U, /* Mission Control chord key   */
     APPLE_KEYBOARD_KEY_L = 0x0FU, /* Launchpad chord key         */
     APPLE_KEYBOARD_MOD_LEFT_CTRL = 0x01U, /* report byte 1, bit 0        */
@@ -330,6 +332,7 @@ bool apple_keyboard_process_report(
     uint8_t aux[2] = {0U, 0U};
     bool fn_held = false;
     bool esc_held = false;
+    bool delete_backspace_held = false;
     bool media_action = false;
     uint8_t i = 0U;
     const apple_keyboard_chord_t * chord = NULL;
@@ -374,6 +377,17 @@ bool apple_keyboard_process_report(
                 out_kbd[i] = 0U;
                 state->esc_suppress_latched = true;
             }
+            continue;
+        }
+
+        if (key == APPLE_KEYBOARD_KEY_DELETE_BACKSPACE) {
+            delete_backspace_held = true;
+        }
+
+        if ((key == APPLE_KEYBOARD_KEY_DELETE_BACKSPACE)
+            && (fn_held || state->delete_forward_latched)) {
+            out_kbd[i] = APPLE_KEYBOARD_KEY_DELETE_FORWARD;
+            state->delete_forward_latched = true;
             continue;
         }
 
@@ -425,6 +439,9 @@ bool apple_keyboard_process_report(
     /* Release the Esc-suppression latch once the key is physically up. */
     if (!esc_held) {
         state->esc_suppress_latched = false;
+    }
+    if (!delete_backspace_held) {
+        state->delete_forward_latched = false;
     }
 
     /* Emit the aux report only when it changed, so each mapped key produces one

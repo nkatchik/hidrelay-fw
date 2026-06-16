@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "apple_keyboard.h"
 #include "apple_trackpad.h"
 #include "hid_device_map.h"
 #include "hid_transport_runtime.h"
@@ -2077,6 +2078,130 @@ static bool app_replay_test_hid_device_map_fn_esc_toggle(void) {
     );
 }
 
+static bool app_replay_test_apple_keyboard_fn_delete_forward_delete(void) {
+    apple_keyboard_state_t state = {0};
+    const uint8_t plain_delete_report[] =
+        {0x01U, 0x00U, 0x00U, 0x2AU, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+    const uint8_t fn_delete_report[] =
+        {0x01U, 0x00U, 0x00U, 0x2AU, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x02U};
+    const uint8_t trailing_delete_report[] =
+        {0x01U, 0x00U, 0x00U, 0x2AU, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+    const uint8_t release_report[] =
+        {0x01U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+    uint8_t kbd[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint8_t aux[APPLE_KEYBOARD_AUX_REPORT_LEN] = {0};
+    uint16_t kbd_len = 0U;
+    uint16_t aux_len = 0U;
+
+    apple_keyboard_state_init(&state, 0x0267U);
+
+    if (!app_replay_expect_true(
+            apple_keyboard_process_report(
+                &state,
+                plain_delete_report,
+                (uint16_t)sizeof(plain_delete_report),
+                kbd,
+                &kbd_len,
+                aux,
+                &aux_len
+            ),
+            "plain Apple Delete report should be remappable"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(kbd[3], 0x2AU, "plain Apple Delete should remain Backspace")) {
+        return false;
+    }
+
+    (void)memset(kbd, 0, sizeof(kbd));
+    (void)memset(aux, 0, sizeof(aux));
+    kbd_len = 0U;
+    aux_len = 0U;
+
+    if (!app_replay_expect_true(
+            apple_keyboard_process_report(
+                &state,
+                fn_delete_report,
+                (uint16_t)sizeof(fn_delete_report),
+                kbd,
+                &kbd_len,
+                aux,
+                &aux_len
+            ),
+            "Fn+Apple Delete report should be remappable"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(
+            kbd_len,
+            (uint32_t)sizeof(fn_delete_report),
+            "Fn+Apple Delete should keep the keyboard report length"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(kbd[3], 0x4CU, "Fn+Apple Delete should emit Forward Delete")) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(aux_len, 0U, "Fn+Apple Delete should not emit an aux report")) {
+        return false;
+    }
+
+    (void)memset(kbd, 0, sizeof(kbd));
+    if (!app_replay_expect_true(
+            apple_keyboard_process_report(
+                &state,
+                trailing_delete_report,
+                (uint16_t)sizeof(trailing_delete_report),
+                kbd,
+                &kbd_len,
+                aux,
+                &aux_len
+            ),
+            "trailing Apple Delete report should be remappable"
+        )) {
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(
+            kbd[3],
+            0x4CU,
+            "trailing Apple Delete should stay Forward Delete until key release"
+        )) {
+        return false;
+    }
+
+    (void)memset(kbd, 0, sizeof(kbd));
+    (void)apple_keyboard_process_report(
+        &state,
+        release_report,
+        (uint16_t)sizeof(release_report),
+        kbd,
+        &kbd_len,
+        aux,
+        &aux_len
+    );
+
+    (void)memset(kbd, 0, sizeof(kbd));
+    if (!app_replay_expect_true(
+            apple_keyboard_process_report(
+                &state,
+                plain_delete_report,
+                (uint16_t)sizeof(plain_delete_report),
+                kbd,
+                &kbd_len,
+                aux,
+                &aux_len
+            ),
+            "plain Apple Delete after release should be remappable"
+        )) {
+        return false;
+    }
+    return app_replay_expect_u32_eq(
+        kbd[3],
+        0x2AU,
+        "plain Apple Delete after release should remain Backspace"
+    );
+}
+
 /*
  * Encode one Magic Trackpad 2 vendor touch record (the inverse of the
  * decode in apple_trackpad.c): x is 13-bit signed across bytes 0-1, y is
@@ -2949,6 +3074,8 @@ int main(void) {
             .fn = app_replay_test_hid_device_map_profile_detection},
         {.name = "hid_device_map_fn_esc_toggle",
             .fn = app_replay_test_hid_device_map_fn_esc_toggle},
+        {.name = "apple_keyboard_fn_delete_forward_delete",
+            .fn = app_replay_test_apple_keyboard_fn_delete_forward_delete},
         {.name = "trackpad_recognition", .fn = app_replay_test_trackpad_recognition},
         {.name = "trackpad_pointer_motion", .fn = app_replay_test_trackpad_pointer_motion},
         {.name = "trackpad_two_finger_scroll", .fn = app_replay_test_trackpad_two_finger_scroll},
