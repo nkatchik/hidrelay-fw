@@ -35,12 +35,27 @@ enum {
     APPLE_KEYBOARD_KEY_F12 = 0x45U,
     APPLE_KEYBOARD_KEY_ESC = 0x29U,
     APPLE_KEYBOARD_KEY_DELETE_BACKSPACE = 0x2AU,
+    APPLE_KEYBOARD_KEY_HOME = 0x4AU,
+    APPLE_KEYBOARD_KEY_PAGE_UP = 0x4BU,
     APPLE_KEYBOARD_KEY_DELETE_FORWARD = 0x4CU,
-    APPLE_KEYBOARD_KEY_UP_ARROW = 0x52U, /* Mission Control chord key   */
+    APPLE_KEYBOARD_KEY_END = 0x4DU,
+    APPLE_KEYBOARD_KEY_PAGE_DOWN = 0x4EU,
+    APPLE_KEYBOARD_KEY_RIGHT_ARROW = 0x4FU,
+    APPLE_KEYBOARD_KEY_LEFT_ARROW = 0x50U,
+    APPLE_KEYBOARD_KEY_DOWN_ARROW = 0x51U,
+    APPLE_KEYBOARD_KEY_UP_ARROW = 0x52U,
     APPLE_KEYBOARD_KEY_L = 0x0FU, /* Launchpad chord key         */
     APPLE_KEYBOARD_MOD_LEFT_CTRL = 0x01U, /* report byte 1, bit 0        */
     APPLE_KEYBOARD_MOD_LEFT_ALT = 0x04U, /* Option, bit 2               */
     APPLE_KEYBOARD_MOD_LEFT_GUI = 0x08U /* Command, bit 3              */
+};
+
+enum {
+    APPLE_KEYBOARD_FN_NAV_BACKSPACE = 0x01U,
+    APPLE_KEYBOARD_FN_NAV_LEFT_ARROW = 0x02U,
+    APPLE_KEYBOARD_FN_NAV_RIGHT_ARROW = 0x04U,
+    APPLE_KEYBOARD_FN_NAV_UP_ARROW = 0x08U,
+    APPLE_KEYBOARD_FN_NAV_DOWN_ARROW = 0x10U
 };
 
 /*
@@ -169,6 +184,35 @@ static const apple_keyboard_chord_t * apple_keyboard_chord_for_bit(uint8_t bit) 
     for (n = 0U; n < (sizeof(k_apple_keyboard_chords) / sizeof(k_apple_keyboard_chords[0])); n++) {
         if (k_apple_keyboard_chords[n].aux_bit == bit) {
             return &k_apple_keyboard_chords[n];
+        }
+    }
+    return NULL;
+}
+
+typedef struct {
+    uint8_t source_key;
+    uint8_t target_key;
+    uint8_t latch_bit;
+} apple_keyboard_fn_nav_remap_t;
+
+static const apple_keyboard_fn_nav_remap_t k_apple_keyboard_fn_nav_remaps[] = {
+    {APPLE_KEYBOARD_KEY_DELETE_BACKSPACE,
+        APPLE_KEYBOARD_KEY_DELETE_FORWARD,
+        APPLE_KEYBOARD_FN_NAV_BACKSPACE},
+    {APPLE_KEYBOARD_KEY_LEFT_ARROW, APPLE_KEYBOARD_KEY_HOME, APPLE_KEYBOARD_FN_NAV_LEFT_ARROW},
+    {APPLE_KEYBOARD_KEY_RIGHT_ARROW, APPLE_KEYBOARD_KEY_END, APPLE_KEYBOARD_FN_NAV_RIGHT_ARROW},
+    {APPLE_KEYBOARD_KEY_UP_ARROW, APPLE_KEYBOARD_KEY_PAGE_UP, APPLE_KEYBOARD_FN_NAV_UP_ARROW},
+    {APPLE_KEYBOARD_KEY_DOWN_ARROW, APPLE_KEYBOARD_KEY_PAGE_DOWN, APPLE_KEYBOARD_FN_NAV_DOWN_ARROW}
+};
+
+static const apple_keyboard_fn_nav_remap_t * apple_keyboard_fn_nav_remap_for_key(uint8_t key) {
+    size_t n = 0U;
+
+    for (n = 0U;
+        n < (sizeof(k_apple_keyboard_fn_nav_remaps) / sizeof(k_apple_keyboard_fn_nav_remaps[0]));
+        n++) {
+        if (k_apple_keyboard_fn_nav_remaps[n].source_key == key) {
+            return &k_apple_keyboard_fn_nav_remaps[n];
         }
     }
     return NULL;
@@ -332,7 +376,7 @@ bool apple_keyboard_process_report(
     uint8_t aux[2] = {0U, 0U};
     bool fn_held = false;
     bool esc_held = false;
-    bool delete_backspace_held = false;
+    uint8_t fn_nav_physical_held = 0U;
     bool media_action = false;
     uint8_t i = 0U;
     const apple_keyboard_chord_t * chord = NULL;
@@ -361,6 +405,7 @@ bool apple_keyboard_process_report(
 
     for (i = APPLE_KEYBOARD_KEYCODE_FIRST; i <= APPLE_KEYBOARD_KEYCODE_LAST; i++) {
         const uint8_t key = report[i];
+        const apple_keyboard_fn_nav_remap_t * nav_remap = NULL;
 
         if (key == APPLE_KEYBOARD_KEY_ESC) {
             esc_held = true;
@@ -380,15 +425,14 @@ bool apple_keyboard_process_report(
             continue;
         }
 
-        if (key == APPLE_KEYBOARD_KEY_DELETE_BACKSPACE) {
-            delete_backspace_held = true;
-        }
-
-        if ((key == APPLE_KEYBOARD_KEY_DELETE_BACKSPACE)
-            && (fn_held || state->delete_forward_latched)) {
-            out_kbd[i] = APPLE_KEYBOARD_KEY_DELETE_FORWARD;
-            state->delete_forward_latched = true;
-            continue;
+        nav_remap = apple_keyboard_fn_nav_remap_for_key(key);
+        if (nav_remap != NULL) {
+            fn_nav_physical_held = (uint8_t)(fn_nav_physical_held | nav_remap->latch_bit);
+            if (fn_held || ((state->fn_nav_latched & nav_remap->latch_bit) != 0U)) {
+                out_kbd[i] = nav_remap->target_key;
+                state->fn_nav_latched = (uint8_t)(state->fn_nav_latched | nav_remap->latch_bit);
+                continue;
+            }
         }
 
         if ((key >= APPLE_KEYBOARD_KEY_F1) && (key <= APPLE_KEYBOARD_KEY_F12)) {
@@ -440,9 +484,7 @@ bool apple_keyboard_process_report(
     if (!esc_held) {
         state->esc_suppress_latched = false;
     }
-    if (!delete_backspace_held) {
-        state->delete_forward_latched = false;
-    }
+    state->fn_nav_latched = (uint8_t)(state->fn_nav_latched & fn_nav_physical_held);
 
     /* Emit the aux report only when it changed, so each mapped key produces one
      * press and one release. */

@@ -2078,128 +2078,184 @@ static bool app_replay_test_hid_device_map_fn_esc_toggle(void) {
     );
 }
 
-static bool app_replay_test_apple_keyboard_fn_delete_forward_delete(void) {
-    apple_keyboard_state_t state = {0};
-    const uint8_t plain_delete_report[] =
-        {0x01U, 0x00U, 0x00U, 0x2AU, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
-    const uint8_t fn_delete_report[] =
-        {0x01U, 0x00U, 0x00U, 0x2AU, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x02U};
-    const uint8_t trailing_delete_report[] =
-        {0x01U, 0x00U, 0x00U, 0x2AU, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
-    const uint8_t release_report[] =
-        {0x01U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+static bool app_replay_apple_keyboard_emit_primary_key(
+    apple_keyboard_state_t * state,
+    uint8_t source_key,
+    bool fn_held,
+    uint8_t * out_key,
+    uint16_t * out_aux_len
+) {
+    uint8_t report[] = {0x01U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
     uint8_t kbd[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
     uint8_t aux[APPLE_KEYBOARD_AUX_REPORT_LEN] = {0};
     uint16_t kbd_len = 0U;
     uint16_t aux_len = 0U;
 
-    apple_keyboard_state_init(&state, 0x0267U);
-
-    if (!app_replay_expect_true(
-            apple_keyboard_process_report(
-                &state,
-                plain_delete_report,
-                (uint16_t)sizeof(plain_delete_report),
-                kbd,
-                &kbd_len,
-                aux,
-                &aux_len
-            ),
-            "plain Apple Delete report should be remappable"
-        )) {
-        return false;
-    }
-    if (!app_replay_expect_u32_eq(kbd[3], 0x2AU, "plain Apple Delete should remain Backspace")) {
+    if ((state == NULL) || (out_key == NULL) || (out_aux_len == NULL)) {
         return false;
     }
 
-    (void)memset(kbd, 0, sizeof(kbd));
-    (void)memset(aux, 0, sizeof(aux));
-    kbd_len = 0U;
-    aux_len = 0U;
+    report[3] = source_key;
+    if (fn_held) {
+        report[9] = 0x02U;
+    }
 
-    if (!app_replay_expect_true(
-            apple_keyboard_process_report(
-                &state,
-                fn_delete_report,
-                (uint16_t)sizeof(fn_delete_report),
-                kbd,
-                &kbd_len,
-                aux,
-                &aux_len
-            ),
-            "Fn+Apple Delete report should be remappable"
+    if (!apple_keyboard_process_report(
+            state,
+            report,
+            (uint16_t)sizeof(report),
+            kbd,
+            &kbd_len,
+            aux,
+            &aux_len
         )) {
         return false;
     }
     if (!app_replay_expect_u32_eq(
             kbd_len,
-            (uint32_t)sizeof(fn_delete_report),
-            "Fn+Apple Delete should keep the keyboard report length"
+            (uint32_t)sizeof(report),
+            "Apple keyboard remap should keep the keyboard report length"
         )) {
-        return false;
-    }
-    if (!app_replay_expect_u32_eq(kbd[3], 0x4CU, "Fn+Apple Delete should emit Forward Delete")) {
-        return false;
-    }
-    if (!app_replay_expect_u32_eq(aux_len, 0U, "Fn+Apple Delete should not emit an aux report")) {
         return false;
     }
 
-    (void)memset(kbd, 0, sizeof(kbd));
-    if (!app_replay_expect_true(
-            apple_keyboard_process_report(
-                &state,
-                trailing_delete_report,
-                (uint16_t)sizeof(trailing_delete_report),
-                kbd,
-                &kbd_len,
-                aux,
-                &aux_len
-            ),
-            "trailing Apple Delete report should be remappable"
+    *out_key = kbd[3];
+    *out_aux_len = aux_len;
+    return true;
+}
+
+static bool app_replay_expect_apple_keyboard_primary_key(
+    apple_keyboard_state_t * state,
+    uint8_t source_key,
+    bool fn_held,
+    uint8_t expected_key,
+    const char * message
+) {
+    uint8_t actual_key = 0U;
+    uint16_t aux_len = 0U;
+
+    if (!app_replay_apple_keyboard_emit_primary_key(
+            state,
+            source_key,
+            fn_held,
+            &actual_key,
+            &aux_len
         )) {
+        (void)fprintf(stderr, "FAIL: %s (report should be remappable)\n", message);
+        return false;
+    }
+    if (!app_replay_expect_u32_eq(actual_key, expected_key, message)) {
         return false;
     }
     if (!app_replay_expect_u32_eq(
-            kbd[3],
-            0x4CU,
-            "trailing Apple Delete should stay Forward Delete until key release"
+            aux_len,
+            0U,
+            "Apple keyboard Fn navigation should not emit an aux report"
         )) {
         return false;
     }
+    return true;
+}
 
-    (void)memset(kbd, 0, sizeof(kbd));
-    (void)apple_keyboard_process_report(
-        &state,
-        release_report,
-        (uint16_t)sizeof(release_report),
-        kbd,
-        &kbd_len,
-        aux,
-        &aux_len
-    );
+static bool app_replay_test_apple_keyboard_fn_navigation_keys(void) {
+    typedef struct {
+        const char * name;
+        uint8_t source_key;
+        uint8_t target_key;
+    } fn_nav_case_t;
 
-    (void)memset(kbd, 0, sizeof(kbd));
-    if (!app_replay_expect_true(
-            apple_keyboard_process_report(
+    static const fn_nav_case_t cases[] = {
+        {"Fn+Apple Delete", 0x2AU, 0x4CU},
+        {"Fn+ArrowLeft", 0x50U, 0x4AU},
+        {"Fn+ArrowRight", 0x4FU, 0x4DU},
+        {"Fn+ArrowUp", 0x52U, 0x4BU},
+        {"Fn+ArrowDown", 0x51U, 0x4EU}
+    };
+    const size_t case_count = sizeof(cases) / sizeof(cases[0]);
+    size_t index = 0U;
+
+    for (index = 0U; index < case_count; index++) {
+        apple_keyboard_state_t state = {0};
+        char message[96] = {0};
+
+        apple_keyboard_state_init(&state, 0x0267U);
+
+        (void)snprintf(
+            message,
+            sizeof(message),
+            "%s source key should pass through without Fn",
+            cases[index].name
+        );
+        if (!app_replay_expect_apple_keyboard_primary_key(
                 &state,
-                plain_delete_report,
-                (uint16_t)sizeof(plain_delete_report),
-                kbd,
-                &kbd_len,
-                aux,
-                &aux_len
-            ),
-            "plain Apple Delete after release should be remappable"
-        )) {
-        return false;
+                cases[index].source_key,
+                false,
+                cases[index].source_key,
+                message
+            )) {
+            return false;
+        }
+
+        (void)snprintf(
+            message,
+            sizeof(message),
+            "%s should emit the navigation target",
+            cases[index].name
+        );
+        if (!app_replay_expect_apple_keyboard_primary_key(
+                &state,
+                cases[index].source_key,
+                true,
+                cases[index].target_key,
+                message
+            )) {
+            return false;
+        }
+
+        (void)snprintf(
+            message,
+            sizeof(message),
+            "%s trailing report should stay mapped until key release",
+            cases[index].name
+        );
+        if (!app_replay_expect_apple_keyboard_primary_key(
+                &state,
+                cases[index].source_key,
+                false,
+                cases[index].target_key,
+                message
+            )) {
+            return false;
+        }
+
+        if (!app_replay_expect_apple_keyboard_primary_key(
+                &state,
+                0U,
+                false,
+                0U,
+                "Fn navigation release should clear the held key"
+            )) {
+            return false;
+        }
+
+        (void)snprintf(
+            message,
+            sizeof(message),
+            "%s source key should pass through after release",
+            cases[index].name
+        );
+        if (!app_replay_expect_apple_keyboard_primary_key(
+                &state,
+                cases[index].source_key,
+                false,
+                cases[index].source_key,
+                message
+            )) {
+            return false;
+        }
     }
-    return app_replay_expect_u32_eq(
-        kbd[3],
-        0x2AU,
-        "plain Apple Delete after release should remain Backspace"
-    );
+
+    return true;
 }
 
 /*
@@ -3074,8 +3130,8 @@ int main(void) {
             .fn = app_replay_test_hid_device_map_profile_detection},
         {.name = "hid_device_map_fn_esc_toggle",
             .fn = app_replay_test_hid_device_map_fn_esc_toggle},
-        {.name = "apple_keyboard_fn_delete_forward_delete",
-            .fn = app_replay_test_apple_keyboard_fn_delete_forward_delete},
+        {.name = "apple_keyboard_fn_navigation_keys",
+            .fn = app_replay_test_apple_keyboard_fn_navigation_keys},
         {.name = "trackpad_recognition", .fn = app_replay_test_trackpad_recognition},
         {.name = "trackpad_pointer_motion", .fn = app_replay_test_trackpad_pointer_motion},
         {.name = "trackpad_two_finger_scroll", .fn = app_replay_test_trackpad_two_finger_scroll},
