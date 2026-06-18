@@ -23,7 +23,7 @@ HOST_CC ?= gcc
 APP_DEBUG_WIPE_ALL_ON_BOOT ?=
 APP_SKIP_GIT_HOOKS_BOOTSTRAP ?=
 
-.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host ci ci-host ci-diag-smoke ci-platform
+.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build release clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host ci ci-host ci-diag-smoke ci-platform FORCE
 
 help:
 	@printf '%s\n' \
@@ -34,6 +34,8 @@ help:
 		'  make bootstrap APP_PLATFORM=<target> - Download/cache SDK/toolchain for target' \
 		'  make configure APP_PLATFORM=<target> - Generate CMake build tree (runs bootstrap first)' \
 		'  make build APP_PLATFORM=<target>     - Build firmware for target' \
+		'  make release                         - Build release artifacts for discovered platforms' \
+		'  make release-<target>                - Build release artifact for one platform target' \
 		'  platform/<target>/bin/*             - Platform-specific helper scripts (flash/tooling/etc.)' \
 		'  make clean [APP_PLATFORM=<target>]   - Remove target build dir, or all build dirs when omitted' \
 		'  make distclean         - Remove all local build/cache artifacts' \
@@ -81,6 +83,81 @@ configure: require-platform bootstrap
 
 build: require-platform configure
 	@$(CMAKE_ENV) $(CMAKE) --build $(BUILD_DIR) --parallel
+
+release:
+	@found=0; \
+	rm -rf "$(BUILD_ROOT)/release"; \
+	mkdir -p "$(BUILD_ROOT)/release"; \
+	for platform_dir in "$(APP_SOURCE_DIR)"/platform/*; do \
+		if [ ! -d "$$platform_dir" ] || [ ! -f "$$platform_dir/CMakeLists.txt" ]; then \
+			continue; \
+		fi; \
+		platform=$$(basename "$$platform_dir"); \
+		found=1; \
+		$(MAKE) --no-print-directory release-$$platform; \
+	done; \
+	if [ "$$found" -eq 0 ]; then \
+		echo "No platform targets found under platform/*"; \
+		exit 2; \
+	fi
+
+release-%: FORCE
+	@platform="$*"; \
+	if [ ! -f "$(APP_SOURCE_DIR)/platform/$$platform/CMakeLists.txt" ]; then \
+		echo "Unknown release platform '$$platform'. Run 'make platform-list'."; \
+		exit 2; \
+	fi; \
+	mkdir -p "$(BUILD_ROOT)/release"; \
+	asset_platform=$$(printf '%s' "$$platform" | tr '_' '-'); \
+	build_dir="$(BUILD_ROOT)/release-build/$$platform"; \
+	stage_dir="$(BUILD_ROOT)/release-stage/$$platform"; \
+	$(MAKE) --no-print-directory bootstrap APP_PLATFORM=$$platform APP_SKIP_GIT_HOOKS_BOOTSTRAP=1; \
+	$(CMAKE_ENV) $(CMAKE) -S "$(APP_SOURCE_DIR)" -B "$$build_dir" \
+		-DAPP_PLATFORM=$$platform \
+		-DAPP_CACHE_DIR="$(APP_CACHE_DIR)" \
+		-DCMAKE_TOOLCHAIN_FILE="$(APP_CACHE_DIR)/toolchain/$$platform.cmake" \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DAPP_PLATFORM_ENABLE_TINYUSB:BOOL=ON \
+		-DAPP_PLATFORM_ENABLE_BTSTACK:BOOL=ON \
+		-DAPP_PLATFORM_ENABLE_TELEMETRY:BOOL=OFF \
+		-DAPP_PLATFORM_ENABLE_DIAG_CDC:BOOL=OFF \
+		-DAPP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT:BOOL=OFF \
+		-C "$(APP_CACHE_DIR)/bootstrap/$$platform.cmake"; \
+	$(CMAKE_ENV) $(CMAKE) --build "$$build_dir" --parallel; \
+	uf2_path="$$build_dir/platform/$$platform/hidrelay_fw.uf2"; \
+	if [ -f "$$uf2_path" ]; then \
+		asset_path="$(BUILD_ROOT)/release/hidrelay-fw-$$asset_platform.uf2"; \
+		cp "$$uf2_path" "$$asset_path"; \
+		printf 'release artifact: %s\n' "$$asset_path"; \
+		exit 0; \
+	fi; \
+	if [ -f "$$build_dir/bootloader/bootloader.bin" ] \
+		&& [ -f "$$build_dir/partition_table/partition-table.bin" ] \
+		&& [ -f "$$build_dir/hidrelay_fw.bin" ]; then \
+		chip=$$(printf '%s' "$$asset_platform" | tr -d '-'); \
+		rm -rf "$$stage_dir"; \
+		mkdir -p "$$stage_dir"; \
+		cp "$$build_dir/bootloader/bootloader.bin" "$$stage_dir/bootloader.bin"; \
+		cp "$$build_dir/partition_table/partition-table.bin" "$$stage_dir/partition-table.bin"; \
+		cp "$$build_dir/hidrelay_fw.bin" "$$stage_dir/hidrelay_fw.bin"; \
+		printf 'esptool.py --chip %s write_flash \\\n' "$$chip" \
+			> "$$stage_dir/flash_args.txt"; \
+		printf '%s\n' \
+			'  0x0 bootloader.bin \' \
+			'  0x8000 partition-table.bin \' \
+			'  0x10000 hidrelay_fw.bin' \
+			>> "$$stage_dir/flash_args.txt"; \
+		asset_path="$(BUILD_ROOT)/release/hidrelay-fw-$$asset_platform.zip"; \
+		$(CMAKE) -E rm -f "$$asset_path"; \
+		(cd "$$stage_dir" && $(CMAKE) -E tar cf "$$asset_path" --format=zip \
+			bootloader.bin partition-table.bin hidrelay_fw.bin flash_args.txt); \
+		printf 'release artifact: %s\n' "$$asset_path"; \
+		exit 0; \
+	fi; \
+	echo "No known release artifact layout for platform '$$platform'"; \
+	exit 2
+
+FORCE:
 
 clean:
 	@if [ -n "$(APP_PLATFORM)" ]; then \

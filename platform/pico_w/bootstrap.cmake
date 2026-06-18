@@ -101,11 +101,6 @@ function(platform_bootstrap_toolchain)
     set(ARM_GCC_ROOT "${_arm_gcc_root}" CACHE PATH "Local Arm GNU toolchain root." FORCE)
     set(PICO_TOOLCHAIN_PATH "${ARM_GCC_ROOT}" CACHE PATH "Path searched by Pico SDK for arm-none-eabi tools." FORCE)
 
-    set(PICO_SDK_TOOLCHAIN_FILE "${PICO_SDK_PATH}/cmake/preload/toolchains/pico_arm_cortex_m0plus_gcc.cmake")
-    if(NOT EXISTS "${PICO_SDK_TOOLCHAIN_FILE}")
-        message(FATAL_ERROR "Missing Pico SDK toolchain file: ${PICO_SDK_TOOLCHAIN_FILE}")
-    endif()
-
     set(_template "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/toolchain.cmake.in")
     if(NOT EXISTS "${_template}")
         message(FATAL_ERROR "Missing platform toolchain template: ${_template}")

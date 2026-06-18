@@ -3,5 +3,34 @@ set(ARM_GCC_ROOT "@ARM_GCC_ROOT@" CACHE PATH "Local Arm GNU toolchain root")
 set(PICO_TOOLCHAIN_PATH "@ARM_GCC_ROOT@" CACHE PATH "Path searched by Pico SDK for arm-none-eabi tools")
 
 list(PREPEND CMAKE_MODULE_PATH "@PICO_W_PLATFORM_CMAKE_MODULE_DIR@")
+list(PREPEND CMAKE_MODULE_PATH "${PICO_SDK_PATH}/cmake")
 
-include("@PICO_SDK_TOOLCHAIN_FILE@")
+if(NOT DEFINED PICO_BOARD OR "${PICO_BOARD}" STREQUAL "")
+    set(PICO_BOARD pico_w CACHE STRING "Pico board type for platform/pico_w" FORCE)
+endif()
+
+include(pico_utils)
+include(pico_pre_load_platform)
+
+if(DEFINED PICO_COMPILER AND NOT "${PICO_COMPILER}" STREQUAL "")
+    set(_pico_w_compiler "${PICO_COMPILER}")
+elseif(DEFINED PICO_DEFAULT_COMPILER AND NOT "${PICO_DEFAULT_COMPILER}" STREQUAL "")
+    set(_pico_w_compiler "${PICO_DEFAULT_COMPILER}")
+else()
+    message(FATAL_ERROR "Pico SDK did not select a compiler for PICO_PLATFORM='${PICO_PLATFORM}'")
+endif()
+
+if(_pico_w_compiler STREQUAL "pico_arm_gcc")
+    if(PICO_PLATFORM STREQUAL "rp2040")
+        set(_pico_w_compiler "pico_arm_cortex_m0plus_gcc")
+    elseif(PICO_PLATFORM STREQUAL "rp2350" OR PICO_PLATFORM STREQUAL "rp2350-arm-s")
+        set(_pico_w_compiler "pico_arm_cortex_m33_gcc")
+    endif()
+endif()
+
+set(_pico_w_toolchain_file "${PICO_SDK_PATH}/cmake/preload/toolchains/${_pico_w_compiler}.cmake")
+if(NOT EXISTS "${_pico_w_toolchain_file}")
+    message(FATAL_ERROR "Missing Pico SDK toolchain file: ${_pico_w_toolchain_file}")
+endif()
+
+include("${_pico_w_toolchain_file}")
