@@ -21,8 +21,9 @@ CMAKE_ENV := CMAKE_POLICY_VERSION_MINIMUM=$(CMAKE_POLICY_VERSION_MINIMUM)
 CMAKE ?= cmake
 HOST_CC ?= gcc
 APP_DEBUG_WIPE_ALL_ON_BOOT ?=
+APP_SKIP_GIT_HOOKS_BOOTSTRAP ?=
 
-.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host
+.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host ci ci-host ci-diag-smoke ci-platform
 
 help:
 	@printf '%s\n' \
@@ -42,7 +43,8 @@ help:
 		'  make tool-diag-gate INPUT=diag.csv [MAX_RECONNECT_FAILURE_DELTA=n] - Enforce soak thresholds' \
 		'  make tool-diag-alert INPUT=diag.csv [OUTPUT=diag_report.md] [MAX_RECONNECT_FAILURE_DELTA=n] - Generate markdown gate report' \
 		'  make tool-app-replay   - Build host-side app replay validator' \
-		'  make test-host         - Run host-side app replay validator'
+		'  make test-host         - Run host-side app replay validator' \
+		'  make ci                - Run host checks and platform CI hooks'
 
 platform-list:
 	@find "$(APP_SOURCE_DIR)/platform" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort
@@ -54,7 +56,9 @@ require-platform:
 	fi
 
 git-hooks-bootstrap:
-	@if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+	@if [ -n "$(APP_SKIP_GIT_HOOKS_BOOTSTRAP)" ] || [ -n "$$CI" ]; then \
+		echo 'Skipping git hooks bootstrap (CI/non-developer build)'; \
+	elif command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
 		$(APP_SOURCE_DIR)/.githooks/bootstrap; \
 	else \
 		echo 'Skipping git hooks bootstrap (not a git worktree)'; \
@@ -125,6 +129,27 @@ tool-app-replay:
 
 test-host: tool-app-replay
 	@$(TOOL_BUILD_DIR)/app_replay
+
+ci: ci-host ci-platform
+
+ci-host: test-host tool-cache-probe tool-diag-capture ci-diag-smoke
+
+ci-diag-smoke:
+	@./tool/bin/diag_smoke
+
+ci-platform:
+	@found=0; \
+	for hook in "$(APP_SOURCE_DIR)"/platform/*/bin/ci-build; do \
+		if [ ! -f "$$hook" ]; then \
+			continue; \
+		fi; \
+		found=1; \
+		"$$hook"; \
+	done; \
+	if [ "$$found" -eq 0 ]; then \
+		echo "No platform CI hooks found under platform/*/bin/ci-build"; \
+		exit 2; \
+	fi
 
 tool-diag-summary:
 	@if [ -z "$(INPUT)" ]; then \

@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+set -eu
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+repo_root="$(CDPATH= cd -- "$script_dir/../../.." && pwd -P)"
+cd "$repo_root"
+
+: "${CMAKE:=cmake}"
+: "${MAKE:=make}"
+: "${CMAKE_POLICY_VERSION_MINIMUM:=3.5}"
+export CMAKE_POLICY_VERSION_MINIMUM
+export APP_SKIP_GIT_HOOKS_BOOTSTRAP=1
+
+ci_build_root="${BUILD_ROOT:-$repo_root/build/ci}"
+debug_build_dir="$ci_build_root/pico_w_debug"
+release_build_dir="$ci_build_root/pico_w_release"
+
+"$MAKE" --no-print-directory build APP_PLATFORM=pico_w
+
+"$CMAKE" -S "$repo_root" -B "$debug_build_dir" \
+    -DAPP_PLATFORM=pico_w \
+    -DAPP_CACHE_DIR="$repo_root/.cache" \
+    -DCMAKE_TOOLCHAIN_FILE="$repo_root/.cache/toolchain/pico_w.cmake" \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DAPP_PLATFORM_ENABLE_TINYUSB=ON \
+    -DAPP_PLATFORM_ENABLE_BTSTACK=ON \
+    -DAPP_PLATFORM_ENABLE_TELEMETRY=ON \
+    -DAPP_PLATFORM_ENABLE_DIAG_CDC=ON \
+    -C "$repo_root/.cache/bootstrap/pico_w.cmake"
+"$CMAKE" --build "$debug_build_dir" --parallel
+
+"$CMAKE" -S "$repo_root" -B "$release_build_dir" \
+    -DAPP_PLATFORM=pico_w \
+    -DAPP_CACHE_DIR="$repo_root/.cache" \
+    -DCMAKE_TOOLCHAIN_FILE="$repo_root/.cache/toolchain/pico_w.cmake" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DAPP_PLATFORM_ENABLE_TELEMETRY=OFF \
+    -DAPP_PLATFORM_ENABLE_DIAG_CDC=OFF \
+    -C "$repo_root/.cache/bootstrap/pico_w.cmake"
+"$CMAKE" --build "$release_build_dir" --parallel

@@ -1,0 +1,33 @@
+#!/usr/bin/env sh
+set -eu
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+repo_root="$(CDPATH= cd -- "$script_dir/../.." && pwd -P)"
+cd "$repo_root"
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/hidrelay_diag_smoke.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+csv_path="$tmp_dir/diag.csv"
+summary_path="$tmp_dir/summary.txt"
+report_path="$tmp_dir/report.md"
+
+cat > "$csv_path" <<'CSV'
+host_ms,sequence,usb_tx_depth,bt_tx_depth,usb_tx_high_watermark,bt_tx_high_watermark,usb_tx_dropped,bt_tx_dropped,reconnect_attempt_count,reconnect_success_count,reconnect_failure_count,stack_event_depth,stack_event_high_watermark,stack_event_dropped
+0,1,0,0,0,0,0,0,10,9,1,0,0,0
+100,2,1,2,1,2,0,0,11,10,1,1,1,0
+CSV
+
+./tool/bin/diag_summary \
+    --input "$csv_path" \
+    --require-no-drops \
+    --max-reconnect-failure-delta 0 \
+    > "$summary_path"
+
+./tool/bin/diag_alert \
+    --input "$csv_path" \
+    --output "$report_path" \
+    --max-reconnect-failure-delta 0
+
+test -s "$summary_path"
+test -s "$report_path"
