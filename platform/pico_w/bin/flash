@@ -31,7 +31,14 @@ if [[ ! -f "${uf2_path}" ]]; then
     exit 1
 fi
 
-pico_volume="RPI-RP2"
+case "${app_platform}" in
+    pico_2_w)
+        pico_volume="RP2350"
+        ;;
+    *)
+        pico_volume="RPI-RP2"
+        ;;
+esac
 mount_roots=("/Volumes")
 if [[ -n "${USER:-}" ]]; then
     mount_roots+=("/media/${USER}" "/run/media/${USER}")
@@ -96,9 +103,9 @@ fi
 
 if [[ -z "${pico_mount}" ]]; then
     if [[ "${picotool_attempted}" -eq 1 ]]; then
-        echo "❌ Pico drive not found after BOOTSEL request. Ensure USB data connection is active and retry." >&2
+        echo "❌ Pico drive ${pico_volume} not found after BOOTSEL request. Ensure USB data connection is active and retry." >&2
     else
-        echo "❌ Pico drive not found and picotool wrapper is unavailable at ${picotool_wrapper}. Hold BOOTSEL while plugging in, or restore the wrapper script." >&2
+        echo "❌ Pico drive ${pico_volume} not found and picotool wrapper is unavailable at ${picotool_wrapper}. Hold BOOTSEL while plugging in, or restore the wrapper script." >&2
     fi
     exit 1
 fi

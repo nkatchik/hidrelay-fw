@@ -23,7 +23,7 @@ Pico-family builds are for the Bluetooth-capable W boards. Plain Pico/Pico 2 boa
 
 1. Download [⬇️ Pico W firmware](/releases/latest/download/hidrelay-fw-pico-w.uf2) / [⬇️ Pico 2 W firmware](/releases/latest/download/hidrelay-fw-pico-2-w.uf2).
 2. Hold BOOTSEL while plugging the board into USB.
-3. Wait for the `RPI-RP2` drive to appear.
+3. Wait for the `RPI-RP2` drive to appear on Pico W, or `RP2350` on Pico 2 W.
 4. Copy the downloaded UF2 onto that drive. The board reboots into the firmware.
 
 That's it!
