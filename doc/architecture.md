@@ -1,209 +1,76 @@
 # Architecture
 
-## Goal
+hidrelay-fw is bare-metal firmware for relaying Bluetooth HID peripherals to a USB host. Runtime code does not depend on a Linux kernel, userspace daemon, filesystem, device tree, or package-managed Bluetooth stack.
 
-Bridge Bluetooth HID peripherals to a USB host computer, exposing one USB HID interface per connected Bluetooth HID device.
+## Design Compromises
 
-This repository currently provides the foundational architecture and a buildable firmware skeleton.
+The firmware is built like a dedicated appliance, not a small Linux computer. That gives up familiar OS facilities, but it fits the job better: HID relay behavior needs fast boot, predictable report forwarding, controlled pairing state, and firmware-sized releases more than it needs processes, packages, or a general-purpose shell.
 
-## Layering
+- Bare metal instead of Linux: we trade OS convenience for lower startup latency, less scheduler noise, smaller release artifacts, and fewer moving parts between a key press and the USB host.
+- Thin platform glue instead of a broad HAL: each board owns its SDK, controller, USB, flash, and reset details under `platform/`, while app behavior stays shared and host-testable.
+- Exclusive BLE and Classic pairing modes: the user flow is slightly stricter, but discovery, security, reconnect hints, and failure handling stay unambiguous.
+- Dynamic USB HID topology instead of one generic interface: hosts see descriptors closer to the paired devices, at the cost of descriptor policy, remapping, and controlled USB re-enumeration.
+- Small flash-backed state instead of a filesystem: pair records and reconnect hints are explicit, checksummed data, which keeps wear behavior and factory reset semantics predictable.
+- Optional diagnostics instead of always-on observability: debug builds can expose telemetry and CDC diagnostics, while release builds keep that overhead and extra USB surface off.
 
-- `src/`: shared firmware logic and state machines
-- `platform/<name>/`: hardware/SDK glue
-- `cmake/`: platform discovery, bootstrap dispatch, warning policy
-- `tool/`: optional host-side helpers
+These compromises bias the project toward reliability, repeatable releases, and clear failure boundaries. That is the right trade for firmware whose main success condition is that paired HID devices feel native to the USB host.
 
-Common logic never imports Pico-specific SDK headers.
+## System Flow
 
-## Core Modules
+```mermaid
+flowchart LR
+    bt["Bluetooth HID peripherals"] --> pbt["platform Bluetooth glue"]
+    pbt <--> ts["transport_stack"]
+    ts <--> bm["bt_manager"]
+    bm <--> app["app main loop"]
+    app <--> ub["usb_bridge"]
+    ub <--> ur["usb_runtime + descriptors"]
+    ur --> host["USB host"]
 
-- `app`:
-  - owns the main app state and event loop logic
-  - wires the button FSM, LED UI, pair DB, BT manager, and USB bridge stubs
-  - emits reconnect requests, per-device forget requests, and diagnostic snapshots as part of platform output
-- `button_fsm`:
-  - translates BOOTSEL press patterns into high-level commands (`pair-any`, `remove-last`, `remove-all`)
-- `led_ui`:
-  - provides user-facing LED state behavior independent from GPIO details
-- `pair_db`:
-  - paired-device store abstraction with paired timestamp and last-session metadata (descriptor length, protocol mode, vendor/product IDs, reconnect flag)
-  - stores last-session transport hints (`Classic`/`LE` and LE address type) for reconnect path prioritization
-  - tracks reconnect failure/backoff metadata per device for retry scheduling and long-idle recovery without hard lockout
-  - persisted on Pico W in a flash-backed blob through platform pair-store hooks
-- `bt_manager`:
-  - Bluetooth management API with pairing lifecycle and active HID session model
-  - exposes event-ingest hooks for HID open/close/descriptor/protocol updates
-- `usb_bridge`:
-  - USB-facing interface plan derived from active BT HID sessions
-  - carries BT link type metadata (Classic vs LE) per active session/interface slot
-  - tracks descriptor generation for dynamic USB descriptor rebuild triggers
-  - holds bounded routing queues for BT->USB and USB->BT HID reports
-  - tracks queue depth/high-water/drop telemetry for backpressure visibility
-- `tool/app_replay`:
-  - deterministic host-side replay harness for app-loop regression checks without target hardware
-  - validates button-command mapping, reconnect scheduling/retry policy, and queue overflow semantics
-- `hid_report_policy`:
-  - shared HID report-descriptor acceptance/fallback policy
-  - enforces structural and compatibility guardrails before descriptor exposure to USB host
-  - classifies fallback profile (boot keyboard, boot mouse, generic) when native descriptors are rejected
-- `hid_report_remap`:
-  - shared report remap helpers used when fallback descriptors are active
-  - currently normalizes boot keyboard/mouse payload and report-id shaping for BT->USB and USB->BT paths
-- `hid_device_map`:
-  - device-profile detection hooks for mapping behavior by VID/PID
-  - currently tracks Apple Magic Keyboard `Fn+Esc` mode toggles as bridge-side state for future remap policy extensions
-- `hid_transport_runtime`:
-  - shared transport-side USB interface plan, event queue, queue telemetry, and report remap selection
-  - keeps Pico stack callbacks focused on SDK I/O instead of generic queue/plan bookkeeping
-- `app_diag`:
-  - shared diagnostics snapshot queue and CDC frame encoder
-- `transport_stack`:
-  - portable BTstack-based Bluetooth HID host (pairing, reconnect strategies, LE/Classic sessions, descriptor caching) plus USB-plan handoff
-  - platform supplies only radio/TLV bring-up via `platform_bt_port_init`
-- `usb_runtime`:
-  - portable TinyUSB device runtime: polling, IN-report queueing, controlled re-enumeration, diagnostics CDC writes
-- `usb_descriptors.c`:
-  - dynamic TinyUSB device/configuration/string descriptor callbacks; platform-specific extra interfaces appended via `platform_usb_port_*` hooks
-- `pair_store`:
-  - versioned, checksummed Pair DB blob format with dual-slot rotation and v3/v4 migration, on top of raw platform storage slots
-- `platform_api`:
-  - platform boundary: hardware primitives (button, LED, time, sleep, reboot), factory-reset erase, and raw persistent-storage slot access
+    app <--> ps["pair_db + pair_store"]
+    app --> diag["app_diag"]
 
-## Pico W Platform Glue
+    subgraph shared["shared firmware: src/ + include/"]
+        ts
+        bm
+        app
+        ub
+        ur
+        ps
+        diag
+    end
 
-`platform/pico_w/` contains:
+    subgraph platform["platform-owned integration"]
+        pbt
+        pusb["USB device port"]
+        flash["flash/reset/button/LED"]
+    end
 
-- platform-local bootstrap/toolchain scripts:
-  - `bootstrap.cmake`
-  - `toolchain.cmake.in`
-  - `cmake/options.cmake`
-  - `cmake/target.cmake`
-- Pico SDK import/init wiring
-- `platform_api` implementation for:
-  - CYW43 radio init and status LED
-  - BOOTSEL button input
-  - tick pacing, uptime, watchdog reboot
-- split runtime glue modules:
-  - `platform_pico_w_state.*`
-  - `platform_pico_w_hw.*`
-  - `platform_pico_w_storage.c` (raw flash slot read/write + factory-reset erase backing the common pair store)
-  - `platform_pico_w_bt_port.c` (`platform_bt_port_init`: BTstack-over-CYW43 transport bring-up + TLV flash bank)
-  - `platform_pico_w_usb_reset.c` (picotool reset interface: TinyUSB vendor class driver + `platform_usb_port_*` descriptor hooks)
-- platform-local stack config headers:
-  - `include/tusb_config.h`
-  - `include/btstack_config.h`
-- Pico SDK stack linkage flags:
-  - `APP_PLATFORM_ENABLE_TINYUSB`
-  - `APP_PLATFORM_ENABLE_BTSTACK`
-  - `APP_PLATFORM_ENABLE_TELEMETRY` (debug/development diagnostics surfaces)
-  - `APP_PLATFORM_ENABLE_DIAG_CDC` (optional debug/development CDC diagnostics transport)
-  - `APP_PLATFORM_ALLOW_RELEASE_TELEMETRY` (explicit escape hatch for release-like development builds)
+    ur <--> pusb
+    app <--> flash
+```
 
-Pico-specific linkage is isolated under this directory.
+## Runtime Model
 
-## Current Integration Milestone
+- `src/` and `include/` contain shared app, pairing, reconnect, HID report, USB bridge, diagnostics, and persistence logic.
+- `platform/` contains all board, SDK, Bluetooth-controller, USB-device, flash, reset, button, LED, and flashing integration.
+- The main loop polls platform inputs, advances shared app state, forwards HID reports, persists pair database changes, and emits platform actions.
+- Bluetooth report ingress and USB report egress meet at shared queues, so queue policy and telemetry stay consistent across targets.
+- Descriptor acceptance and report remapping happen before the USB host sees an interface, keeping host-facing behavior deterministic even when Bluetooth devices expose unusual descriptors.
 
-- TinyUSB stack is enabled by default for Pico W and built with a baseline HID device configuration.
-- BTstack libraries are enabled by default for Pico W using project-local `btstack_config.h`.
-- Main loop initializes the common `transport_stack`, which brings up BTstack/TinyUSB through platform port hooks.
-- Common `bt_manager` now models active HID sessions, not only pair count.
-- `usb_bridge` composes a per-interface plan from active sessions and increments descriptor generation on topology changes.
-- TinyUSB descriptor callbacks now build a configuration descriptor dynamically (0..8 HID interfaces).
-- TinyUSB runtime now performs controlled disconnect/reconnect re-enumeration when USB descriptor generation changes.
-- BTstack HID open/close/report events are now translated into app transport events.
-- BTstack HID descriptor/protocol events are now translated into app transport events.
-- TinyUSB output report callbacks are now translated into app transport events.
-- App and bridge now route queued reports in both directions (one dequeued report per direction per tick) with protocol-aware BT transmission.
-- Pair-any mode now drives real BT inquiry/connect attempts under a class-of-device filter and pairing-mode gating.
-- Pair-any mode now also scans BLE advertisements in active-scan mode, preferring HID service UUID (`0x1812`) candidates but allowing connectable+HID-appearance fallback so BLE-only accessories that omit UUID in some packets can still be discovered without opening to arbitrary connectable devices.
-- App now derives per-interface USB descriptor/protocol hints from active sessions and emits them with each platform output.
-- Active-session transport contract now includes BT link type so `hid_cid` routing remains deterministic across Classic and LE stacks.
-- App now emits reconnect requests from persisted Pair DB metadata when idle, with per-device backoff windows.
-- Reconnect requests now include last-session transport/address hints from Pair DB metadata.
-- Platform stack can consume reconnect requests and invoke BT HID reconnect attempts.
-- Reconnect path now attempts fallback stages for unknown transport history (`Classic -> LE public -> LE random`).
-- Platform stack can consume per-device forget requests to disconnect current HID sessions and revoke persisted BT key/bonding state for that device.
-- App reconnect policy now applies per-device backoff windows and timeout-based failure classification.
-- Platform stack now emits reconnect result events for immediate reject/connect/auth outcomes.
-- App reconnect policy now applies per-result handling (transient stack reject retry, connect/auth-failure backoff).
-- App reconnect policy now keeps connect/timeout/auth retries enabled with capped backoff (no auth hard-lockout).
-- TinyUSB report descriptor callbacks now use shared descriptor policy checks (collection/global-stack validation, report-id limits, bounded field sizes, required input/application collections).
-- Descriptor export now applies deterministic fallback selection (native, boot keyboard, boot mouse, generic) per interface.
-- Descriptor export/source lookup now branches by active link type (Classic HID descriptor storage vs BLE HIDS descriptor storage).
-- Boot fallback profiles now feed report remap helpers so keyboard/mouse payload shape matches fallback descriptor expectations in both directions, including boot-keyboard LED output translation.
-- USB bridge now carries per-device mapping profile state; Apple Magic Keyboard profile detection and `Fn+Esc` mode-toggle tracking are wired as a policy scaffold.
-- BTstack PIN/SSP confirmation events are explicitly accepted only while pairing mode is active.
-- LE pairing/re-encryption completion now gates BLE HID service client bring-up (`hids_client_connect`) before report routing begins.
-- App diagnostics records snapshots in a structured queue (`app_diag_take`), and the platform writes encoded frames to CDC when that transport is enabled.
-- When both `APP_PLATFORM_ENABLE_TELEMETRY` and `APP_PLATFORM_ENABLE_DIAG_CDC` are enabled, diagnostics snapshots are also emitted over TinyUSB CDC as framed binary records (magic/version/payload + monotonic sequence).
-- BTstack now persists classic link keys and LE device records through TLV flash-bank storage.
-- Pair DB persistence now uses a dual-slot flash journal with sequence-based latest selection and no-op write suppression.
-- Main loop now coalesces Pair DB writes with debounce/max-stale windows to reduce flash wear from bursty metadata updates.
-- Release guardrails now reject telemetry/diagnostics options in `Release` unless explicitly overridden.
-- Factory reset command now erases Pair DB + BTstack persistence sectors and reboots after the LED cue sequence.
+## Shared Modules
 
-## Diagnostics Transport
+- `app`: event-loop state, pairing commands, reconnect scheduling, pair database save policy, and platform outputs.
+- `bt_manager`: pairing lifecycle and active Bluetooth HID session model.
+- `transport_stack`: common Bluetooth HID host flow and USB-plan handoff over platform stack ports.
+- `usb_bridge`: USB interface plan, bidirectional report queues, and queue telemetry.
+- `usb_runtime` / `usb_descriptors`: common TinyUSB HID runtime and descriptor composition.
+- `hid_report_policy` / `hid_report_remap`: descriptor acceptance, fallback selection, and report normalization.
+- `pair_db` / `pair_store`: paired-device metadata, reconnect hints, schema handling, checksums, and persistent storage format.
+- `app_diag`: structured diagnostics snapshots and optional CDC framing.
 
-- Source: app emits `hid_transport_diag_snapshot_t` each tick and merges platform transport telemetry before publication.
-- Queue: `app_diag` keeps a bounded diagnostics queue for `app_diag_take(...)`.
-- Host path: when both `APP_PLATFORM_ENABLE_TELEMETRY=ON` and `APP_PLATFORM_ENABLE_DIAG_CDC=ON`, TinyUSB CDC interface `0` publishes current snapshots as framed binary records.
-- Host capture helper: `tool/src/diag_capture.c` decodes CDC frames into CSV for offline analysis.
-- Host summary helper: `tool/bin/diag_summary` computes soak-level max/delta metrics from captured CSV and can enforce explicit gating thresholds.
-- Host alert helper: `tool/bin/diag_alert` renders markdown gate reports for CI/inbox notifications and mirrors gate exit status.
-- Framing:
-  - `magic`: `0x48 0x52` (`'H' 'R'`)
-  - `version`: `1`
-  - `payload_len`: `45`
-  - payload fields: sequence + bridge queue counters + stack event-queue counters + reconnect counters from `hid_transport_diag_snapshot_t`
+## Platform Boundary
 
-## Build/Bootstrap Model
+Every platform implements the shared platform API for hardware primitives, persistent storage slots, Bluetooth stack bring-up, USB stack bring-up, and optional helper tooling. SDK-specific code, controller configuration, USB device porting, flash layout, board buttons, LEDs, reset behavior, and flashing scripts belong under `platform/`.
 
-- `make bootstrap APP_PLATFORM=<target>`:
-  - downloads local Pico SDK checkout (`.cache/sdk/...`)
-  - initializes Pico SDK submodules (TinyUSB, BTstack, etc.)
-  - downloads local Arm embedded GCC (`.cache/tool/...`)
-  - generates a toolchain file and CMake cache seed in `.cache/`
-- `make build APP_PLATFORM=<target>`:
-  - runs configure and compile using local cached artifacts
-
-No global Pico SDK or global Arm cross toolchain is required.
-
-## Pair DB Persistence
-
-- Pair DB is serialized into a fixed blob format with magic/version/sequence/checksum.
-- Pico W implementation stores Pair DB in two alternating sectors ahead of BTstack storage
-  (`PICO_FLASH_SIZE_BYTES - PICO_W_BTSTACK_FLASH_BANK_TOTAL_SIZE - (2 * FLASH_SECTOR_SIZE)`).
-- BTstack TLV persistence uses two sectors at the end of flash for link-key and LE device data.
-- On boot, `pair_store_load` seeds app state if the stored blob validates.
-- On Pair DB mutation, the main loop coalesces writes before `pair_store_save` (2s debounce, 15s max stale, 5s retry backoff).
-- Current on-flash schema version is `5`; schema mismatches fall back to an empty DB.
-- Legacy schema `4` (dual-slot) and schema `3` (single-slot legacy offset) blobs are accepted on boot and migrated in-memory.
-- Factory reset erases both Pair DB sectors and BTstack TLV sectors together, then reboots to clear runtime stack state.
-
-## Resource Cleanup Policy
-
-Project code uses mandatory cleanup attributes.
-
-- Cleanup entry points:
-  - `util_cleanup_freep`
-  - `util_cleanup_filep`
-  - `util_cleanup_fdp`
-- Scope macros:
-  - `UTIL_SCOPED_FREE`
-  - `UTIL_SCOPED_FILE`
-  - `UTIL_SCOPED_FD`
-
-The host helper `tool/src/cache_probe.c` demonstrates scoped cleanup with heap buffers, `FILE *`, and file descriptors.
-
-Additional style constraints in this repository:
-
-- C17 only (no C++)
-- explicit ownership and small functions
-- `calloc` preferred over `malloc` where dynamic allocation is needed
-
-## Planned Bridging Flow (Next Iteration)
-
-1. Tune reconnect retry thresholds/escalation with long-run field telemetry.
-2. Extend descriptor remap beyond current boot-profile + keyboard-LED handling into broader host edge-case translation/remapping, including Apple keyboard Fn/media behavior.
-3. Add alerting/inbox workflow integration on top of soak diagnostics gate failures.
-4. Keep platform glue thin so additional targets can supply equivalent stack hooks.
+The shared code can request work such as scanning, connecting, sending reports, storing pair state, or rebooting, but it should not know which SDK call performs that work. That keeps platform churn contained and prevents board support from leaking into app or Bluetooth policy.
