@@ -902,7 +902,7 @@ static bool app_replay_test_sleep_adaptive_idle_vs_connected(void) {
     );
 }
 
-static bool app_replay_test_remove_last_double_long_press_recent_only(void) {
+static bool app_replay_test_double_long_press_does_not_remove_pair(void) {
     app_t app = {0};
     app_output_t out = {0};
     pair_db_t initial_pair_db = {0};
@@ -923,22 +923,15 @@ static bool app_replay_test_remove_last_double_long_press_recent_only(void) {
 
     if (!app_replay_expect_u32_eq(
             pair_db_count(&app.pair_db),
-            0U,
-            "pair db should remove last on double long press"
+            1U,
+            "double long press should leave pair db intact"
         )) {
         return false;
     }
 
     if (!app_replay_expect_true(
-            out.forget_request.valid,
-            "remove-last should emit forget request"
-        )) {
-        return false;
-    }
-
-    if (!app_replay_expect_true(
-            app_replay_device_id_equal(&out.forget_request.device_id, &device_id),
-            "forget request device id should match removed device"
+            !out.forget_request.valid,
+            "double long press should not emit forget request"
         )) {
         return false;
     }
@@ -946,41 +939,121 @@ static bool app_replay_test_remove_last_double_long_press_recent_only(void) {
     app_replay_tick(&app, 9550U, false, NULL, &out);
     return app_replay_expect_u32_eq(
         pair_db_count(&app.pair_db),
-        0U,
-        "remove-last result should persist after release"
+        1U,
+        "pair db should remain intact after release"
     );
 }
 
-static bool app_replay_test_remove_last_ignored_when_not_recent(void) {
+static bool app_replay_test_pairing_full_db_evicts_least_recent_connection(void) {
     app_t app = {0};
     app_output_t out = {0};
+    hid_transport_event_t event = {0};
     pair_db_t initial_pair_db = {0};
-    const pair_device_id_t device_id = app_replay_device_id(0x02U);
+    pair_device_id_t device_id[PAIR_DB_MAX_DEVICE] = {0};
+    const pair_device_id_t new_device = app_replay_device_id(0x7FU);
+    uint8_t index = 0U;
 
     pair_db_init(&initial_pair_db);
-    if (!pair_db_add(&initial_pair_db, &device_id, 1000U)) {
-        return false;
+
+    for (index = 0U; index < PAIR_DB_MAX_DEVICE; index++) {
+        device_id[index] = app_replay_device_id((uint8_t)(0x20U + index));
+
+        if (!pair_db_add(&initial_pair_db, &device_id[index], 1000U + (index * 100U))) {
+            return false;
+        }
+
+        if (!pair_db_touch_session(
+                &initial_pair_db,
+                &device_id[index],
+                1000U + (index * 100U),
+                0U,
+                0U,
+                0U,
+                HID_TRANSPORT_PROTOCOL_UNKNOWN,
+                HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
+                HID_TRANSPORT_BT_ADDR_TYPE_ACL
+            )) {
+            return false;
+        }
     }
 
     app_init(&app, &initial_pair_db);
 
-    app_replay_tick(&app, (60U * 60U * 1000U) + 5000U, true, NULL, &out);
-    app_replay_tick(&app, (60U * 60U * 1000U) + 6100U, true, NULL, &out);
-    app_replay_tick(&app, (60U * 60U * 1000U) + 7100U, false, NULL, &out);
-    app_replay_tick(&app, (60U * 60U * 1000U) + 7500U, true, NULL, &out);
-    app_replay_tick(&app, (60U * 60U * 1000U) + 8600U, true, NULL, &out);
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id[0];
+    event.hid_cid = 0x20U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    app_replay_tick(&app, 9000U, false, &event, &out);
+
+    (void)memset(&event, 0, sizeof(event));
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = device_id[1];
+    event.hid_cid = 0x21U;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_ACL;
+    app_replay_tick(&app, 9020U, false, &event, &out);
+
+    app_replay_tick(&app, 10000U, true, NULL, &out);
+    app_replay_tick(&app, 11000U, true, NULL, &out);
+    if (!app_replay_expect_true(out.pairing_active, "pairing should be active before LRU test")) {
+        return false;
+    }
+
+    (void)memset(&event, 0, sizeof(event));
+    event.type = HID_TRANSPORT_EVENT_BT_HID_OPEN;
+    event.device_id = new_device;
+    event.hid_cid = 0x7FU;
+    event.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_LE;
+    event.bt_addr_type = HID_TRANSPORT_BT_ADDR_TYPE_LE_RANDOM;
+    app_replay_tick(&app, 11100U, true, &event, &out);
 
     if (!app_replay_expect_u32_eq(
             pair_db_count(&app.pair_db),
-            1U,
-            "remove-last should do nothing when last pairing is stale"
+            PAIR_DB_MAX_DEVICE,
+            "pair db should stay at capacity after LRU replacement"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            !pair_db_find(&app.pair_db, &device_id[2], &index),
+            "least recently connected device should be evicted"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            pair_db_find(&app.pair_db, &device_id[0], &index),
+            "recently connected device should survive LRU eviction"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            pair_db_find(&app.pair_db, &device_id[1], &index),
+            "second recently connected device should survive LRU eviction"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            pair_db_find(&app.pair_db, &new_device, &index),
+            "newly paired device should be stored after LRU eviction"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            out.forget_request.valid,
+            "LRU eviction should emit forget request"
         )) {
         return false;
     }
 
     return app_replay_expect_true(
-        !out.forget_request.valid,
-        "stale remove-last should not emit forget request"
+        app_replay_device_id_equal(&out.forget_request.device_id, &device_id[2]),
+        "forget request should target evicted LRU device"
     );
 }
 
@@ -3092,10 +3165,10 @@ int main(void) {
             .fn = app_replay_test_pairing_suppresses_disconnect_cue},
         {.name = "sleep_adaptive_idle_vs_connected",
             .fn = app_replay_test_sleep_adaptive_idle_vs_connected},
-        {.name = "remove_last_double_long_press_recent_only",
-            .fn = app_replay_test_remove_last_double_long_press_recent_only},
-        {.name = "remove_last_ignored_when_not_recent",
-            .fn = app_replay_test_remove_last_ignored_when_not_recent},
+        {.name = "double_long_press_does_not_remove_pair",
+            .fn = app_replay_test_double_long_press_does_not_remove_pair},
+        {.name = "pairing_full_db_evicts_least_recent_connection",
+            .fn = app_replay_test_pairing_full_db_evicts_least_recent_connection},
         {.name = "remove_all_very_long_press", .fn = app_replay_test_remove_all_very_long_press},
         {.name = "remove_all_waits_across_late_button_release_before_reboot",
             .fn = app_replay_test_remove_all_waits_across_late_button_release_before_reboot},

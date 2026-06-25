@@ -2,14 +2,6 @@
 
 #include <string.h>
 
-static bool pair_db_age_within_window(
-    uint32_t now_ms,
-    uint32_t then_ms,
-    uint32_t window_ms
-) {
-    return (now_ms - then_ms) <= window_ms;
-}
-
 static bool pair_db_time_reached(
     uint32_t now_ms,
     uint32_t target_ms
@@ -26,6 +18,39 @@ static bool pair_db_device_id_equal(
     }
 
     return memcmp(lhs->bytes, rhs->bytes, sizeof(lhs->bytes)) == 0;
+}
+
+static bool pair_db_entry_less_recent(
+    const pair_db_entry_t * lhs,
+    const pair_db_entry_t * rhs
+) {
+    if ((lhs == NULL) || (rhs == NULL)) {
+        return false;
+    }
+
+    if (lhs->last_seen_ms != rhs->last_seen_ms) {
+        return lhs->last_seen_ms < rhs->last_seen_ms;
+    }
+
+    return lhs->paired_at_ms < rhs->paired_at_ms;
+}
+
+static void pair_db_remove_index(
+    pair_db_t * db,
+    uint8_t index
+) {
+    uint8_t cursor = 0U;
+
+    if ((db == NULL) || (index >= db->count)) {
+        return;
+    }
+
+    for (cursor = index; (uint8_t)(cursor + 1U) < db->count; cursor++) {
+        db->entries[cursor] = db->entries[(uint8_t)(cursor + 1U)];
+    }
+
+    db->count = (uint8_t)(db->count - 1U);
+    (void)memset(&db->entries[db->count], 0, sizeof(db->entries[db->count]));
 }
 
 void pair_db_init(pair_db_t * db) {
@@ -65,17 +90,42 @@ bool pair_db_add(
     return true;
 }
 
-bool pair_db_remove_last(pair_db_t * db) {
-    if (db == NULL) {
+bool pair_db_remove(
+    pair_db_t * db,
+    const pair_device_id_t * device_id
+) {
+    uint8_t index = 0U;
+
+    if ((db == NULL) || (device_id == NULL)) {
         return false;
     }
 
-    if (db->count == 0U) {
+    if (!pair_db_find(db, device_id, &index)) {
         return false;
     }
 
-    db->count = (uint8_t)(db->count - 1U);
-    (void)memset(&db->entries[db->count], 0, sizeof(db->entries[db->count]));
+    pair_db_remove_index(db, index);
+    return true;
+}
+
+bool pair_db_get_least_recently_used(
+    const pair_db_t * db,
+    pair_device_id_t * out_device_id
+) {
+    uint8_t index = 0U;
+    uint8_t best_index = 0U;
+
+    if ((db == NULL) || (out_device_id == NULL) || (db->count == 0U)) {
+        return false;
+    }
+
+    for (index = 1U; index < db->count; index++) {
+        if (pair_db_entry_less_recent(&db->entries[index], &db->entries[best_index])) {
+            best_index = index;
+        }
+    }
+
+    *out_device_id = db->entries[best_index].device_id;
     return true;
 }
 
@@ -175,7 +225,6 @@ bool pair_db_touch_session(
         index = (uint8_t)(db->count - 1U);
     }
 
-    db->entries[index].last_seen_ms = seen_at_ms;
     db->entries[index].last_vendor_id = vendor_id;
     db->entries[index].last_product_id = product_id;
     db->entries[index].last_report_descriptor_len = report_descriptor_len;
@@ -185,6 +234,25 @@ bool pair_db_touch_session(
     db->entries[index].reconnect_allowed = 1U;
     db->entries[index].reconnect_fail_count = 0U;
     db->entries[index].reconnect_retry_after_ms = seen_at_ms;
+    return true;
+}
+
+bool pair_db_mark_used(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint32_t used_at_ms
+) {
+    uint8_t index = 0U;
+
+    if ((db == NULL) || (device_id == NULL)) {
+        return false;
+    }
+
+    if (!pair_db_find(db, device_id, &index)) {
+        return false;
+    }
+
+    db->entries[index].last_seen_ms = used_at_ms;
     return true;
 }
 
@@ -222,7 +290,6 @@ bool pair_db_mark_reconnect_success(
         return false;
     }
 
-    db->entries[index].last_seen_ms = now_ms;
     db->entries[index].reconnect_allowed = 1U;
     db->entries[index].reconnect_fail_count = 0U;
     db->entries[index].reconnect_retry_after_ms = now_ms;
@@ -380,23 +447,4 @@ bool pair_db_get_reconnect_candidate(
 
     *out_entry = best;
     return true;
-}
-
-bool pair_db_last_within_window(
-    const pair_db_t * db,
-    uint32_t now_ms,
-    uint32_t window_ms
-) {
-    uint8_t last_index = 0U;
-
-    if (db == NULL) {
-        return false;
-    }
-
-    if (db->count == 0U) {
-        return false;
-    }
-
-    last_index = (uint8_t)(db->count - 1U);
-    return pair_db_age_within_window(now_ms, db->entries[last_index].paired_at_ms, window_ms);
 }

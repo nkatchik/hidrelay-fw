@@ -258,52 +258,35 @@ bool bt_manager_cancel_pair_any(bt_manager_t * manager) {
     return true;
 }
 
-bool bt_manager_remove_last(bt_manager_t * manager) {
-    pair_device_id_t removed_device = {0};
+static bool bt_manager_evict_lru_paired_device(
+    bt_manager_t * manager,
+    pair_device_id_t * out_evicted_device
+) {
+    pair_device_id_t evicted_device = {0};
     uint8_t active_index = 0U;
 
     if ((manager == NULL) || (manager->pair_db == NULL)) {
         return false;
     }
 
-    if (pair_db_count(manager->pair_db) == 0U) {
+    if (!pair_db_get_least_recently_used(manager->pair_db, &evicted_device)) {
         return false;
     }
 
-    if (!pair_db_get(
-            manager->pair_db,
-            (uint8_t)(pair_db_count(manager->pair_db) - 1U),
-            &removed_device
-        )) {
+    if (!pair_db_remove(manager->pair_db, &evicted_device)) {
         return false;
     }
 
-    if (!pair_db_remove_last(manager->pair_db)) {
-        return false;
-    }
-
-    if (bt_manager_find_active_index_by_device_id(manager, &removed_device, &active_index)) {
+    if (bt_manager_find_active_index_by_device_id(manager, &evicted_device, &active_index)) {
         bt_manager_remove_active_index(manager, active_index);
+    }
+
+    if (out_evicted_device != NULL) {
+        *out_evicted_device = evicted_device;
     }
 
     bt_manager_refresh_state(manager);
     return true;
-}
-
-bool bt_manager_remove_last_if_recent(
-    bt_manager_t * manager,
-    uint32_t now_ms,
-    uint32_t max_age_ms
-) {
-    if ((manager == NULL) || (manager->pair_db == NULL)) {
-        return false;
-    }
-
-    if (!pair_db_last_within_window(manager->pair_db, now_ms, max_age_ms)) {
-        return false;
-    }
-
-    return bt_manager_remove_last(manager);
 }
 
 bool bt_manager_remove_all(bt_manager_t * manager) {
@@ -329,7 +312,9 @@ bool bt_manager_ingest_hid_open(
     uint16_t vendor_id,
     uint16_t product_id,
     uint16_t report_descriptor_len,
-    uint32_t now_ms
+    uint32_t now_ms,
+    pair_device_id_t * out_evicted_device,
+    bool * out_evicted_device_valid
 ) {
     bt_hid_device_t * slot = NULL;
     uint8_t existing_index = 0U;
@@ -339,6 +324,14 @@ bool bt_manager_ingest_hid_open(
 
     if ((manager == NULL) || (manager->pair_db == NULL) || (device_id == NULL)) {
         return false;
+    }
+
+    if (out_evicted_device != NULL) {
+        (void)memset(out_evicted_device, 0, sizeof(*out_evicted_device));
+    }
+
+    if (out_evicted_device_valid != NULL) {
+        *out_evicted_device_valid = false;
     }
 
     if ((hid_cid == 0U) || (bt_link_type == HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN)) {
@@ -370,6 +363,46 @@ bool bt_manager_ingest_hid_open(
         return false;
     }
 
+    if (!known_device && (pair_db_count(manager->pair_db) >= PAIR_DB_MAX_DEVICE)) {
+        pair_device_id_t evicted_device = {0};
+        uint8_t evicted_active_index = 0U;
+        const bool existing_hid_cid = bt_manager_find_active_index_by_hid_cid(
+            manager,
+            hid_cid,
+            bt_link_type,
+            &existing_index
+        );
+        const bool evicted_is_active =
+            pair_db_get_least_recently_used(manager->pair_db, &evicted_device)
+            && bt_manager_find_active_index_by_device_id(
+                manager,
+                &evicted_device,
+                &evicted_active_index
+            );
+
+        if ((manager->active_count >= BT_MANAGER_MAX_ACTIVE_DEVICE)
+            && !existing_hid_cid
+            && !evicted_is_active) {
+            manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
+            manager->state = BT_MANAGER_STATE_ERROR;
+            return false;
+        }
+
+        if (!bt_manager_evict_lru_paired_device(manager, &evicted_device)) {
+            manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
+            manager->state = BT_MANAGER_STATE_ERROR;
+            return false;
+        }
+
+        if (out_evicted_device != NULL) {
+            *out_evicted_device = evicted_device;
+        }
+
+        if (out_evicted_device_valid != NULL) {
+            *out_evicted_device_valid = true;
+        }
+    }
+
     if (bt_manager_find_active_index_by_hid_cid(manager, hid_cid, bt_link_type, &existing_index)) {
         slot = &manager->active_device[existing_index];
         slot->device_id = *device_id;
@@ -390,6 +423,7 @@ bool bt_manager_ingest_hid_open(
             slot->bt_link_type,
             slot->bt_addr_type
         );
+        (void)pair_db_mark_used(manager->pair_db, device_id, now_ms);
         manager->pairing_started_ms = 0U;
         manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         manager->state = BT_MANAGER_STATE_ACTIVE;
@@ -416,6 +450,7 @@ bool bt_manager_ingest_hid_open(
             slot->bt_link_type,
             slot->bt_addr_type
         );
+        (void)pair_db_mark_used(manager->pair_db, device_id, now_ms);
         manager->pairing_started_ms = 0U;
         manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
         manager->state = BT_MANAGER_STATE_ACTIVE;
@@ -456,6 +491,7 @@ bool bt_manager_ingest_hid_open(
         slot->bt_link_type,
         slot->bt_addr_type
     );
+    (void)pair_db_mark_used(manager->pair_db, device_id, now_ms);
     manager->pairing_started_ms = 0U;
     manager->pairing_bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_UNKNOWN;
     manager->state = BT_MANAGER_STATE_ACTIVE;

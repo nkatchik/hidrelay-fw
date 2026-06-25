@@ -5,7 +5,6 @@
 enum {
     BUTTON_LONG_PRESS_MIN_MS = 1000U,
     BUTTON_CLASSIC_PAIR_PRESS_MS = 5000U,
-    BUTTON_DOUBLE_LONG_WINDOW_MS = 2500U,
     BUTTON_VERY_LONG_PRESS_MS = 10000U
 };
 
@@ -19,9 +18,7 @@ void button_fsm_init(button_fsm_t * fsm) {
     fsm->long_press_emitted = false;
     fsm->classic_pair_emitted = false;
     fsm->arm_pending_on_release = false;
-    fsm->pending_long_press = false;
     fsm->press_started_ms = 0U;
-    fsm->first_long_released_ms = 0U;
 }
 
 button_command_t button_fsm_update(
@@ -50,7 +47,6 @@ button_command_t button_fsm_update(
             fsm->long_press_emitted = true;
             fsm->classic_pair_emitted = true;
             fsm->arm_pending_on_release = false;
-            fsm->pending_long_press = false;
             return BUTTON_COMMAND_REMOVE_ALL;
         }
 
@@ -60,7 +56,6 @@ button_command_t button_fsm_update(
             && (press_duration_ms >= BUTTON_CLASSIC_PAIR_PRESS_MS)) {
             fsm->classic_pair_emitted = true;
             fsm->arm_pending_on_release = false;
-            fsm->pending_long_press = false;
             return BUTTON_COMMAND_PAIR_CLASSIC;
         }
 
@@ -68,20 +63,11 @@ button_command_t button_fsm_update(
             fsm->long_press_emitted = true;
             fsm->classic_pair_emitted = true;
             fsm->arm_pending_on_release = false;
-            fsm->pending_long_press = false;
             return BUTTON_COMMAND_PAIR_CLASSIC;
         }
 
         if (!fsm->long_press_emitted && (press_duration_ms >= BUTTON_LONG_PRESS_MIN_MS)) {
             fsm->long_press_emitted = true;
-
-            if (fsm->pending_long_press
-                && ((now_ms - fsm->first_long_released_ms) <= BUTTON_DOUBLE_LONG_WINDOW_MS)) {
-                fsm->pending_long_press = false;
-                fsm->arm_pending_on_release = false;
-                return BUTTON_COMMAND_REMOVE_LAST;
-            }
-
             fsm->arm_pending_on_release = true;
             return BUTTON_COMMAND_PAIR_BLE;
         }
@@ -101,11 +87,6 @@ button_command_t button_fsm_update(
         }
 
         if (fsm->long_press_emitted) {
-            if (fsm->arm_pending_on_release) {
-                fsm->pending_long_press = true;
-                fsm->first_long_released_ms = now_ms;
-            }
-
             fsm->long_press_emitted = false;
             fsm->classic_pair_emitted = false;
             fsm->arm_pending_on_release = false;
@@ -113,30 +94,14 @@ button_command_t button_fsm_update(
         }
 
         if (press_duration_ms >= BUTTON_LONG_PRESS_MIN_MS) {
-            if (fsm->pending_long_press
-                && ((now_ms - fsm->first_long_released_ms) <= BUTTON_DOUBLE_LONG_WINDOW_MS)) {
-                fsm->pending_long_press = false;
-                return BUTTON_COMMAND_REMOVE_LAST;
-            }
-
             if (press_duration_ms >= BUTTON_CLASSIC_PAIR_PRESS_MS) {
-                fsm->pending_long_press = false;
                 return BUTTON_COMMAND_PAIR_CLASSIC;
             }
 
-            fsm->pending_long_press = true;
-            fsm->first_long_released_ms = now_ms;
             return BUTTON_COMMAND_PAIR_BLE;
         }
 
-        fsm->pending_long_press = false;
         return BUTTON_COMMAND_SINGLE_CLICK;
-    }
-
-    if (!pressed && !fsm->stable_pressed && fsm->pending_long_press) {
-        if ((now_ms - fsm->first_long_released_ms) > BUTTON_DOUBLE_LONG_WINDOW_MS) {
-            fsm->pending_long_press = false;
-        }
     }
 
     return BUTTON_COMMAND_NONE;

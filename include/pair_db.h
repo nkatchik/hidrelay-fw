@@ -36,7 +36,14 @@ bool pair_db_add(
     const pair_device_id_t * device_id,
     uint32_t paired_at_ms
 );
-bool pair_db_remove_last(pair_db_t * db);
+bool pair_db_remove(
+    pair_db_t * db,
+    const pair_device_id_t * device_id
+);
+bool pair_db_get_least_recently_used(
+    const pair_db_t * db,
+    pair_device_id_t * out_device_id
+);
 void pair_db_remove_all(pair_db_t * db);
 uint8_t pair_db_count(const pair_db_t * db);
 bool pair_db_get(
@@ -64,6 +71,11 @@ bool pair_db_touch_session(
     uint8_t protocol_mode,
     uint8_t bt_link_type,
     uint8_t bt_addr_type
+);
+bool pair_db_mark_used(
+    pair_db_t * db,
+    const pair_device_id_t * device_id,
+    uint32_t used_at_ms
 );
 bool pair_db_set_reconnect_allowed(
     pair_db_t * db,
@@ -102,11 +114,6 @@ bool pair_db_get_reconnect_candidate(
     const pair_db_t * db,
     uint32_t now_ms,
     pair_db_entry_t * out_entry
-);
-bool pair_db_last_within_window(
-    const pair_db_t * db,
-    uint32_t now_ms,
-    uint32_t window_ms
 );
 
 #endif

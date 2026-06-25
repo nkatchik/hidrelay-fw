@@ -6,13 +6,11 @@
 enum {
     APP_IDLE_SLEEP_US = 5000U,
     APP_CONNECTED_SLEEP_US = 5U,
-    APP_REMOVE_LAST_MAX_AGE_MS = 60U * 60U * 1000U,
     APP_RECONNECT_TIMEOUT_MS = 30000U,
     APP_RECONNECT_BASE_BACKOFF_MS = 500U,
     APP_RECONNECT_MAX_BACKOFF_SHIFT = 2U,
     APP_RECONNECT_STACK_REJECT_RETRY_MS = 1000U,
     APP_RECONNECT_STACK_NOT_READY_RETRY_MS = 3000U,
-    APP_REMOVE_LAST_BLINK_COUNT = 1U,
     APP_FACTORY_RESET_BLINK_COUNT = 3U,
     APP_PAIRING_ERROR_BLINK_CONNECT_COUNT = 1U,
     APP_PAIRING_ERROR_BLINK_AUTH_COUNT = 2U,
@@ -303,7 +301,8 @@ static void app_reconnect_mark_failure(
 static bool app_handle_transport_event(
     app_t * app,
     const app_input_t * input,
-    bool * out_open_ingested
+    bool * out_open_ingested,
+    hid_transport_forget_request_t * out_forget_request
 ) {
     const hid_transport_event_t * event = NULL;
     bool close_ingested = false;
@@ -320,6 +319,8 @@ static bool app_handle_transport_event(
 
     switch (event->type) {
         case HID_TRANSPORT_EVENT_BT_HID_OPEN: {
+            pair_device_id_t evicted_device = {0};
+            bool evicted_device_valid = false;
             const bool open_ingested = bt_manager_ingest_hid_open(
                 &app->bt_manager,
                 &event->device_id,
@@ -329,8 +330,15 @@ static bool app_handle_transport_event(
                 event->vendor_id,
                 event->product_id,
                 event->report_descriptor_len,
-                input->now_ms
+                input->now_ms,
+                &evicted_device,
+                &evicted_device_valid
             );
+
+            if ((out_forget_request != NULL) && evicted_device_valid) {
+                out_forget_request->valid = true;
+                out_forget_request->device_id = evicted_device;
+            }
 
             if (out_open_ingested != NULL) {
                 *out_open_ingested = open_ingested;
@@ -472,27 +480,6 @@ void app_tick(
         );
     } else if (command == BUTTON_COMMAND_SINGLE_CLICK) {
         (void)bt_manager_cancel_pair_any(&app->bt_manager);
-    } else if (command == BUTTON_COMMAND_REMOVE_LAST) {
-        pair_device_id_t removed_device_id = {0};
-        bool removed_device_known = false;
-
-        if (pair_db_count(&app->pair_db) > 0U) {
-            const uint8_t last_index = (uint8_t)(pair_db_count(&app->pair_db) - 1U);
-            removed_device_known = pair_db_get(&app->pair_db, last_index, &removed_device_id);
-        }
-
-        if (bt_manager_remove_last_if_recent(
-                &app->bt_manager,
-                input->now_ms,
-                APP_REMOVE_LAST_MAX_AGE_MS
-            )) {
-            led_ui_trigger_long_blink(&app->led_ui, APP_REMOVE_LAST_BLINK_COUNT, input->now_ms);
-
-            if (removed_device_known) {
-                forget_request.valid = true;
-                forget_request.device_id = removed_device_id;
-            }
-        }
     } else if (command == BUTTON_COMMAND_REMOVE_ALL) {
         (void)bt_manager_remove_all(&app->bt_manager);
         led_ui_set_state(
@@ -515,7 +502,8 @@ void app_tick(
         }
     }
 
-    disconnect_event_cue = app_handle_transport_event(app, input, &open_event_ingested);
+    disconnect_event_cue =
+        app_handle_transport_event(app, input, &open_event_ingested, &forget_request);
     (void)pair_db_reconnect_recover_expired(&app->pair_db, input->now_ms);
     if (pairing_attempt_error_blinks > 0U) {
         (void)bt_manager_cancel_pair_any(&app->bt_manager);

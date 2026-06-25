@@ -46,12 +46,6 @@ bool bt_manager_start_pairing(
     uint8_t bt_link_type
 );
 bool bt_manager_cancel_pair_any(bt_manager_t * manager);
-bool bt_manager_remove_last(bt_manager_t * manager);
-bool bt_manager_remove_last_if_recent(
-    bt_manager_t * manager,
-    uint32_t now_ms,
-    uint32_t max_age_ms
-);
 bool bt_manager_remove_all(bt_manager_t * manager);
 bool bt_manager_ingest_hid_open(
     bt_manager_t * manager,
@@ -62,7 +56,9 @@ bool bt_manager_ingest_hid_open(
     uint16_t vendor_id,
     uint16_t product_id,
     uint16_t report_descriptor_len,
-    uint32_t now_ms
+    uint32_t now_ms,
+    pair_device_id_t * out_evicted_device,
+    bool * out_evicted_device_valid
 );
 bool bt_manager_ingest_hid_close(
     bt_manager_t * manager,
