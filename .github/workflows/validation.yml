@@ -1,4 +1,4 @@
-name: Firmware CI
+name: Validation
 
 on:
   pull_request:
@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-test:
-    name: Build and test
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -47,7 +47,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bootstrap-
 
-      - name: Run CI
+      - name: Run validation
         env:
           APP_SKIP_GIT_HOOKS_BOOTSTRAP: "1"
-        run: make ci
+        run: make validate

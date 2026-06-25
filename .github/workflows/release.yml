@@ -1,0 +1,265 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit SHA to tag and release
+        required: true
+        type: string
+      tag:
+        description: Git tag to create and release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve release target
+        id: release_tag
+        env:
+          COMMIT_INPUT: ${{ inputs.commit }}
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -eu
+
+          commit_input="${COMMIT_INPUT}"
+          release_tag="${TAG_INPUT}"
+
+          if [ -z "${commit_input}" ]; then
+            echo "::error title=Missing release commit::Release commit could not be resolved."
+            exit 2
+          fi
+          if [ -z "${release_tag}" ]; then
+            echo "::error title=Missing release tag::Release tag could not be resolved."
+            exit 2
+          fi
+
+          case "${commit_input}" in
+            -*|*[!0123456789abcdefABCDEF]*)
+              echo "::error title=Invalid release commit::Release commit must be a commit SHA."
+              exit 2
+              ;;
+          esac
+          if [ "${#commit_input}" -lt 7 ] || [ "${#commit_input}" -gt 40 ]; then
+            echo "::error title=Invalid release commit::Release commit must be a 7-40 character SHA."
+            exit 2
+          fi
+
+          case "${release_tag}" in
+            -*)
+              echo "::error title=Invalid release tag::Release tag must not start with '-'."
+              exit 2
+              ;;
+          esac
+          if ! git check-ref-format "refs/tags/${release_tag}" >/dev/null 2>&1; then
+            echo "::error title=Invalid release tag::Release tag is not a valid Git tag name."
+            exit 2
+          fi
+
+          if ! commit_sha="$(git rev-parse --verify --quiet "${commit_input}^{commit}")"; then
+            echo "::error title=Unknown release commit::Commit '${commit_input}' does not exist in this checkout."
+            exit 2
+          fi
+
+          if git rev-parse --verify --quiet "refs/tags/${release_tag}" >/dev/null; then
+            echo "::error title=Tag already exists::Tag '${release_tag}' already exists."
+            exit 1
+          fi
+
+          safe_tag="$(printf '%s' "${release_tag}" | sed 's#[^A-Za-z0-9._-]#-#g')"
+          if [ -z "${safe_tag}" ]; then
+            safe_tag="tag"
+          fi
+
+          git checkout --detach "${commit_sha}"
+          printf 'commit_sha=%s\n' "${commit_sha}" >> "${GITHUB_OUTPUT}"
+          printf 'release_tag=%s\n' "${release_tag}" >> "${GITHUB_OUTPUT}"
+          printf 'artifact_name=release-%s\n' "${safe_tag}" >> "${GITHUB_OUTPUT}"
+          printf 'RELEASE_COMMIT=%s\n' "${commit_sha}" >> "${GITHUB_ENV}"
+          printf 'RELEASE_TAG=%s\n' "${release_tag}" >> "${GITHUB_ENV}"
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates \
+            cmake \
+            curl \
+            gcc \
+            git \
+            jq \
+            make \
+            python3 \
+            tar \
+            unzip \
+            xz-utils
+
+      - name: Cache bootstrap artifacts
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: ${{ runner.os }}-bootstrap-${{ hashFiles('cmake/*.cmake', 'platform/*/*.cmake', 'platform/*/cmake/*.cmake', 'platform/*/toolchain.cmake.in') }}
+          restore-keys: |
+            ${{ runner.os }}-bootstrap-
+
+      - name: Check for existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error title=Release already exists::Release '${RELEASE_TAG}' already exists."
+            exit 1
+          fi
+
+      - name: Run validation
+        env:
+          APP_SKIP_GIT_HOOKS_BOOTSTRAP: "1"
+        run: make validate
+
+      - name: Build release artifacts
+        env:
+          APP_SKIP_GIT_HOOKS_BOOTSTRAP: "1"
+        run: make release
+
+      - name: Verify release artifacts
+        run: |
+          set -eu
+
+          if [ ! -d build/release ]; then
+            echo "::error title=Missing release directory::make release did not create build/release."
+            exit 2
+          fi
+
+          expected_platforms="${RUNNER_TEMP}/expected-platforms.txt"
+          expected_assets="${RUNNER_TEMP}/expected-assets.txt"
+          actual_assets="${RUNNER_TEMP}/actual-assets.txt"
+          missing_assets="${RUNNER_TEMP}/missing-assets.txt"
+          extra_assets="${RUNNER_TEMP}/extra-assets.txt"
+          : > "${expected_assets}"
+          : > "${missing_assets}"
+
+          make platform-list > "${expected_platforms}"
+          if [ ! -s "${expected_platforms}" ]; then
+            echo "::error title=Missing platforms::make platform-list did not report any release platforms."
+            exit 2
+          fi
+
+          find build/release -maxdepth 1 -type f -print | sort > "${actual_assets}"
+          if [ ! -s "${actual_assets}" ]; then
+            echo "::error title=Missing release assets::make release did not produce publishable files."
+            exit 2
+          fi
+
+          while IFS= read -r platform; do
+            [ -n "${platform}" ] || continue
+
+            asset_platform="$(printf '%s' "${platform}" | tr '_' '-')"
+            uf2_asset="build/release/hidrelay-fw-${asset_platform}.uf2"
+            zip_asset="build/release/hidrelay-fw-${asset_platform}.zip"
+            cache_file="build/release-build/${platform}/CMakeCache.txt"
+
+            if [ -f "${uf2_asset}" ]; then
+              printf '%s\n' "${uf2_asset}" >> "${expected_assets}"
+            elif [ -f "${zip_asset}" ]; then
+              printf '%s\n' "${zip_asset}" >> "${expected_assets}"
+            else
+              printf '%s\n' "${platform}" >> "${missing_assets}"
+              continue
+            fi
+
+            if [ ! -f "${cache_file}" ]; then
+              echo "::error title=Missing release cache::${cache_file} is missing."
+              exit 2
+            fi
+
+            for expected in \
+              "CMAKE_BUILD_TYPE:STRING=Release" \
+              "APP_PLATFORM_ENABLE_TELEMETRY:BOOL=OFF" \
+              "APP_PLATFORM_ENABLE_DIAG_CDC:BOOL=OFF" \
+              "APP_PLATFORM_ENABLE_USB_RESET_INTERFACE:BOOL=OFF" \
+              "APP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT:BOOL=OFF"
+            do
+              if ! grep -Fqx "${expected}" "${cache_file}"; then
+                option_name="${expected%%:*}"
+                actual_value="$(grep -E "^${option_name}:" "${cache_file}" || true)"
+                echo "::error title=Unsafe release option::Expected '${expected}' in ${cache_file}; found '${actual_value}'."
+                exit 2
+              fi
+            done
+          done < "${expected_platforms}"
+
+          if [ -s "${missing_assets}" ]; then
+            echo "::error title=Missing release assets::No release asset found for these platforms:"
+            cat "${missing_assets}"
+            exit 2
+          fi
+
+          sort -u "${expected_assets}" -o "${expected_assets}"
+          comm -23 "${expected_assets}" "${actual_assets}" > "${missing_assets}"
+          comm -13 "${expected_assets}" "${actual_assets}" > "${extra_assets}"
+
+          if [ -s "${missing_assets}" ]; then
+            echo "::error title=Missing release assets::Expected assets were not produced:"
+            cat "${missing_assets}"
+            exit 2
+          fi
+
+          if [ -s "${extra_assets}" ]; then
+            echo "::error title=Unexpected release assets::Unexpected files were produced:"
+            cat "${extra_assets}"
+            exit 2
+          fi
+
+          cat "${actual_assets}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.release_tag.outputs.artifact_name }}
+          path: build/release/*
+          if-no-files-found: error
+
+      - name: Create release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+
+          if git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "::error title=Tag already exists::Tag '${RELEASE_TAG}' already exists."
+            exit 1
+          fi
+
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${RELEASE_TAG}" \
+            -f "sha=${RELEASE_COMMIT}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release create "${RELEASE_TAG}" build/release/* \
+            --title "${RELEASE_TAG}" \
+            --verify-tag \
+            --generate-notes

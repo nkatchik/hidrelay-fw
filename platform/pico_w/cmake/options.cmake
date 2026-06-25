@@ -30,6 +30,8 @@ option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK
 option(APP_PLATFORM_ENABLE_BTSTACK "Link BTstack support through Pico SDK." ON)
 option(APP_PLATFORM_ALLOW_RELEASE_TELEMETRY
     "Allow telemetry/diagnostics options in Release builds (development use only)." OFF)
+option(APP_PLATFORM_ALLOW_RELEASE_USB_RESET_INTERFACE
+    "Allow the USB vendor reset interface in Release builds (development use only)." OFF)
 option(APP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT
     "Debug only: erase all persisted Pair DB + BTstack bonding/security data on every boot." OFF)
 
@@ -55,6 +57,24 @@ if(APP_PLATFORM_ENABLE_DIAG_CDC AND (NOT APP_PLATFORM_ENABLE_TELEMETRY))
     set(APP_PLATFORM_ENABLE_DIAG_CDC OFF CACHE BOOL "Expose diagnostics over TinyUSB CDC on Pico W." FORCE)
 endif()
 
+if(NOT DEFINED APP_PLATFORM_ENABLE_USB_RESET_INTERFACE)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(APP_PLATFORM_ENABLE_USB_RESET_INTERFACE ON CACHE BOOL
+            "Expose the Pico USB vendor reset interface for picotool reboot/flash commands." FORCE)
+    else()
+        set(APP_PLATFORM_ENABLE_USB_RESET_INTERFACE OFF CACHE BOOL
+            "Expose the Pico USB vendor reset interface for picotool reboot/flash commands." FORCE)
+    endif()
+endif()
+
+if(APP_PLATFORM_ENABLE_USB_RESET_INTERFACE AND (NOT APP_PLATFORM_ENABLE_TINYUSB))
+    message(WARNING
+        "APP_PLATFORM_ENABLE_USB_RESET_INTERFACE is ON but APP_PLATFORM_ENABLE_TINYUSB is OFF; "
+        "USB reset interface is disabled.")
+    set(APP_PLATFORM_ENABLE_USB_RESET_INTERFACE OFF CACHE BOOL
+        "Expose the Pico USB vendor reset interface for picotool reboot/flash commands." FORCE)
+endif()
+
 string(TOUPPER "${CMAKE_BUILD_TYPE}" APP_PLATFORM_BUILD_TYPE_UPPER)
 if((APP_PLATFORM_BUILD_TYPE_UPPER STREQUAL "RELEASE")
     AND (NOT APP_PLATFORM_ALLOW_RELEASE_TELEMETRY))
@@ -64,4 +84,13 @@ if((APP_PLATFORM_BUILD_TYPE_UPPER STREQUAL "RELEASE")
             "Unset APP_PLATFORM_ENABLE_TELEMETRY/APP_PLATFORM_ENABLE_DIAG_CDC, or set "
             "APP_PLATFORM_ALLOW_RELEASE_TELEMETRY=ON only for explicit development/debug releases.")
     endif()
+endif()
+
+if((APP_PLATFORM_BUILD_TYPE_UPPER STREQUAL "RELEASE")
+    AND APP_PLATFORM_ENABLE_USB_RESET_INTERFACE
+    AND (NOT APP_PLATFORM_ALLOW_RELEASE_USB_RESET_INTERFACE))
+    message(FATAL_ERROR
+        "Release guard: the USB reset interface is disabled for production builds. "
+        "Unset APP_PLATFORM_ENABLE_USB_RESET_INTERFACE, or set "
+        "APP_PLATFORM_ALLOW_RELEASE_USB_RESET_INTERFACE=ON only for explicit development/debug releases.")
 endif()

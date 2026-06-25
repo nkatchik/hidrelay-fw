@@ -22,6 +22,8 @@ make help
 make platform-list
 make build APP_PLATFORM=<target>
 make test-host
+make validate
+make validate-<target>
 make release-<target>
 make release
 ```
@@ -51,6 +53,8 @@ Production release settings are intentionally plain:
 - TinyUSB and BTstack are enabled.
 - Telemetry is disabled.
 - Diagnostics CDC is disabled.
+- The USB vendor reset interface is disabled, so host tools cannot command the
+  firmware to reboot into BOOTSEL/flash mode.
 - Wipe-on-boot is disabled.
 
 Exact CMake settings:
@@ -61,6 +65,7 @@ Exact CMake settings:
 -DAPP_PLATFORM_ENABLE_BTSTACK:BOOL=ON
 -DAPP_PLATFORM_ENABLE_TELEMETRY:BOOL=OFF
 -DAPP_PLATFORM_ENABLE_DIAG_CDC:BOOL=OFF
+-DAPP_PLATFORM_ENABLE_USB_RESET_INTERFACE:BOOL=OFF
 -DAPP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT:BOOL=OFF
 ```
 
@@ -101,6 +106,19 @@ Run host-side deterministic validation without hardware:
 
 ```sh
 make test-host
+```
+
+Run the full local validation gate, including host tools and platform build
+variants:
+
+```sh
+make validate
+```
+
+Run validation builds for one platform:
+
+```sh
+make validate-<target>
 ```
 
 Debug builds enable telemetry and diagnostics by default where supported:

@@ -1,32 +1,28 @@
 # hidrelay-fw
 
-Bluetooth-to-USB HID relay firmware. The device pairs with Bluetooth keyboards, mice, and trackpads, then exposes them to the USB host as HID devices.
+Bluetooth-to-USB HID relay firmware.
+
+The device pairs with Bluetooth keyboards, mice, and trackpads, then exposes them to the USB host as HID devices.
 
 If this project is useful to your HID, accessibility, or embedded work, please star the repository.
 Public adoption helps the project.
 
-## Architecture
+## Basics
 
 - Bare-metal firmware: no Linux kernel, userspace services, init system, or device tree in the runtime path.
-- Bluetooth and USB are driven directly from the firmware event loop through platform-owned stack glue.
-- Avoiding Linux keeps boot time, latency, storage needs, and background scheduling noise low for HID relay use.
-- The smaller runtime surface also reduces field-update complexity and leaves more flash/RAM for device state, report policy, and diagnostics.
-- Shared app logic lives in `src/` and `include/`; board/SDK details stay under `platform/`.
+- Bluetooth and USB are driven directly from the firmware event loop.
+- Independent support for Apple Magic accessories (Classic pairing only).
 
 ## Installation
 
-Release files are production builds: debug telemetry and diagnostic USB serial are off, and the firmware will not wipe pairing data on boot.
-
-Pico-family builds are for the Bluetooth-capable W boards. Plain Pico/Pico 2 boards do not include the radio this firmware needs.
-
 ### Raspberry Pi Pico W / Pico 2 W
 
-1. Download [⬇️ Pico W firmware](/releases/latest/download/hidrelay-fw-pico-w.uf2) / [⬇️ Pico 2 W firmware](/releases/latest/download/hidrelay-fw-pico-2-w.uf2).
-2. Hold BOOTSEL while plugging the board into USB.
-3. Wait for the `RPI-RP2` drive to appear on Pico W, or `RP2350` on Pico 2 W.
-4. Copy the downloaded UF2 onto that drive. The board reboots into the firmware.
+1. Download [⬇ Pico W firmware](https://github.com/nkatchik/hidrelay-fw/releases/latest/download/hidrelay-fw-pico-w.uf2) / [⬇ Pico 2 W firmware](https://github.com/nkatchik/hidrelay-fw/releases/latest/download/hidrelay-fw-pico-2-w.uf2).
+2. Hold `BOOTSEL` button while plugging the board into USB.
+3. Wait for the `RPI-RP2` / `RP2350` drive to appear.
+4. Drag the downloaded UF2 onto that drive.
 
-That's it!
+The board will reboot into the firmware. That's it!
 
 ## Usage
 
@@ -38,38 +34,38 @@ The BOOTSEL/user button controls pairing and reset flows:
 
 BLE and Classic pairing modes are intentionally exclusive.
 
-## Build
+### Apple Magic Keyboards
 
-Requirements: `make`, `cmake`, `git`, `curl`, `tar`, `unzip`, a C compiler for host tools, and Python 3 for ESP-IDF bootstrap.
+Classic pairing mode only.
 
-Build one firmware target:
+macOS's media/function-key checkbox is not respected through this firmware.
+Use `Fn` + `Esc` to toggle the relay-side top-row mode.
 
-```sh
-make bootstrap APP_PLATFORM=pico_w
-make build APP_PLATFORM=pico_w
-```
+| Shortcut | USB host key |
+| --- | --- |
+| `Fn` + `Esc` | Toggle top row between media keys and F1-F12 |
+| `Eject ⏏` | Lock Screen |
+| `Media 5` | Voice Assistant |
+| `Media 6` | Do Not Disturb |
 
-Build one release artifact or all platform releases:
+### Apple Magic Trackpads
 
-```sh
-make release-pico_w
-make release
-```
+Classic pairing mode only.
 
-Release outputs are written to `build/release/`.
+Magic Trackpad gestures are not passed through to the USB host as native
+gestures. The firmware interprets trackpad input and does best-effort emulation
+using ordinary USB mouse and keyboard output.
 
-Run host-side deterministic tests:
+Gesture emulation expects these shortcuts to be enabled or available on macOS:
 
-```sh
-make test-host
-```
-
-## Repository Layout
-
-- `src/` and `include/` - shared firmware logic.
-- `platform/` - hardware, SDK, Bluetooth-controller, USB-device, flash, and flashing glue.
-- `tool/` - host-side replay and diagnostics utilities.
-- `doc/` - build, architecture, and soak-test notes.
+| Trackpad input | Firmware emits | Expected macOS action |
+| --- | --- | --- |
+| Three-finger swipe up | `Control` + `Up Arrow` | Mission Control |
+| Three-finger swipe down | `Control` + `Down Arrow` | Application windows / App Expose |
+| Three-finger swipe left | `Control` + `Right Arrow` | Move right a space |
+| Three-finger swipe right | `Control` + `Left Arrow` | Move left a space |
+| Pinch out | `Command` + `=` | Zoom In in the active app |
+| Pinch in | `Command` + `-` | Zoom Out in the active app |
 
 ## Documentation
 

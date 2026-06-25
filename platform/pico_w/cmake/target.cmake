@@ -24,7 +24,6 @@ function(pico_w_configure_target target_name)
             hidrelay_core
             pico_stdlib
             pico_cyw43_arch_none
-            pico_usb_reset_interface_headers
     )
 
     if(APP_PLATFORM_ENABLE_TINYUSB)
@@ -33,6 +32,11 @@ function(pico_w_configure_target target_name)
 
         if(APP_PLATFORM_ENABLE_DIAG_CDC)
             target_compile_definitions(${target_name} PRIVATE APP_HAS_DIAG_CDC=1)
+        endif()
+
+        if(APP_PLATFORM_ENABLE_USB_RESET_INTERFACE)
+            target_link_libraries(${target_name} PRIVATE pico_usb_reset_interface_headers)
+            target_compile_definitions(${target_name} PRIVATE APP_HAS_USB_RESET_INTERFACE=1)
         endif()
     elseif(APP_PLATFORM_ENABLE_DIAG_CDC)
         message(WARNING "APP_PLATFORM_ENABLE_DIAG_CDC is ON but APP_PLATFORM_ENABLE_TINYUSB is OFF; diagnostics CDC is disabled.")

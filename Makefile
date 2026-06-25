@@ -29,7 +29,7 @@ APP_EXTRA_PLATFORM_DIRS_CMAKE := $(subst $(space),;,$(strip $(APP_EXTRA_PLATFORM
 APP_EXTRA_PLATFORM_DIRS_CMAKE_ARG := $(if $(APP_EXTRA_PLATFORM_DIRS),-DAPP_EXTRA_PLATFORM_DIRS="$(APP_EXTRA_PLATFORM_DIRS_CMAKE)",)
 APP_PLATFORM_ROOTS := $(APP_SOURCE_DIR)/platform $(APP_EXTRA_PLATFORM_DIRS)
 
-.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build release clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host ci ci-host ci-diag-smoke ci-platform FORCE
+.PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build release clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host validate validate-host validate-diag-smoke validate-platforms FORCE
 
 help:
 	@printf '%s\n' \
@@ -53,7 +53,8 @@ help:
 		'  make tool-diag-alert INPUT=diag.csv [OUTPUT=diag_report.md] [MAX_RECONNECT_FAILURE_DELTA=n] - Generate markdown gate report' \
 		'  make tool-app-replay   - Build host-side app replay validator' \
 		'  make test-host         - Run host-side app replay validator' \
-		'  make ci                - Run host checks and platform CI hooks'
+		'  make validate          - Run host and platform validation' \
+		'  make validate-<target> - Run validation builds for one platform target'
 
 platform-list:
 	@for platform_root in $(APP_PLATFORM_ROOTS); do \
@@ -72,7 +73,7 @@ require-platform:
 
 git-hooks-bootstrap:
 	@if [ -n "$(APP_SKIP_GIT_HOOKS_BOOTSTRAP)" ] || [ -n "$$CI" ]; then \
-		echo 'Skipping git hooks bootstrap (CI/non-developer build)'; \
+		echo 'Skipping git hooks bootstrap (automated/non-developer build)'; \
 	elif command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
 		$(APP_SOURCE_DIR)/.githooks/bootstrap; \
 	else \
@@ -147,6 +148,7 @@ release-%: FORCE
 		-DAPP_PLATFORM_ENABLE_BTSTACK:BOOL=ON \
 		-DAPP_PLATFORM_ENABLE_TELEMETRY:BOOL=OFF \
 		-DAPP_PLATFORM_ENABLE_DIAG_CDC:BOOL=OFF \
+		-DAPP_PLATFORM_ENABLE_USB_RESET_INTERFACE:BOOL=OFF \
 		-DAPP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT:BOOL=OFF \
 		-C "$(APP_CACHE_DIR)/bootstrap/$$platform.cmake"; \
 	$(CMAKE_ENV) $(CMAKE) --build "$$build_dir" --parallel; \
@@ -233,28 +235,75 @@ tool-app-replay:
 test-host: tool-app-replay
 	@$(TOOL_BUILD_DIR)/app_replay
 
-ci: ci-host ci-platform
+validate: validate-host validate-platforms
 
-ci-host: test-host tool-cache-probe tool-diag-capture ci-diag-smoke
+validate-host: test-host tool-cache-probe tool-diag-capture validate-diag-smoke
 
-ci-diag-smoke:
+validate-diag-smoke:
 	@./tool/bin/diag_smoke
 
-ci-platform:
+validate-platforms:
 	@found=0; \
 	for platform_root in $(APP_PLATFORM_ROOTS); do \
-		for hook in "$$platform_root"/*/bin/ci-build; do \
-			if [ ! -f "$$hook" ]; then \
+		for platform_dir in "$$platform_root"/*; do \
+			if [ ! -d "$$platform_dir" ] || [ ! -f "$$platform_dir/CMakeLists.txt" ]; then \
 				continue; \
 			fi; \
+			platform=$$(basename "$$platform_dir"); \
 			found=1; \
-			"$$hook"; \
+			$(MAKE) --no-print-directory validate-$$platform || exit $$?; \
 		done; \
 	done; \
 	if [ "$$found" -eq 0 ]; then \
-		echo "No platform CI hooks found under platform/*/bin/ci-build or APP_EXTRA_PLATFORM_DIRS"; \
+		echo "No platform targets found under platform/* or APP_EXTRA_PLATFORM_DIRS"; \
 		exit 2; \
 	fi
+
+validate-%: FORCE
+	@platform="$*"; \
+	platform_dir=""; \
+	for platform_root in $(APP_PLATFORM_ROOTS); do \
+		if [ -f "$$platform_root/$$platform/CMakeLists.txt" ]; then \
+			platform_dir="$$platform_root/$$platform"; \
+			break; \
+		fi; \
+	done; \
+	if [ -z "$$platform_dir" ]; then \
+		echo "Unknown validation platform '$$platform'. Run 'make platform-list'."; \
+		exit 2; \
+	fi; \
+	validate_build_root="$(BUILD_ROOT)/validate"; \
+	debug_build_dir="$$validate_build_root/$${platform}_debug"; \
+	release_build_dir="$$validate_build_root/$${platform}_release"; \
+	$(MAKE) --no-print-directory build APP_PLATFORM=$$platform APP_SKIP_GIT_HOOKS_BOOTSTRAP=1; \
+	$(CMAKE_ENV) $(CMAKE) -S "$(APP_SOURCE_DIR)" -B "$$debug_build_dir" \
+		-DAPP_PLATFORM=$$platform \
+		$(APP_EXTRA_PLATFORM_DIRS_CMAKE_ARG) \
+		-DAPP_CACHE_DIR="$(APP_CACHE_DIR)" \
+		-DCMAKE_TOOLCHAIN_FILE="$(APP_CACHE_DIR)/toolchain/$$platform.cmake" \
+		-DCMAKE_BUILD_TYPE=Debug \
+		-DAPP_PLATFORM_ENABLE_TINYUSB:BOOL=ON \
+		-DAPP_PLATFORM_ENABLE_BTSTACK:BOOL=ON \
+		-DAPP_PLATFORM_ENABLE_TELEMETRY:BOOL=ON \
+		-DAPP_PLATFORM_ENABLE_DIAG_CDC:BOOL=ON \
+		-DAPP_PLATFORM_ENABLE_USB_RESET_INTERFACE:BOOL=ON \
+		-DAPP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT:BOOL=OFF \
+		-C "$(APP_CACHE_DIR)/bootstrap/$$platform.cmake"; \
+	$(CMAKE_ENV) $(CMAKE) --build "$$debug_build_dir" --parallel; \
+	$(CMAKE_ENV) $(CMAKE) -S "$(APP_SOURCE_DIR)" -B "$$release_build_dir" \
+		-DAPP_PLATFORM=$$platform \
+		$(APP_EXTRA_PLATFORM_DIRS_CMAKE_ARG) \
+		-DAPP_CACHE_DIR="$(APP_CACHE_DIR)" \
+		-DCMAKE_TOOLCHAIN_FILE="$(APP_CACHE_DIR)/toolchain/$$platform.cmake" \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DAPP_PLATFORM_ENABLE_TINYUSB:BOOL=ON \
+		-DAPP_PLATFORM_ENABLE_BTSTACK:BOOL=ON \
+		-DAPP_PLATFORM_ENABLE_TELEMETRY:BOOL=OFF \
+		-DAPP_PLATFORM_ENABLE_DIAG_CDC:BOOL=OFF \
+		-DAPP_PLATFORM_ENABLE_USB_RESET_INTERFACE:BOOL=OFF \
+		-DAPP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT:BOOL=OFF \
+		-C "$(APP_CACHE_DIR)/bootstrap/$$platform.cmake"; \
+	$(CMAKE_ENV) $(CMAKE) --build "$$release_build_dir" --parallel
 
 tool-diag-summary:
 	@if [ -z "$(INPUT)" ]; then \

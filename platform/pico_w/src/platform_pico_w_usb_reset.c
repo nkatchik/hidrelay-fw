@@ -1,10 +1,13 @@
 #ifdef APP_HAS_TINYUSB
 
+#include "platform_usb_port.h"
+
+#if defined(APP_HAS_USB_RESET_INTERFACE)
+
 #include "hardware/watchdog.h"
 #include "pico/bootrom.h"
 #include "pico/usb_reset_interface.h"
 #include "platform_pico_w_hw.h"
-#include "platform_usb_port.h"
 #include "tusb.h"
 
 #undef TU_ATTR_WEAK
@@ -189,5 +192,27 @@ usbd_class_driver_t const * usbd_app_driver_get_cb(uint8_t * driver_count) {
 
     return &g_pico_w_resetd_driver;
 }
+
+#else
+
+uint8_t platform_usb_port_extra_interface_count(void) {
+    return 0U;
+}
+
+uint16_t platform_usb_port_extra_descriptor_len(void) {
+    return 0U;
+}
+
+uint16_t platform_usb_port_append_extra_descriptor(
+    uint8_t * buffer,
+    uint16_t offset,
+    uint8_t first_interface_number
+) {
+    (void)buffer;
+    (void)first_interface_number;
+    return offset;
+}
+
+#endif
 
 #endif
