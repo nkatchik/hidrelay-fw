@@ -1,6 +1,7 @@
 #include "platform_pico_w_hw.h"
 
 #include "hardware/regs/io_qspi.h"
+#include "hardware/regs/sio.h"
 #include "hardware/structs/ioqspi.h"
 #include "hardware/structs/sio.h"
 #include "hardware/sync.h"
@@ -10,6 +11,12 @@
 enum {
     PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX = 1U
 };
+
+#if defined(PICO_RP2350) && PICO_RP2350
+#define PLATFORM_PICO_W_BOOTSEL_QSPI_SS_IN_BITS SIO_GPIO_HI_IN_QSPI_CSN_BITS
+#else
+#define PLATFORM_PICO_W_BOOTSEL_QSPI_SS_IN_BITS (1u << PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX)
+#endif
 
 static bool g_pico_w_radio_initialized = false;
 static bool g_pico_w_led_state_valid = false;
@@ -42,7 +49,7 @@ static bool __no_inline_not_in_flash_func(pico_w_hw_bootsel_pressed_impl)(void) 
     for (volatile uint32_t delay = 0U; delay < 128U; delay++) {
     }
 
-    pressed = (sio_hw->gpio_hi_in & (1u << PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX)) == 0U;
+    pressed = (sio_hw->gpio_hi_in & PLATFORM_PICO_W_BOOTSEL_QSPI_SS_IN_BITS) == 0U;
 
     hw_write_masked(
         &ioqspi_hw->io[PLATFORM_PICO_W_BOOTSEL_QSPI_SS_INDEX].ctrl,
