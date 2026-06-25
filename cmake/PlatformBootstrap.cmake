@@ -3,13 +3,16 @@ include_guard(GLOBAL)
 include(CMakeParseArguments)
 include(PlatformSelect)
 
-function(app_load_platform_bootstrap source_dir platform)
-    set(_bootstrap_script "${source_dir}/platform/${platform}/bootstrap.cmake")
+function(app_load_platform_bootstrap source_dir platform extra_platform_dirs)
+    app_get_platform_dir("${source_dir}" "${platform}" "${extra_platform_dirs}" _platform_dir)
+    set(_bootstrap_script "${_platform_dir}/bootstrap.cmake")
 
     if(NOT EXISTS "${_bootstrap_script}")
         message(FATAL_ERROR "Missing platform bootstrap script: ${_bootstrap_script}")
     endif()
 
+    set(APP_PLATFORM_SOURCE_DIR "${source_dir}")
+    set(APP_PLATFORM_DIR "${_platform_dir}")
     include("${_bootstrap_script}")
 
     if(NOT COMMAND platform_bootstrap_dependencies)
@@ -22,7 +25,7 @@ function(app_load_platform_bootstrap source_dir platform)
 endfunction()
 
 function(app_bootstrap_platform_environment)
-    cmake_parse_arguments(ARG "" "SOURCE_DIR;PLATFORM;CACHE_DIR;ALLOW_FETCH;OUT_CACHE_SEED" "" ${ARGN})
+    cmake_parse_arguments(ARG "" "SOURCE_DIR;PLATFORM;CACHE_DIR;ALLOW_FETCH;OUT_CACHE_SEED" "EXTRA_PLATFORM_DIRS" ${ARGN})
 
     if(NOT ARG_SOURCE_DIR)
         message(FATAL_ERROR "app_bootstrap_platform_environment requires SOURCE_DIR")
@@ -36,7 +39,7 @@ function(app_bootstrap_platform_environment)
         message(FATAL_ERROR "app_bootstrap_platform_environment requires CACHE_DIR")
     endif()
 
-    app_load_platform_bootstrap("${ARG_SOURCE_DIR}" "${ARG_PLATFORM}")
+    app_load_platform_bootstrap("${ARG_SOURCE_DIR}" "${ARG_PLATFORM}" "${ARG_EXTRA_PLATFORM_DIRS}")
 
     platform_bootstrap_dependencies(
         SOURCE_DIR "${ARG_SOURCE_DIR}"

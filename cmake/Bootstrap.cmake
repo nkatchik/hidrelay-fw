@@ -2,7 +2,13 @@ if(NOT DEFINED APP_SOURCE_DIR)
     get_filename_component(APP_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 endif()
 
-set(APP_CACHE_DIR "${APP_SOURCE_DIR}/.cache")
+if(NOT DEFINED APP_CACHE_DIR)
+    set(APP_CACHE_DIR "${APP_SOURCE_DIR}/.cache")
+endif()
+
+if(NOT DEFINED APP_EXTRA_PLATFORM_DIRS)
+    set(APP_EXTRA_PLATFORM_DIRS "")
+endif()
 
 file(MAKE_DIRECTORY
     "${APP_CACHE_DIR}"
@@ -19,10 +25,10 @@ include(PlatformSelect)
 include(PlatformBootstrap)
 
 if((NOT DEFINED APP_PLATFORM) OR ("${APP_PLATFORM}" STREQUAL "") OR ("${APP_PLATFORM}" STREQUAL "auto"))
-    app_list_platform("${APP_SOURCE_DIR}" _platforms)
+    app_list_platform("${APP_SOURCE_DIR}" "${APP_EXTRA_PLATFORM_DIRS}" _platforms)
     if(_platforms STREQUAL "")
         message(FATAL_ERROR
-            "No platform targets found under ${APP_SOURCE_DIR}/platform. "
+            "No platform targets found under ${APP_SOURCE_DIR}/platform or APP_EXTRA_PLATFORM_DIRS. "
             "Add at least one platform/<name>/CMakeLists.txt")
     endif()
 
@@ -32,13 +38,14 @@ if((NOT DEFINED APP_PLATFORM) OR ("${APP_PLATFORM}" STREQUAL "") OR ("${APP_PLAT
         "Run with -DAPP_PLATFORM=<target>. Available targets: ${_supported_csv}")
 endif()
 
-app_resolve_platform("${APP_SOURCE_DIR}" "${APP_PLATFORM}" APP_PLATFORM_RESOLVED)
+app_resolve_platform("${APP_SOURCE_DIR}" "${APP_PLATFORM}" "${APP_EXTRA_PLATFORM_DIRS}" APP_PLATFORM_RESOLVED)
 
 message(STATUS "Bootstrapping platform ${APP_PLATFORM_RESOLVED}")
 
 app_bootstrap_platform_environment(
     SOURCE_DIR "${APP_SOURCE_DIR}"
     PLATFORM "${APP_PLATFORM_RESOLVED}"
+    EXTRA_PLATFORM_DIRS "${APP_EXTRA_PLATFORM_DIRS}"
     CACHE_DIR "${APP_CACHE_DIR}"
     ALLOW_FETCH ON
     OUT_CACHE_SEED APP_PLATFORM_CACHE_SEED

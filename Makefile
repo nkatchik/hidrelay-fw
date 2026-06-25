@@ -5,6 +5,7 @@ SHELL := /bin/sh
 
 APP_SOURCE_DIR := $(CURDIR)
 APP_PLATFORM ?=
+APP_EXTRA_PLATFORM_DIRS ?=
 APP_CACHE_DIR := $(APP_SOURCE_DIR)/.cache
 BUILD_ROOT ?= $(APP_SOURCE_DIR)/build
 BUILD_DIR := $(BUILD_ROOT)/$(APP_PLATFORM)
@@ -22,6 +23,11 @@ CMAKE ?= cmake
 HOST_CC ?= gcc
 APP_DEBUG_WIPE_ALL_ON_BOOT ?=
 APP_SKIP_GIT_HOOKS_BOOTSTRAP ?=
+empty :=
+space := $(empty) $(empty)
+APP_EXTRA_PLATFORM_DIRS_CMAKE := $(subst $(space),;,$(strip $(APP_EXTRA_PLATFORM_DIRS)))
+APP_EXTRA_PLATFORM_DIRS_CMAKE_ARG := $(if $(APP_EXTRA_PLATFORM_DIRS),-DAPP_EXTRA_PLATFORM_DIRS="$(APP_EXTRA_PLATFORM_DIRS_CMAKE)",)
+APP_PLATFORM_ROOTS := $(APP_SOURCE_DIR)/platform $(APP_EXTRA_PLATFORM_DIRS)
 
 .PHONY: help platform-list require-platform git-hooks-bootstrap bootstrap configure build release clean distclean sync-compile-commands tool-configure tool-cache-probe tool-diag-capture tool-diag-summary tool-diag-gate tool-diag-alert tool-app-replay test-host ci ci-host ci-diag-smoke ci-platform FORCE
 
@@ -37,6 +43,7 @@ help:
 		'  make release                         - Build release artifacts for discovered platforms' \
 		'  make release-<target>                - Build release artifact for one platform target' \
 		'  platform/<target>/bin/*             - Platform-specific helper scripts (flash/tooling/etc.)' \
+		'  APP_EXTRA_PLATFORM_DIRS="/path/to/platform" - Add platform roots outside this repo' \
 		'  make clean [APP_PLATFORM=<target>]   - Remove target build dir, or all build dirs when omitted' \
 		'  make distclean         - Remove all local build/cache artifacts' \
 		'  make tool-cache-probe  - Build host-side cleanup demonstration tool' \
@@ -49,11 +56,13 @@ help:
 		'  make ci                - Run host checks and platform CI hooks'
 
 platform-list:
-	@for platform_dir in "$(APP_SOURCE_DIR)"/platform/*; do \
-		if [ -d "$$platform_dir" ] && [ -f "$$platform_dir/CMakeLists.txt" ]; then \
-			basename "$$platform_dir"; \
-		fi; \
-	done | LC_ALL=C sort
+	@for platform_root in $(APP_PLATFORM_ROOTS); do \
+		for platform_dir in "$$platform_root"/*; do \
+			if [ -d "$$platform_dir" ] && [ -f "$$platform_dir/CMakeLists.txt" ]; then \
+				basename "$$platform_dir"; \
+			fi; \
+		done; \
+	done | LC_ALL=C sort -u
 
 require-platform:
 	@if [ -z "$(APP_PLATFORM)" ]; then \
@@ -74,11 +83,14 @@ bootstrap: require-platform git-hooks-bootstrap
 	@$(CMAKE) \
 		-DAPP_SOURCE_DIR=$(APP_SOURCE_DIR) \
 		-DAPP_PLATFORM=$(APP_PLATFORM) \
+		-DAPP_CACHE_DIR=$(APP_CACHE_DIR) \
+		$(APP_EXTRA_PLATFORM_DIRS_CMAKE_ARG) \
 		-P $(APP_SOURCE_DIR)/cmake/Bootstrap.cmake
 
 configure: require-platform bootstrap
 	@$(CMAKE_ENV) $(CMAKE) -S $(APP_SOURCE_DIR) -B $(BUILD_DIR) \
 		-DAPP_PLATFORM=$(APP_PLATFORM) \
+		$(APP_EXTRA_PLATFORM_DIRS_CMAKE_ARG) \
 		-DAPP_CACHE_DIR=$(APP_CACHE_DIR) \
 		-DCMAKE_TOOLCHAIN_FILE=$(TOOLCHAIN_FILE) \
 		$(if $(APP_DEBUG_WIPE_ALL_ON_BOOT),-DAPP_PLATFORM_DEBUG_WIPE_ALL_ON_BOOT=$(APP_DEBUG_WIPE_ALL_ON_BOOT),) \
@@ -92,22 +104,31 @@ release:
 	@found=0; \
 	rm -rf "$(BUILD_ROOT)/release"; \
 	mkdir -p "$(BUILD_ROOT)/release"; \
-	for platform_dir in "$(APP_SOURCE_DIR)"/platform/*; do \
-		if [ ! -d "$$platform_dir" ] || [ ! -f "$$platform_dir/CMakeLists.txt" ]; then \
-			continue; \
-		fi; \
-		platform=$$(basename "$$platform_dir"); \
-		found=1; \
-		$(MAKE) --no-print-directory release-$$platform; \
+	for platform_root in $(APP_PLATFORM_ROOTS); do \
+		for platform_dir in "$$platform_root"/*; do \
+			if [ ! -d "$$platform_dir" ] || [ ! -f "$$platform_dir/CMakeLists.txt" ]; then \
+				continue; \
+			fi; \
+			platform=$$(basename "$$platform_dir"); \
+			found=1; \
+			$(MAKE) --no-print-directory release-$$platform; \
+		done; \
 	done; \
 	if [ "$$found" -eq 0 ]; then \
-		echo "No platform targets found under platform/*"; \
+		echo "No platform targets found under platform/* or APP_EXTRA_PLATFORM_DIRS"; \
 		exit 2; \
 	fi
 
 release-%: FORCE
 	@platform="$*"; \
-	if [ ! -f "$(APP_SOURCE_DIR)/platform/$$platform/CMakeLists.txt" ]; then \
+	platform_dir=""; \
+	for platform_root in $(APP_PLATFORM_ROOTS); do \
+		if [ -f "$$platform_root/$$platform/CMakeLists.txt" ]; then \
+			platform_dir="$$platform_root/$$platform"; \
+			break; \
+		fi; \
+	done; \
+	if [ -z "$$platform_dir" ]; then \
 		echo "Unknown release platform '$$platform'. Run 'make platform-list'."; \
 		exit 2; \
 	fi; \
@@ -118,6 +139,7 @@ release-%: FORCE
 	$(MAKE) --no-print-directory bootstrap APP_PLATFORM=$$platform APP_SKIP_GIT_HOOKS_BOOTSTRAP=1; \
 	$(CMAKE_ENV) $(CMAKE) -S "$(APP_SOURCE_DIR)" -B "$$build_dir" \
 		-DAPP_PLATFORM=$$platform \
+		$(APP_EXTRA_PLATFORM_DIRS_CMAKE_ARG) \
 		-DAPP_CACHE_DIR="$(APP_CACHE_DIR)" \
 		-DCMAKE_TOOLCHAIN_FILE="$(APP_CACHE_DIR)/toolchain/$$platform.cmake" \
 		-DCMAKE_BUILD_TYPE=Release \
@@ -220,15 +242,17 @@ ci-diag-smoke:
 
 ci-platform:
 	@found=0; \
-	for hook in "$(APP_SOURCE_DIR)"/platform/*/bin/ci-build; do \
-		if [ ! -f "$$hook" ]; then \
-			continue; \
-		fi; \
-		found=1; \
-		"$$hook"; \
+	for platform_root in $(APP_PLATFORM_ROOTS); do \
+		for hook in "$$platform_root"/*/bin/ci-build; do \
+			if [ ! -f "$$hook" ]; then \
+				continue; \
+			fi; \
+			found=1; \
+			"$$hook"; \
+		done; \
 	done; \
 	if [ "$$found" -eq 0 ]; then \
-		echo "No platform CI hooks found under platform/*/bin/ci-build"; \
+		echo "No platform CI hooks found under platform/*/bin/ci-build or APP_EXTRA_PLATFORM_DIRS"; \
 		exit 2; \
 	fi
 

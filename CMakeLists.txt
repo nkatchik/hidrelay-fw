@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.23)
 
 set(APP_PLATFORM "" CACHE STRING "Target platform folder name (required).")
+set(APP_EXTRA_PLATFORM_DIRS "" CACHE STRING "Extra platform roots to scan, separated by semicolons.")
 set(APP_AUTO_FETCH_DEPS ON CACHE BOOL "Fetch missing platform dependencies during configure.")
 set(APP_CACHE_DIR "${CMAKE_SOURCE_DIR}/.cache" CACHE PATH "Local cache directory for SDK/toolchain artifacts.")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -10,12 +11,14 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(PlatformSelect)
 include(PlatformBootstrap)
 
-app_resolve_platform("${CMAKE_SOURCE_DIR}" "${APP_PLATFORM}" APP_PLATFORM_RESOLVED)
+app_resolve_platform("${CMAKE_SOURCE_DIR}" "${APP_PLATFORM}" "${APP_EXTRA_PLATFORM_DIRS}" APP_PLATFORM_RESOLVED)
 set(APP_PLATFORM "${APP_PLATFORM_RESOLVED}" CACHE STRING "Target platform folder name (required)." FORCE)
+app_get_platform_dir("${CMAKE_SOURCE_DIR}" "${APP_PLATFORM}" "${APP_EXTRA_PLATFORM_DIRS}" APP_PLATFORM_DIR)
 
 app_bootstrap_platform_environment(
     SOURCE_DIR "${CMAKE_SOURCE_DIR}"
     PLATFORM "${APP_PLATFORM}"
+    EXTRA_PLATFORM_DIRS "${APP_EXTRA_PLATFORM_DIRS}"
     CACHE_DIR "${APP_CACHE_DIR}"
     ALLOW_FETCH "${APP_AUTO_FETCH_DEPS}"
 )
@@ -58,4 +61,4 @@ target_include_directories(hidrelay_core
 
 app_target_enable_project_warnings(hidrelay_core)
 
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/platform/${APP_PLATFORM}")
+add_subdirectory("${APP_PLATFORM_DIR}" "${CMAKE_BINARY_DIR}/platform/${APP_PLATFORM}")

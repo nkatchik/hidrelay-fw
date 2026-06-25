@@ -3,6 +3,9 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "${script_dir}/.." && pwd)"
+build_root="${BUILD_ROOT:-${repo_root}/build}"
+app_cache_dir="${APP_CACHE_DIR:-${repo_root}/.cache}"
+extra_platform_dirs="${APP_EXTRA_PLATFORM_DIRS:-}"
 
 if [[ $# -lt 1 ]]; then
     echo "Usage: flash <build-target> [platform-flash-args...]" >&2
@@ -33,24 +36,41 @@ read_cache_value() {
     return 1
 }
 
-build_dir="${repo_root}/build/${selected_build}"
+find_platform_flash_script() {
+    local app_platform="$1"
+    local platform_root
+    local candidate
+
+    for platform_root in "${repo_root}/platform" ${extra_platform_dirs}; do
+        candidate="${platform_root}/${app_platform}/bin/flash"
+        if [[ -x "${candidate}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+build_dir="${build_root}/${selected_build}"
 cache_path="${build_dir}/CMakeCache.txt"
 if [[ ! -d "${build_dir}" ]]; then
-    echo "❌ Build target not found: build/${selected_build}" >&2
+    echo "❌ Build target not found: ${build_dir}" >&2
     exit 1
 fi
 
 app_platform="$(read_cache_value "${cache_path}" APP_PLATFORM || true)"
 if [[ -z "${app_platform}" ]]; then
-    echo "❌ Could not resolve APP_PLATFORM from build/${selected_build}/CMakeCache.txt" >&2
+    echo "❌ Could not resolve APP_PLATFORM from ${cache_path}" >&2
     exit 1
 fi
 
-platform_flash_script="${repo_root}/platform/${app_platform}/bin/flash"
-if [[ ! -x "${platform_flash_script}" ]]; then
-    echo "❌ Missing platform flash script: platform/${app_platform}/bin/flash" >&2
+platform_flash_script="$(find_platform_flash_script "${app_platform}" || true)"
+if [[ -z "${platform_flash_script}" ]]; then
+    echo "❌ Missing platform flash script for ${app_platform}. Check platform/${app_platform}/bin/flash or APP_EXTRA_PLATFORM_DIRS." >&2
     exit 1
 fi
 
-echo "Using build target: build/${selected_build} (platform: ${app_platform})"
-"${platform_flash_script}" "${repo_root}" "${app_platform}" "${build_dir}" "$@"
+echo "Using build target: ${build_dir} (platform: ${app_platform})"
+APP_CACHE_DIR="${app_cache_dir}" BUILD_ROOT="${build_root}" \
+    "${platform_flash_script}" "${repo_root}" "${app_platform}" "${build_dir}" "$@"
