@@ -6,8 +6,10 @@ if [[ $# -gt 3 ]]; then
     exit 2
 fi
 
-repo_root="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)}"
-app_platform="${2:-pico_w}"
+script_dir="$(cd -L -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -L)"
+default_app_platform="$(basename "$(dirname -- "${script_dir}")")"
+repo_root="${1:-$(cd -L -- "${script_dir}/../../.." && pwd -L)}"
+app_platform="${2:-${default_app_platform}}"
 build_dir="${repo_root}/build/${app_platform}"
 
 if [[ $# -ge 3 ]]; then
@@ -35,7 +37,7 @@ if [[ -n "${USER:-}" ]]; then
     mount_roots+=("/media/${USER}" "/run/media/${USER}")
 fi
 
-picotool_wrapper="${repo_root}/platform/pico_w/bin/picotool"
+picotool_wrapper="${repo_root}/platform/${app_platform}/bin/picotool"
 
 find_pico_mount() {
     local root

@@ -6,7 +6,8 @@ list(PREPEND CMAKE_MODULE_PATH "@PICO_W_PLATFORM_CMAKE_MODULE_DIR@")
 list(PREPEND CMAKE_MODULE_PATH "${PICO_SDK_PATH}/cmake")
 
 if(NOT DEFINED PICO_BOARD OR "${PICO_BOARD}" STREQUAL "")
-    set(PICO_BOARD pico_w CACHE STRING "Pico board type for platform/pico_w" FORCE)
+    set(PICO_BOARD "@APP_PLATFORM_PICO_DEFAULT_BOARD@" CACHE STRING
+        "Pico SDK board type for @ARG_PLATFORM@" FORCE)
 endif()
 
 include(pico_utils)

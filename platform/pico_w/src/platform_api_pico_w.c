@@ -3,6 +3,7 @@
 
 #include "hardware/sync.h"
 #include "hardware/watchdog.h"
+#include "pico.h"
 #include "pico/stdlib.h"
 #include "platform_api.h"
 #include "platform_pico_w_hw.h"
@@ -37,8 +38,8 @@ enum {
 
 /* XIP flash window: panic format strings are literals living here, so the
  * recorded pointer is still readable after the watchdog reset. */
-#define PICO_W_FLASH_BASE 0x10000000U
-#define PICO_W_FLASH_LIMIT 0x10200000U
+#define PICO_W_FLASH_BASE XIP_BASE
+#define PICO_W_FLASH_LIMIT (XIP_BASE + PICO_FLASH_SIZE_BYTES)
 
 /* "PAN" tag + class in the low byte (see pico_w_panic). */
 #define PICO_W_PANIC_CODE_BASE 0x50414E00U

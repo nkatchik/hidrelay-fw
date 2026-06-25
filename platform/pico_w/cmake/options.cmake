@@ -13,8 +13,17 @@ if(NOT DEFINED PICOTOOL_FETCH_FROM_GIT_PATH)
         "Shared picotool fetch cache used by Pico SDK projects.")
 endif()
 
-if(NOT DEFINED PICO_BOARD)
-    set(PICO_BOARD pico_w CACHE STRING "Pico board type for platform/pico_w" FORCE)
+if(APP_PLATFORM STREQUAL "pico_2_w")
+    set(APP_PLATFORM_PICO_DEFAULT_BOARD pico2_w)
+elseif(APP_PLATFORM STREQUAL "pico_w")
+    set(APP_PLATFORM_PICO_DEFAULT_BOARD pico_w)
+else()
+    message(FATAL_ERROR "Unsupported Pico-family APP_PLATFORM='${APP_PLATFORM}'")
+endif()
+
+if(NOT DEFINED PICO_BOARD OR "${PICO_BOARD}" STREQUAL "")
+    set(PICO_BOARD "${APP_PLATFORM_PICO_DEFAULT_BOARD}" CACHE STRING
+        "Pico SDK board type for ${APP_PLATFORM}" FORCE)
 endif()
 
 option(APP_PLATFORM_ENABLE_TINYUSB "Link TinyUSB device support through Pico SDK." ON)

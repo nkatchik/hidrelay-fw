@@ -49,7 +49,11 @@ help:
 		'  make ci                - Run host checks and platform CI hooks'
 
 platform-list:
-	@find "$(APP_SOURCE_DIR)/platform" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort
+	@for platform_dir in "$(APP_SOURCE_DIR)"/platform/*; do \
+		if [ -d "$$platform_dir" ] && [ -f "$$platform_dir/CMakeLists.txt" ]; then \
+			basename "$$platform_dir"; \
+		fi; \
+	done | LC_ALL=C sort
 
 require-platform:
 	@if [ -z "$(APP_PLATFORM)" ]; then \

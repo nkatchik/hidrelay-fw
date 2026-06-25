@@ -69,9 +69,7 @@ Current release matrix:
 | Board | Configure parameters | Build tree | Release artifact |
 | --- | --- | --- | --- |
 | Raspberry Pi Pico W | `-DAPP_PLATFORM=pico_w -DPICO_BOARD=pico_w` | `build/release-build/pico_w/` | `build/release/hidrelay-fw-pico-w.uf2` |
-| Raspberry Pi Pico 2 W | `-DAPP_PLATFORM=pico_2_w` once that platform target exists | `build/release-build/pico_2_w/` | `build/release/hidrelay-fw-pico-2-w.uf2` |
-
-The Pico 2 W row documents the intended release asset and build path even though `platform/pico_2_w` is not present yet. It will be included automatically when that platform directory is added.
+| Raspberry Pi Pico 2 W | `-DAPP_PLATFORM=pico_2_w -DPICO_BOARD=pico2_w` | `build/release-build/pico_2_w/` | `build/release/hidrelay-fw-pico-2-w.uf2` |
 
 ## Flashing Release Builds
 
@@ -81,7 +79,7 @@ Use the smallest practical flashing path for each board.
 
 1. Build or download the Pico W / Pico 2 W UF2.
 2. Hold BOOTSEL while plugging the board into USB.
-3. Copy `hidrelay-fw-pico-w.uf2` to the `RPI-RP2` drive.
+3. Copy the matching `hidrelay-fw-pico-w.uf2` or `hidrelay-fw-pico-2-w.uf2` to the `RPI-RP2` drive.
 
 That's it!
 

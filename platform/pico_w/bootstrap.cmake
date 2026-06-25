@@ -11,6 +11,18 @@ set(PICO_W_ARM_GCC_VERSION "13.2.Rel1" CACHE STRING "Pinned Arm GNU embedded too
 set(PICO_W_ARM_GCC_BASE_URL "https://developer.arm.com/-/media/Files/downloads/gnu/${PICO_W_ARM_GCC_VERSION}/binrel"
     CACHE STRING "Base URL for Arm GNU toolchain downloads used by platform/pico_w.")
 
+function(pico_w_default_board_for_platform platform out_board)
+    if(platform STREQUAL "pico_2_w")
+        set(_board pico2_w)
+    elseif(platform STREQUAL "pico_w")
+        set(_board pico_w)
+    else()
+        message(FATAL_ERROR "Unsupported Pico-family platform '${platform}'")
+    endif()
+
+    set(${out_board} "${_board}" PARENT_SCOPE)
+endfunction()
+
 function(pico_w_select_arm_archive host_os host_arch out_archive)
     if(host_os STREQUAL "linux" AND host_arch STREQUAL "x86_64")
         set(_archive "arm-gnu-toolchain-${PICO_W_ARM_GCC_VERSION}-x86_64-arm-none-eabi.tar.xz")
@@ -107,6 +119,7 @@ function(platform_bootstrap_toolchain)
     endif()
 
     set(PICO_W_PLATFORM_CMAKE_MODULE_DIR "${ARG_SOURCE_DIR}/platform/${ARG_PLATFORM}/cmake")
+    pico_w_default_board_for_platform("${ARG_PLATFORM}" APP_PLATFORM_PICO_DEFAULT_BOARD)
 
     set(_generated_toolchain "${_toolchain_dir}/${ARG_PLATFORM}.cmake")
     configure_file("${_template}" "${_generated_toolchain}" @ONLY)
