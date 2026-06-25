@@ -2,9 +2,8 @@
     "inputs": [
         {
             "args": {
-                "command": "find \"${workspaceFolder}/platform\" -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; | LC_ALL=C sort",
+                "command": "for platform_dir in \"${workspaceFolder}\"/platform/*; do if [ -d \"$platform_dir\" ] && [ -f \"$platform_dir/CMakeLists.txt\" ]; then basename \"$platform_dir\"; fi; done | LC_ALL=C sort",
                 "description": "Select target platform",
-                "rememberPrevious": true,
                 "taskId": "appPlatform",
                 "useSingleResult": true
             },
@@ -16,7 +15,6 @@
             "args": {
                 "command": "if [ -d \"${workspaceFolder}/build\" ]; then find \"${workspaceFolder}/build\" -mindepth 1 -maxdepth 1 -type d ! -name tool -exec basename {} \\; | LC_ALL=C sort; fi",
                 "description": "Select built target to flash",
-                "rememberPrevious": true,
                 "taskId": "flashPlatform",
                 "useSingleResult": true
             },
