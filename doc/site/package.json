@@ -1,0 +1,17 @@
+{
+  "name": "hidrelay-fw-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "icons": "node scripts/build-icons.mjs",
+    "predev": "npm run icons",
+    "prebuild": "npm run icons",
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview"
+  },
+  "devDependencies": {
+    "astro": "^7.0.3"
+  }
+}

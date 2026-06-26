@@ -34,7 +34,7 @@ The BOOTSEL/user button controls pairing and reset flows:
 
 BLE and Classic pairing modes are intentionally exclusive.
 
-### Apple Magic Keyboards
+### Apple Magic Keyboard
 
 Classic pairing mode only.
 
@@ -48,7 +48,7 @@ Use `Fn` + `Esc` to toggle the relay-side top-row mode.
 | `Media 5` | Voice Assistant |
 | `Media 6` | Do Not Disturb |
 
-### Apple Magic Trackpads
+### Apple Magic Trackpad
 
 Classic pairing mode only.
 

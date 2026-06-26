@@ -1,0 +1,198 @@
+---
+import '../styles/global.css';
+
+const siteRoot = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+
+const repoUrl = 'https://github.com/nkatchik/hidrelay-fw';
+const releaseUrl = `${repoUrl}/releases/latest`;
+const downloadBase = `${releaseUrl}/download`;
+const canonicalUrl = Astro.site ? new URL(siteRoot, Astro.site).toString() : siteRoot;
+const assetUrl = (file) => `${siteRoot}${file}`;
+const logoImageUrl = Astro.site
+  ? new URL(assetUrl('logo.png'), Astro.site).toString()
+  : assetUrl('logo.png');
+
+const downloads = [
+  {
+    label: '⬇ Pico W firmware',
+    href: `${downloadBase}/hidrelay-fw-pico-w.uf2`
+  },
+  {
+    label: '⬇ Pico 2 W firmware',
+    href: `${downloadBase}/hidrelay-fw-pico-2-w.uf2`
+  }
+];
+
+const docs = [
+  {
+    label: 'Architecture',
+    href: `${repoUrl}/blob/main/doc/architecture.md`
+  },
+  {
+    label: 'Build and release',
+    href: `${repoUrl}/blob/main/doc/build.md`
+  },
+  {
+    label: 'Soak testing',
+    href: `${repoUrl}/blob/main/doc/soak.md`
+  }
+];
+
+const keyboardShortcuts = [
+  ['Fn + Esc', 'Toggle top row between media keys and F1-F12'],
+  ['Eject ⏏', 'Lock Screen'],
+  ['Media 5', 'Voice Assistant'],
+  ['Media 6', 'Do Not Disturb']
+];
+
+const trackpadGestures = [
+  ['Three-finger swipe up', 'Control + Up Arrow', 'Mission Control'],
+  ['Three-finger swipe down', 'Control + Down Arrow', 'Application windows / App Expose'],
+  ['Three-finger swipe left', 'Control + Right Arrow', 'Move right a space'],
+  ['Three-finger swipe right', 'Control + Left Arrow', 'Move left a space'],
+  ['Pinch out', 'Command + =', 'Zoom In in the active app'],
+  ['Pinch in', 'Command + -', 'Zoom Out in the active app']
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Bluetooth-to-USB HID relay firmware." />
+    <meta property="og:title" content="hidrelay-fw" />
+    <meta property="og:description" content="Bluetooth-to-USB HID relay firmware." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={logoImageUrl} />
+    <meta name="theme-color" content="#f6f7f9" />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" type="image/png" sizes="32x32" href={assetUrl('favicon-32x32.png')} />
+    <link rel="icon" type="image/png" sizes="16x16" href={assetUrl('favicon-16x16.png')} />
+    <link rel="apple-touch-icon" sizes="180x180" href={assetUrl('apple-touch-icon.png')} />
+    <link rel="manifest" href={assetUrl('site.webmanifest')} />
+    <title>hidrelay-fw - Bluetooth-to-USB HID relay firmware</title>
+  </head>
+  <body>
+    <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "a5f74359765543169b50a06782a86074"}'></script>
+
+    <header class="site-header">
+      <a class="brand" href={siteRoot}>
+        <img class="brand__mark" src={assetUrl('logo.png')} alt="" width="30" height="30" decoding="async" />
+        <span>hidrelay-fw</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#installation">Installation</a>
+        <a href="#usage">Usage</a>
+        <a href={repoUrl}>GitHub</a>
+      </nav>
+    </header>
+
+    <main class="page">
+      <article class="landing">
+        <header class="landing__header" id="basics">
+          <p class="kicker">Bluetooth-to-USB HID relay firmware</p>
+          <h1>HID Relay</h1>
+          <p class="lede">Open source way to get your own Bluetooth-to-USB HID hub.</p>
+          <p>
+            Pair your Bluetooth keyboards, mice, and trackpads with a standalone USB host.
+          </p>
+          <ul class="feature-list" aria-label="Project basics">
+            <li>Bare-metal firmware with no Linux kernel</li>
+            <li>Pairs with up to 8 Bluetooth accessories</li>
+            <li>Keeps up to 2 devices connected at once</li>
+            <li>Supports Apple Magic Keyboard and Trackpad behavior</li>
+          </ul>
+        </header>
+
+        <section id="installation">
+          <h2>Flashing the device</h2>
+          <h3>Raspberry Pi Pico W / Pico 2 W</h3>
+          <ol>
+            <li>
+              Download <a href={downloads[0].href}>{downloads[0].label}</a> /
+              <a href={downloads[1].href}>{downloads[1].label}</a>.
+            </li>
+            <li>Hold <code>BOOTSEL</code> button while plugging the board into USB.</li>
+            <li>Wait for the <code>RPI-RP2</code> / <code>RP2350</code> drive to appear.</li>
+            <li>Drag the downloaded UF2 onto that drive.</li>
+          </ol>
+          <p>The board will reboot into the firmware. That's it!</p>
+        </section>
+
+        <section id="usage">
+          <h2>Using the device</h2>
+          <p>The <code>BOOTSEL</code> button controls pairing and reset flows:</p>
+          <ul>
+            <li>Hold <b>1 second</b> — enter BLE pairing mode.</li>
+            <li>Hold <b>5 seconds</b> — switch to Classic pairing mode.</li>
+            <li>Hold <b>10 seconds</b> — factory reset.</li>
+          </ul>
+          <p>BLE and Classic pairing modes are intentionally exclusive.</p>
+        </section>
+
+        <section id="apple-magic-keyboard">
+          <h3>Apple Magic Keyboard</h3>
+          <p>Classic pairing mode only.</p>
+          <p>
+            macOS's media/function-key checkbox is not respected through this firmware.
+            Use <code>Fn</code> + <code>Esc</code> to toggle the relay-side top-row mode.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Shortcut</th>
+                  <th>USB host key</th>
+                </tr>
+              </thead>
+              <tbody>
+                {keyboardShortcuts.map(([shortcut, key]) => (
+                  <tr>
+                    <td><code>{shortcut}</code></td>
+                    <td>{key}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="apple-magic-trackpad">
+          <h3>Apple Magic Trackpads</h3>
+          <p>Classic pairing mode only.</p>
+          <p>
+            Magic Trackpad gestures are not passed through to the USB host as native
+            gestures. The firmware interprets trackpad input and does best-effort emulation
+            using ordinary USB mouse and keyboard output.
+          </p>
+          <p>Gesture emulation expects these shortcuts to be enabled or available on macOS:</p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trackpad input</th>
+                  <th>Firmware emits</th>
+                  <th>Expected macOS action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trackpadGestures.map(([input, emits, action]) => (
+                  <tr>
+                    <td>{input}</td>
+                    <td><code>{emits}</code></td>
+                    <td>{action}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </article>
+    </main>
+  </body>
+</html>
