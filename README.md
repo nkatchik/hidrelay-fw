@@ -26,11 +26,11 @@ The board will reboot into the firmware. That's it!
 
 ## Usage
 
-The BOOTSEL/user button controls pairing and reset flows:
+The `BOOTSEL` button controls pairing and reset flows:
 
-- Hold 1 second: enter BLE pairing mode.
-- Keep holding to 5 seconds: switch to Classic pairing mode.
-- Hold 10 seconds: factory reset pairing and Bluetooth security state.
+- Hold **1 second**: enter BLE pairing mode.
+- Hold **3 seconds**: switch to Classic pairing mode.
+- Hold **8 seconds**: factory reset pairing and Bluetooth security state.
 
 BLE and Classic pairing modes are intentionally exclusive.
 

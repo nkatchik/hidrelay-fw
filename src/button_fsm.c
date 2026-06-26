@@ -4,8 +4,8 @@
 
 enum {
     BUTTON_LONG_PRESS_MIN_MS = 1000U,
-    BUTTON_CLASSIC_PAIR_PRESS_MS = 5000U,
-    BUTTON_VERY_LONG_PRESS_MS = 10000U
+    BUTTON_CLASSIC_PAIR_PRESS_MS = 3000U,
+    BUTTON_VERY_LONG_PRESS_MS = 8000U
 };
 
 void button_fsm_init(button_fsm_t * fsm) {

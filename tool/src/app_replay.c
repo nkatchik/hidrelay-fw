@@ -248,16 +248,16 @@ static bool app_replay_test_pair_classic_after_extended_hold(void) {
         return false;
     }
 
-    app_replay_tick(&app, 5999U, true, NULL, &out);
+    app_replay_tick(&app, 3999U, true, NULL, &out);
     if (!app_replay_expect_u32_eq(
             out.pairing_link_type,
             HID_TRANSPORT_BT_LINK_TYPE_LE,
-            "pairing should remain BLE before five-second hold threshold"
+            "pairing should remain BLE before three-second hold threshold"
         )) {
         return false;
     }
 
-    app_replay_tick(&app, 6000U, true, NULL, &out);
+    app_replay_tick(&app, 4000U, true, NULL, &out);
     if (!app_replay_expect_true(out.pairing_active, "pairing should stay active after switch")) {
         return false;
     }
@@ -265,12 +265,12 @@ static bool app_replay_test_pair_classic_after_extended_hold(void) {
     if (!app_replay_expect_u32_eq(
             out.pairing_link_type,
             HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
-            "five-second hold should switch to Classic pairing"
+            "three-second hold should switch to Classic pairing"
         )) {
         return false;
     }
 
-    app_replay_tick(&app, 6500U, false, NULL, &out);
+    app_replay_tick(&app, 4500U, false, NULL, &out);
     return app_replay_expect_u32_eq(
         out.pairing_link_type,
         HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
@@ -304,7 +304,7 @@ static bool app_replay_test_pairing_led_cadence_follows_link_type(void) {
         return false;
     }
 
-    app_replay_tick(&app, 6000U, true, NULL, &out);
+    app_replay_tick(&app, 4000U, true, NULL, &out);
     if (!app_replay_expect_u32_eq(
             out.pairing_link_type,
             HID_TRANSPORT_BT_LINK_TYPE_CLASSIC,
@@ -313,12 +313,12 @@ static bool app_replay_test_pairing_led_cadence_follows_link_type(void) {
         return false;
     }
 
-    app_replay_tick(&app, 6299U, true, NULL, &out);
+    app_replay_tick(&app, 4299U, true, NULL, &out);
     if (!app_replay_expect_true(out.led_on, "Classic pairing blink should stay on before 300ms")) {
         return false;
     }
 
-    app_replay_tick(&app, 6300U, true, NULL, &out);
+    app_replay_tick(&app, 4300U, true, NULL, &out);
     return app_replay_expect_true(!out.led_on, "Classic pairing blink should toggle at 300ms");
 }
 
@@ -1083,7 +1083,16 @@ static bool app_replay_test_remove_all_very_long_press(void) {
         return false;
     }
 
-    app_replay_tick(&app, 11001U, true, NULL, &out);
+    app_replay_tick(&app, 8999U, true, NULL, &out);
+    if (!app_replay_expect_u32_eq(
+            pair_db_count(&app.pair_db),
+            2U,
+            "no reset before eight-second threshold"
+        )) {
+        return false;
+    }
+
+    app_replay_tick(&app, 9000U, true, NULL, &out);
     if (!app_replay_expect_u32_eq(
             pair_db_count(&app.pair_db),
             0U,
@@ -1099,7 +1108,7 @@ static bool app_replay_test_remove_all_very_long_press(void) {
         return false;
     }
 
-    app_replay_tick(&app, 11010U, false, NULL, &out);
+    app_replay_tick(&app, 9010U, false, NULL, &out);
     return app_replay_expect_true(
         out.factory_reset_requested,
         "factory reset reboot should trigger after BOOTSEL release"
@@ -1120,8 +1129,8 @@ static bool app_replay_test_remove_all_waits_across_late_button_release_before_r
     app_init(&app, &initial_pair_db);
 
     app_replay_tick(&app, 1000U, true, NULL, &out);
-    app_replay_tick(&app, 11001U, true, NULL, &out);
-    app_replay_tick(&app, 13610U, true, NULL, &out);
+    app_replay_tick(&app, 9000U, true, NULL, &out);
+    app_replay_tick(&app, 11610U, true, NULL, &out);
     if (!app_replay_expect_true(
             !out.factory_reset_requested,
             "factory reset reboot should keep waiting while BOOTSEL remains held"
@@ -1129,7 +1138,7 @@ static bool app_replay_test_remove_all_waits_across_late_button_release_before_r
         return false;
     }
 
-    app_replay_tick(&app, 13620U, false, NULL, &out);
+    app_replay_tick(&app, 11620U, false, NULL, &out);
     return app_replay_expect_true(
         out.factory_reset_requested,
         "factory reset reboot should trigger after BOOTSEL release"
