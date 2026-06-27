@@ -8,6 +8,8 @@ const siteRoot = import.meta.env.BASE_URL.endsWith('/')
 const repoUrl = 'https://github.com/nkatchik/hidrelay-fw';
 const releaseUrl = `${repoUrl}/releases/latest`;
 const downloadBase = `${releaseUrl}/download`;
+const pico2Url = 'https://www.raspberrypi.com/products/raspberry-pi-pico-2/#buy-now';
+const picoUrl = 'https://www.raspberrypi.com/products/raspberry-pi-pico/#buy-now';
 const canonicalUrl = Astro.site ? new URL(siteRoot, Astro.site).toString() : siteRoot;
 const assetUrl = (file) => `${siteRoot}${file}`;
 const logoImageUrl = Astro.site
@@ -16,11 +18,11 @@ const logoImageUrl = Astro.site
 
 const downloads = [
   {
-    label: '⬇ Pico W firmware',
+    label: 'Pico W',
     href: `${downloadBase}/hidrelay-fw-pico-w.uf2`
   },
   {
-    label: '⬇ Pico 2 W firmware',
+    label: 'Pico 2 W',
     href: `${downloadBase}/hidrelay-fw-pico-2-w.uf2`
   }
 ];
@@ -48,12 +50,12 @@ const keyboardShortcuts = [
 ];
 
 const trackpadGestures = [
-  ['Three-finger swipe up', 'Control + Up Arrow', 'Mission Control'],
-  ['Three-finger swipe down', 'Control + Down Arrow', 'Application windows / App Expose'],
-  ['Three-finger swipe left', 'Control + Right Arrow', 'Move right a space'],
-  ['Three-finger swipe right', 'Control + Left Arrow', 'Move left a space'],
-  ['Pinch out', 'Command + =', 'Zoom In in the active app'],
-  ['Pinch in', 'Command + -', 'Zoom Out in the active app']
+  ['Three-finger swipe up', ['Control', '↑'], 'Mission Control'],
+  ['Three-finger swipe down', ['Control', '↓'], 'Application windows / App Expose'],
+  ['Three-finger swipe left', ['Control', '→'], 'Move right a space'],
+  ['Three-finger swipe right', ['Control', '←'], 'Move left a space'],
+  ['Pinch out', ['Command', '='], 'Zoom In in the active app'],
+  ['Pinch in', ['Command', '-'], 'Zoom Out in the active app']
 ];
 ---
 
@@ -68,13 +70,13 @@ const trackpadGestures = [
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content={logoImageUrl} />
-    <meta name="theme-color" content="#f6f7f9" />
+    <meta name="theme-color" content="#f9f9f9" />
     <link rel="canonical" href={canonicalUrl} />
     <link rel="icon" type="image/png" sizes="32x32" href={assetUrl('favicon-32x32.png')} />
     <link rel="icon" type="image/png" sizes="16x16" href={assetUrl('favicon-16x16.png')} />
     <link rel="apple-touch-icon" sizes="180x180" href={assetUrl('apple-touch-icon.png')} />
     <link rel="manifest" href={assetUrl('site.webmanifest')} />
-    <title>hidrelay-fw - Bluetooth-to-USB HID relay firmware</title>
+    <title>HID Relay - Bluetooth-to-USB HID bridge</title>
   </head>
   <body>
     <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "a5f74359765543169b50a06782a86074"}'></script>
@@ -82,7 +84,7 @@ const trackpadGestures = [
     <header class="site-header">
       <a class="brand" href={siteRoot}>
         <img class="brand__mark" src={assetUrl('logo.png')} alt="" width="30" height="30" decoding="async" />
-        <span>hidrelay-fw</span>
+        <span>HID Relay</span>
       </a>
       <nav class="site-nav" aria-label="Primary navigation">
         <a href="#installation">Installation</a>
@@ -96,7 +98,7 @@ const trackpadGestures = [
         <header class="landing__header" id="basics">
           <p class="kicker">Bluetooth-to-USB HID relay firmware</p>
           <h1>HID Relay</h1>
-          <p class="lede">Open source way to get your own Bluetooth-to-USB HID hub.</p>
+          <p class="lede">Open way to get your own Bluetooth-to-USB HID bridge.</p>
           <p>
             Pair your Bluetooth keyboards, mice, and trackpads with a standalone USB host.
           </p>
@@ -108,31 +110,70 @@ const trackpadGestures = [
           </ul>
         </header>
 
-        <section id="installation">
-          <h2>Flashing the device</h2>
-          <h3>Raspberry Pi Pico W / Pico 2 W</h3>
-          <ol>
-            <li>
-              Download <a href={downloads[0].href}>{downloads[0].label}</a> /
-              <a href={downloads[1].href}>{downloads[1].label}</a>.
-            </li>
-            <li>Hold <code>BOOTSEL</code> button while plugging the board into USB.</li>
-            <li>Wait for the <code>RPI-RP2</code> / <code>RP2350</code> drive to appear.</li>
-            <li>Drag the downloaded UF2 onto that drive.</li>
-          </ol>
-          <p>The board will reboot into the firmware. That's it!</p>
-        </section>
+        <div class="setup-flow">
+          <section id="hardware" class="setup-step">
+            <h2>Get your device</h2>
+            <p>You need a wireless <b>Raspberry Pi Pico</b> board: <a href={picoUrl}>
+                <b>Pico W</b>
+                <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M15 3h6v6"></path>
+                  <path d="M10 14 21 3"></path>
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                </svg>
+              </a> or <a href={pico2Url}>
+                <b>Pico 2 W</b>
+                <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M15 3h6v6"></path>
+                  <path d="M10 14 21 3"></path>
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                </svg>
+              </a>
+            </p>
+            <p>Use the country selector on Raspberry Pi's site to find an approved local reseller.</p>
+          </section>
 
-        <section id="usage">
-          <h2>Using the device</h2>
-          <p>The <code>BOOTSEL</code> button controls pairing and reset flows:</p>
-          <ul>
-            <li>Hold <b>1 second</b> — enter BLE pairing mode.</li>
-            <li>Hold <b>3 seconds</b> — switch to Classic pairing mode.</li>
-            <li>Hold <b>8 seconds</b> — factory reset.</li>
-          </ul>
-          <p>BLE and Classic pairing modes are intentionally exclusive.</p>
-        </section>
+          <section id="installation" class="setup-step">
+            <h2>Flash it</h2>
+            <ol>
+              <li>
+                Download firmware:
+                <span class="setup-actions">
+                  <a href={downloads[0].href}>
+                    <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <path d="m7 10 5 5 5-5"></path>
+                      <path d="M12 15V3"></path>
+                    </svg>
+                    <b>{downloads[0].label}</b>
+                  </a>
+                  <a href={downloads[1].href}>
+                    <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <path d="m7 10 5 5 5-5"></path>
+                      <path d="M12 15V3"></path>
+                    </svg>
+                    <b>{downloads[1].label}</b>
+                  </a>
+                </span>
+              </li>
+              <li>Hold <code>BOOTSEL</code> button while plugging the board into USB.</li>
+              <li>Wait for the <code>RPI-RP2</code> / <code>RP2350</code> drive to appear.</li>
+              <li>Drag the downloaded UF2 file onto that drive.</li>
+            </ol>
+            <p>The board will reboot into the firmware. That's it!</p>
+          </section>
+
+          <section id="usage" class="setup-step">
+            <h2>Use your HID Relay</h2>
+            <p>The <code>BOOTSEL</code> button controls pairing and reset flows:</p>
+            <ul>
+              <li>Hold <b>1 second</b> — enter BLE pairing mode.</li>
+              <li>Hold <b>3 seconds</b> — switch to Classic pairing mode.</li>
+              <li>Hold <b>8 seconds</b> — factory reset.</li>
+            </ul>
+            <p>BLE and Classic pairing modes are intentionally exclusive.</p>
+          </section>
+        </div>
 
         <section id="apple-magic-keyboard">
           <h3>Apple Magic Keyboard</h3>
@@ -183,7 +224,16 @@ const trackpadGestures = [
                 {trackpadGestures.map(([input, emits, action]) => (
                   <tr>
                     <td>{input}</td>
-                    <td><code>{emits}</code></td>
+                    <td>
+                      <span class="key-combo">
+                        {emits.map((key, index) => (
+                          <>
+                            {index > 0 && <span class="key-combo__joiner">+</span>}
+                            <code>{key}</code>
+                          </>
+                        ))}
+                      </span>
+                    </td>
                     <td>{action}</td>
                   </tr>
                 ))}
