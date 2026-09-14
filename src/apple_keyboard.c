@@ -226,9 +226,9 @@ static const apple_keyboard_fn_nav_remap_t * apple_keyboard_fn_nav_remap_for_key
  */
 static const uint8_t k_apple_keyboard_aux_descriptor[] = {
     0x05,
-    0x01, /* Usage Page (Generic Desktop)               */
+    0x0C, /* Usage Page (Consumer)                      */
     0x09,
-    0x06, /* Usage (Keyboard)                           */
+    0x01, /* Usage (Consumer Control)                   */
     0xA1,
     0x01, /* Collection (Application)                   */
     0x85,
