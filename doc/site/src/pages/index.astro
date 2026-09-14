@@ -11,7 +11,7 @@ const downloadBase = `${releaseUrl}/download`;
 const pico2Url = 'https://www.raspberrypi.com/products/raspberry-pi-pico-2/#buy-now';
 const picoUrl = 'https://www.raspberrypi.com/products/raspberry-pi-pico/#buy-now';
 const canonicalUrl = Astro.site ? new URL(siteRoot, Astro.site).toString() : siteRoot;
-const assetUrl = (file) => `${siteRoot}${file}`;
+const assetUrl = (file: string) => `${siteRoot}${file}`;
 const logoImageUrl = Astro.site
   ? new URL(assetUrl('logo.png'), Astro.site).toString()
   : assetUrl('logo.png');
@@ -49,7 +49,7 @@ const keyboardShortcuts = [
   ['Media 6', 'Do Not Disturb']
 ];
 
-const trackpadGestures = [
+const trackpadGestures: [input: string, emits: string[], action: string][] = [
   ['Three-finger swipe up', ['Control', '↑'], 'Mission Control'],
   ['Three-finger swipe down', ['Control', '↓'], 'Application windows / App Expose'],
   ['Three-finger swipe left', ['Control', '→'], 'Move right a space'],
