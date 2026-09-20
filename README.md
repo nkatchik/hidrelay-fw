@@ -44,9 +44,17 @@ Use `Fn` + `Esc` to toggle the relay-side top-row mode.
 | Shortcut | USB host key |
 | --- | --- |
 | `Fn` + `Esc` | Toggle top row between media keys and F1-F12 |
+| `Fn` + `Left` | Home |
+| `Fn` + `Right` | End |
+| `Fn` + `Up` | Page Up |
+| `Fn` + `Down` | Page Down |
+| `Fn` + `Backspace` | Forward Delete |
 | `Eject ⏏` | Lock Screen |
 | `Media 5` | Voice Assistant |
 | `Media 6` | Do Not Disturb |
+
+The navigation mappings emit the same standard HID keys on every USB host.
+Other held modifiers, such as Shift and Control, are preserved.
 
 ### Apple Magic Trackpad
 

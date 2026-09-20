@@ -430,6 +430,11 @@ bool apple_keyboard_process_report(
             fn_nav_physical_held = (uint8_t)(fn_nav_physical_held | nav_remap->latch_bit);
             if (fn_held || ((state->fn_nav_latched & nav_remap->latch_bit) != 0U)) {
                 out_kbd[i] = nav_remap->target_key;
+                /* Fn is consumed by this remap: emit an ordinary navigation
+                 * key, not a navigation key with the Apple Fn flag still set.
+                 * Keep the physical Fn value for other relay-side mappings. */
+                out_kbd[APPLE_KEYBOARD_STATUS_BYTE] =
+                    (uint8_t)(out_kbd[APPLE_KEYBOARD_STATUS_BYTE] & ~APPLE_KEYBOARD_FN_BIT_MASK);
                 state->fn_nav_latched = (uint8_t)(state->fn_nav_latched | nav_remap->latch_bit);
                 continue;
             }

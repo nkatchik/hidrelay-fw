@@ -2200,6 +2200,13 @@ static bool app_replay_apple_keyboard_emit_primary_key(
         )) {
         return false;
     }
+    if (!app_replay_expect_u32_eq(
+            kbd[9],
+            0U,
+            "Fn navigation should consume the Fn flag in the forwarded report"
+        )) {
+        return false;
+    }
 
     *out_key = kbd[3];
     *out_aux_len = aux_len;
@@ -2337,6 +2344,61 @@ static bool app_replay_test_apple_keyboard_fn_navigation_keys(void) {
         }
     }
 
+    return true;
+}
+
+static bool app_replay_test_apple_keyboard_fn_navigation_reports(void) {
+    static const struct {
+        uint8_t input[10];
+        uint8_t expected[10];
+    } steps[] = {
+        /* Standalone Fn is still available to the host. */
+        {{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
+            {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02}},
+        /* All navigation keys, with every modifier and an unrelated key. */
+        {{0x01, 0xFF, 0x00, 0x04, 0x50, 0x4F, 0x52, 0x51, 0x2A, 0xA2},
+            {0x01, 0xFF, 0x00, 0x04, 0x4A, 0x4D, 0x4B, 0x4E, 0x4C, 0xA0}},
+        /* Fn releases first; key slots move but navigation stays latched. */
+        {{0x01, 0xFF, 0x00, 0x2A, 0x51, 0x52, 0x4F, 0x50, 0x04, 0xA0},
+            {0x01, 0xFF, 0x00, 0x4C, 0x4E, 0x4B, 0x4D, 0x4A, 0x04, 0xA0}},
+        {{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+            {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+        /* A fresh physical press without Fn must stay literal. */
+        {{0x01, 0xFF, 0x00, 0x04, 0x50, 0x4F, 0x52, 0x51, 0x2A, 0x00},
+            {0x01, 0xFF, 0x00, 0x04, 0x50, 0x4F, 0x52, 0x51, 0x2A, 0x00}},
+        /* Non-navigation Fn combinations retain their original report. */
+        {{0x01, 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
+            {0x01, 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02}}
+    };
+
+    for (uint8_t mode = 0U; mode < 2U; mode++) {
+        apple_keyboard_state_t state = {0};
+        apple_keyboard_state_init(&state, 0x0267U);
+        state.media_default = (mode != 0U);
+
+        for (size_t step = 0U; step < (sizeof(steps) / sizeof(steps[0])); step++) {
+            uint8_t kbd[10] = {0};
+            uint8_t aux[APPLE_KEYBOARD_AUX_REPORT_LEN] = {0};
+            uint16_t kbd_len = 0U;
+            uint16_t aux_len = 0U;
+
+            if (!apple_keyboard_process_report(
+                    &state,
+                    steps[step].input,
+                    (uint16_t)sizeof(steps[step].input),
+                    kbd,
+                    &kbd_len,
+                    aux,
+                    &aux_len
+                )
+                || (kbd_len != sizeof(steps[step].expected))
+                || (memcmp(kbd, steps[step].expected, sizeof(kbd)) != 0)
+                || (aux_len != 0U)) {
+                (void)fprintf(stderr, "FAIL: Fn navigation report mode=%u step=%zu\n", mode, step);
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -3214,6 +3276,8 @@ int main(void) {
             .fn = app_replay_test_hid_device_map_fn_esc_toggle},
         {.name = "apple_keyboard_fn_navigation_keys",
             .fn = app_replay_test_apple_keyboard_fn_navigation_keys},
+        {.name = "apple_keyboard_fn_navigation_reports",
+            .fn = app_replay_test_apple_keyboard_fn_navigation_reports},
         {.name = "trackpad_recognition", .fn = app_replay_test_trackpad_recognition},
         {.name = "trackpad_pointer_motion", .fn = app_replay_test_trackpad_pointer_motion},
         {.name = "trackpad_two_finger_scroll", .fn = app_replay_test_trackpad_two_finger_scroll},

@@ -73,7 +73,8 @@ void apple_keyboard_state_init(
  * already stripped of any Bluetooth transaction header).
  *
  * On true: *out_kbd (length *out_kbd_len) is the keyboard report to forward
- * (top-row keys removed when remapped, Fn bit preserved); if *out_aux_len > 0,
+ * (top-row keys removed when remapped, Fn bit consumed for navigation remaps
+ * and otherwise preserved); if *out_aux_len > 0,
  * *out_aux (length *out_aux_len) is an aux report to forward as well (emitted
  * only when the aux state changed this cycle, covering both press and release).
  *
