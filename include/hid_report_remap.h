@@ -12,6 +12,13 @@
 
 uint8_t hid_report_remap_profile_from_policy(const hid_report_policy_decision_t * decision);
 
+/*
+ * When the USB host is in Boot Protocol (BIOS / pre-OS), force a boot
+ * keyboard/mouse remap profile from the descriptor usage role even if the
+ * Bluetooth peer is still in Report Protocol.
+ */
+uint8_t hid_report_remap_profile_for_host_boot(uint8_t usage_role);
+
 bool hid_report_remap_bt_to_usb(
     uint8_t profile,
     const uint8_t * report,

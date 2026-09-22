@@ -3845,12 +3845,15 @@ void transport_stack_ingest_usb_report(
     const uint8_t * report,
     uint16_t report_len
 ) {
+    const uint8_t host_protocol_mode = usb_runtime_hid_protocol_mode(interface_number);
+
     transport_stack_lock();
     (void)hid_transport_runtime_ingest_usb_report(
         &g_transport_runtime,
         interface_number,
         report,
         report_len,
+        host_protocol_mode,
         transport_stack_runtime_report_descriptor,
         NULL
     );
@@ -3864,12 +3867,14 @@ static bool transport_stack_send_usb_report_locked(
 ) {
     uint8_t remapped_report[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
     uint16_t remapped_report_len = 0U;
+    const uint8_t host_protocol_mode = usb_runtime_hid_protocol_mode(interface_number);
 
     if (!hid_transport_runtime_remap_bt_to_usb(
             &g_transport_runtime,
             interface_number,
             report,
             report_len,
+            host_protocol_mode,
             transport_stack_runtime_report_descriptor,
             NULL,
             remapped_report,

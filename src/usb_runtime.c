@@ -310,6 +310,23 @@ bool usb_runtime_send_in_report(
 #endif
 }
 
+uint8_t usb_runtime_hid_protocol_mode(uint8_t interface_number) {
+#ifdef APP_HAS_TINYUSB
+    if (!g_usb_runtime_initialized || !tud_mounted()) {
+        return HID_TRANSPORT_PROTOCOL_REPORT;
+    }
+
+    if (tud_hid_n_get_protocol(interface_number) == HID_PROTOCOL_BOOT) {
+        return HID_TRANSPORT_PROTOCOL_BOOT;
+    }
+
+    return HID_TRANSPORT_PROTOCOL_REPORT;
+#else
+    (void)interface_number;
+    return HID_TRANSPORT_PROTOCOL_REPORT;
+#endif
+}
+
 void usb_runtime_request_reenumeration(void) {
 #ifdef APP_HAS_TINYUSB
     if (g_usb_runtime_reenum_pending) {

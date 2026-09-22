@@ -211,9 +211,10 @@ static const uint8_t * hidrelay_fallback_report_descriptor(
     return g_hid_report_desc_generic;
 }
 
-static uint8_t const * hidrelay_report_descriptor_for_interface(
+static uint8_t const * hidrelay_report_descriptor_for_interface_decision(
     uint8_t instance,
-    uint16_t * out_len
+    uint16_t * out_len,
+    hid_report_policy_decision_t * out_decision
 ) {
     hid_report_policy_decision_t decision = {0};
     uint8_t protocol_mode = HID_TRANSPORT_PROTOCOL_UNKNOWN;
@@ -229,11 +230,59 @@ static uint8_t const * hidrelay_report_descriptor_for_interface(
     protocol_mode = transport_stack_usb_protocol_mode(instance);
     hid_report_policy_decide(descriptor, *effective_len, protocol_mode, &decision);
 
+    if (out_decision != NULL) {
+        *out_decision = decision;
+    }
+
     if (decision.source == HID_REPORT_DESCRIPTOR_SOURCE_NATIVE) {
         return descriptor;
     }
 
     return hidrelay_fallback_report_descriptor(decision.source, effective_len);
+}
+
+static uint8_t const * hidrelay_report_descriptor_for_interface(
+    uint8_t instance,
+    uint16_t * out_len
+) {
+    return hidrelay_report_descriptor_for_interface_decision(instance, out_len, NULL);
+}
+
+static void hidrelay_usb_hid_boot_itf_fields(
+    uint8_t usage_role,
+    uint8_t * out_subclass,
+    uint8_t * out_protocol
+) {
+    if (out_subclass != NULL) {
+        *out_subclass = 0U;
+    }
+    if (out_protocol != NULL) {
+        *out_protocol = HID_ITF_PROTOCOL_NONE;
+    }
+
+    /*
+     * BIOS and other pre-OS USB stacks typically only accept Boot Interface
+     * subclass keyboards/mice. Advertise that for keyboard/mouse roles so the
+     * host can use SET_PROTOCOL(Boot); OS hosts switch back to Report Protocol.
+     */
+    if (usage_role == HID_REPORT_POLICY_ROLE_KEYBOARD) {
+        if (out_subclass != NULL) {
+            *out_subclass = HID_SUBCLASS_BOOT;
+        }
+        if (out_protocol != NULL) {
+            *out_protocol = HID_ITF_PROTOCOL_KEYBOARD;
+        }
+        return;
+    }
+
+    if (usage_role == HID_REPORT_POLICY_ROLE_MOUSE) {
+        if (out_subclass != NULL) {
+            *out_subclass = HID_SUBCLASS_BOOT;
+        }
+        if (out_protocol != NULL) {
+            *out_protocol = HID_ITF_PROTOCOL_MOUSE;
+        }
+    }
 }
 
 static void hidrelay_descriptor_put_u16(
@@ -389,8 +438,12 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
         const uint8_t ep_out = (uint8_t)(HIDRELAY_HID_EP_OUT + index);
         const uint8_t ep_in = (uint8_t)(HIDRELAY_HID_EP_IN + index);
         uint16_t report_desc_len = 0U;
+        hid_report_policy_decision_t decision = {0};
+        uint8_t hid_subclass = 0U;
+        uint8_t hid_protocol = HID_ITF_PROTOCOL_NONE;
 
-        (void)hidrelay_report_descriptor_for_interface(index, &report_desc_len);
+        (void)hidrelay_report_descriptor_for_interface_decision(index, &report_desc_len, &decision);
+        hidrelay_usb_hid_boot_itf_fields(decision.usage_role, &hid_subclass, &hid_protocol);
 
         g_config_desc[offset++] = 9U;
         g_config_desc[offset++] = TUSB_DESC_INTERFACE;
@@ -398,8 +451,8 @@ static uint16_t hidrelay_build_config_descriptor(uint8_t interface_count) {
         g_config_desc[offset++] = 0U;
         g_config_desc[offset++] = 2U;
         g_config_desc[offset++] = TUSB_CLASS_HID;
-        g_config_desc[offset++] = 0U;
-        g_config_desc[offset++] = HID_ITF_PROTOCOL_NONE;
+        g_config_desc[offset++] = hid_subclass;
+        g_config_desc[offset++] = hid_protocol;
         g_config_desc[offset++] = 0U;
 
         g_config_desc[offset++] = 9U;

@@ -23,6 +23,12 @@ bool usb_runtime_send_in_report(
     const uint8_t * report,
     uint16_t report_len
 );
+/*
+ * USB host HID protocol for one TinyUSB HID interface instance.
+ * Returns HID_TRANSPORT_PROTOCOL_BOOT or HID_TRANSPORT_PROTOCOL_REPORT.
+ * Without TinyUSB (host tests), defaults to Report Protocol.
+ */
+uint8_t usb_runtime_hid_protocol_mode(uint8_t interface_number);
 void usb_runtime_request_reenumeration(void);
 bool usb_runtime_diag_write(
     const uint8_t * data,

@@ -10,6 +10,7 @@ The firmware is built like a dedicated appliance, not a small Linux computer. Th
 - Thin platform glue instead of a broad HAL: each board owns its SDK, controller, USB, flash, and reset details under `platform/`, while app behavior stays shared and host-testable.
 - Exclusive BLE and Classic pairing modes: the user flow is slightly stricter, but discovery, security, reconnect hints, and failure handling stay unambiguous.
 - Dynamic USB HID topology instead of one generic interface: hosts see descriptors closer to the paired devices, at the cost of descriptor policy, remapping, and controlled USB re-enumeration.
+- Boot Protocol on keyboard/mouse USB interfaces: BIOS and other pre-OS hosts can consume remapped boot reports while Bluetooth peers remain in Report Protocol (required for accessories such as Apple Magic Keyboard that drop the link on `SET_PROTOCOL`).
 - Small flash-backed state instead of a filesystem: pair records and reconnect hints are explicit, checksummed data, which keeps wear behavior and factory reset semantics predictable.
 - Optional diagnostics instead of always-on observability: debug builds can expose telemetry and CDC diagnostics, while release builds keep that overhead and extra USB surface off.
 

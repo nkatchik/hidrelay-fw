@@ -12,6 +12,7 @@ Public adoption helps the project.
 - Bare-metal firmware: no Linux kernel, userspace services, init system, or device tree in the runtime path.
 - Bluetooth and USB are driven directly from the firmware event loop.
 - Independent support for Apple Magic accessories (Classic pairing only).
+- Keyboard and mouse interfaces advertise USB HID Boot Protocol so BIOS / pre-OS hosts can use a paired Bluetooth keyboard without onboard Bluetooth. OS hosts still switch to Report Protocol. Classic connections stay in Report Protocol (Apple Magic Keyboard rejects `SET_PROTOCOL`).
 
 ## Installation
 

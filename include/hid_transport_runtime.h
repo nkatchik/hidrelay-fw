@@ -25,11 +25,14 @@ typedef struct {
     uint32_t usb_descriptor_generation;
     hid_transport_usb_interface_plan_t usb_interface_plan[HID_TRANSPORT_MAX_INTERFACE];
     /*
-     * Cached remap profile per interface. The policy decision behind it is a
-     * full report-descriptor parse; its inputs (descriptor bytes, protocol
-     * mode) only change through set_usb_plan, which invalidates this cache.
+     * Cached remap profile / usage role per interface. The policy decision
+     * behind them is a full report-descriptor parse; its inputs (descriptor
+     * bytes, Bluetooth protocol mode) only change through set_usb_plan, which
+     * invalidates this cache. USB host Boot vs Report is applied at remap
+     * time from usb_runtime_hid_protocol_mode() and does not use this cache.
      */
     uint8_t remap_profile[HID_TRANSPORT_MAX_INTERFACE];
+    uint8_t remap_usage_role[HID_TRANSPORT_MAX_INTERFACE];
     bool remap_profile_valid[HID_TRANSPORT_MAX_INTERFACE];
     hid_transport_event_t event_queue[HID_TRANSPORT_RUNTIME_EVENT_QUEUE_SIZE];
     uint8_t event_queue_head;
@@ -76,6 +79,7 @@ bool hid_transport_runtime_ingest_usb_report(
     uint8_t interface_number,
     const uint8_t * report,
     uint16_t report_len,
+    uint8_t host_protocol_mode,
     hid_transport_runtime_descriptor_fn_t descriptor_fn,
     void * descriptor_context
 );
@@ -84,6 +88,7 @@ bool hid_transport_runtime_remap_bt_to_usb(
     uint8_t interface_number,
     const uint8_t * report,
     uint16_t report_len,
+    uint8_t host_protocol_mode,
     hid_transport_runtime_descriptor_fn_t descriptor_fn,
     void * descriptor_context,
     uint8_t * out_report,

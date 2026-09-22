@@ -51,7 +51,13 @@ static bool hid_report_remap_bt_to_usb_boot(
         return true;
     }
 
-    if (report_len == (uint16_t)(payload_len + 1U)) {
+    /*
+     * Report Protocol peers (and Apple Magic Keyboard) prefix a report ID and
+     * may append status bytes after the boot payload. BIOS Boot Protocol wants
+     * only the fixed boot fields, so take payload_len bytes after the ID when
+     * the report is long enough.
+     */
+    if (report_len >= (uint16_t)(payload_len + 1U)) {
         (void)memcpy(out_report, &report[1], payload_len);
         *out_report_len = payload_len;
         return true;
@@ -146,6 +152,18 @@ uint8_t hid_report_remap_profile_from_policy(const hid_report_policy_decision_t 
     }
 
     if (decision->source == HID_REPORT_DESCRIPTOR_SOURCE_FALLBACK_BOOT_MOUSE) {
+        return HID_REPORT_REMAP_PROFILE_BOOT_MOUSE;
+    }
+
+    return HID_REPORT_REMAP_PROFILE_NONE;
+}
+
+uint8_t hid_report_remap_profile_for_host_boot(uint8_t usage_role) {
+    if (usage_role == HID_REPORT_POLICY_ROLE_KEYBOARD) {
+        return HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD;
+    }
+
+    if (usage_role == HID_REPORT_POLICY_ROLE_MOUSE) {
         return HID_REPORT_REMAP_PROFILE_BOOT_MOUSE;
     }
 

@@ -20,6 +20,7 @@ static bool hid_transport_runtime_device_id_equal(
 static uint8_t hid_transport_runtime_report_remap_profile(
     hid_transport_runtime_t * runtime,
     uint8_t interface_number,
+    uint8_t host_protocol_mode,
     hid_transport_runtime_descriptor_fn_t descriptor_fn,
     void * descriptor_context
 ) {
@@ -28,30 +29,43 @@ static uint8_t hid_transport_runtime_report_remap_profile(
     uint8_t protocol_mode = HID_TRANSPORT_PROTOCOL_UNKNOWN;
     hid_report_policy_decision_t decision = {0};
     uint8_t profile = 0U;
+    uint8_t usage_role = HID_REPORT_POLICY_ROLE_UNKNOWN;
     const bool cacheable = (runtime != NULL) && (interface_number < HID_TRANSPORT_MAX_INTERFACE);
 
     /*
      * The policy decision below re-parses the full report descriptor (and the
      * descriptor callback may rebuild it); doing that per relayed report
      * dominates the per-report cost. Serve the cached profile; set_usb_plan
-     * invalidates it whenever the descriptor or protocol mode can change.
+     * invalidates it whenever the descriptor or Bluetooth protocol mode can
+     * change. USB host Boot vs Report is layered on afterwards.
      */
     if (cacheable && runtime->remap_profile_valid[interface_number]) {
-        return runtime->remap_profile[interface_number];
+        profile = runtime->remap_profile[interface_number];
+        usage_role = runtime->remap_usage_role[interface_number];
+    } else {
+        protocol_mode = hid_transport_runtime_usb_protocol_mode(runtime, interface_number);
+
+        if (descriptor_fn != NULL) {
+            descriptor = descriptor_fn(interface_number, &descriptor_len, descriptor_context);
+        }
+
+        hid_report_policy_decide(descriptor, descriptor_len, protocol_mode, &decision);
+        profile = hid_report_remap_profile_from_policy(&decision);
+        usage_role = decision.usage_role;
+
+        if (cacheable) {
+            runtime->remap_profile[interface_number] = profile;
+            runtime->remap_usage_role[interface_number] = usage_role;
+            runtime->remap_profile_valid[interface_number] = true;
+        }
     }
 
-    protocol_mode = hid_transport_runtime_usb_protocol_mode(runtime, interface_number);
+    if (host_protocol_mode == HID_TRANSPORT_PROTOCOL_BOOT) {
+        const uint8_t host_boot_profile = hid_report_remap_profile_for_host_boot(usage_role);
 
-    if (descriptor_fn != NULL) {
-        descriptor = descriptor_fn(interface_number, &descriptor_len, descriptor_context);
-    }
-
-    hid_report_policy_decide(descriptor, descriptor_len, protocol_mode, &decision);
-    profile = hid_report_remap_profile_from_policy(&decision);
-
-    if (cacheable) {
-        runtime->remap_profile[interface_number] = profile;
-        runtime->remap_profile_valid[interface_number] = true;
+        if (host_boot_profile != HID_REPORT_REMAP_PROFILE_NONE) {
+            return host_boot_profile;
+        }
     }
 
     return profile;
@@ -245,6 +259,7 @@ bool hid_transport_runtime_ingest_usb_report(
     uint8_t interface_number,
     const uint8_t * report,
     uint16_t report_len,
+    uint8_t host_protocol_mode,
     hid_transport_runtime_descriptor_fn_t descriptor_fn,
     void * descriptor_context
 ) {
@@ -254,6 +269,7 @@ bool hid_transport_runtime_ingest_usb_report(
     const uint8_t remap_profile = hid_transport_runtime_report_remap_profile(
         runtime,
         interface_number,
+        host_protocol_mode,
         descriptor_fn,
         descriptor_context
     );
@@ -287,6 +303,7 @@ bool hid_transport_runtime_remap_bt_to_usb(
     uint8_t interface_number,
     const uint8_t * report,
     uint16_t report_len,
+    uint8_t host_protocol_mode,
     hid_transport_runtime_descriptor_fn_t descriptor_fn,
     void * descriptor_context,
     uint8_t * out_report,
@@ -295,6 +312,7 @@ bool hid_transport_runtime_remap_bt_to_usb(
     const uint8_t remap_profile = hid_transport_runtime_report_remap_profile(
         runtime,
         interface_number,
+        host_protocol_mode,
         descriptor_fn,
         descriptor_context
     );

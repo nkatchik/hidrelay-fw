@@ -7,6 +7,9 @@
 #include "apple_keyboard.h"
 #include "apple_trackpad.h"
 #include "hid_device_map.h"
+#include "hid_report_policy.h"
+#include "hid_report_remap.h"
+#include "hid_transport.h"
 #include "hid_transport_runtime.h"
 
 typedef bool (*app_replay_test_fn_t)(void);
@@ -3205,6 +3208,241 @@ static bool app_replay_test_trackpad_descriptor_augment(void) {
     );
 }
 
+static const uint8_t g_app_replay_boot_keyboard_desc[] = {
+    0x05U,
+    0x01U,
+    0x09U,
+    0x06U,
+    0xA1U,
+    0x01U,
+    0x05U,
+    0x07U,
+    0x19U,
+    0xE0U,
+    0x29U,
+    0xE7U,
+    0x15U,
+    0x00U,
+    0x25U,
+    0x01U,
+    0x75U,
+    0x01U,
+    0x95U,
+    0x08U,
+    0x81U,
+    0x02U,
+    0x95U,
+    0x01U,
+    0x75U,
+    0x08U,
+    0x81U,
+    0x01U,
+    0x95U,
+    0x06U,
+    0x75U,
+    0x08U,
+    0x15U,
+    0x00U,
+    0x25U,
+    0x65U,
+    0x05U,
+    0x07U,
+    0x19U,
+    0x00U,
+    0x29U,
+    0x65U,
+    0x81U,
+    0x00U,
+    0xC0U,
+};
+
+static const uint8_t * app_replay_boot_keyboard_descriptor(
+    uint8_t interface_number,
+    uint16_t * out_len,
+    void * context
+) {
+    (void)interface_number;
+    (void)context;
+    if (out_len != NULL) {
+        *out_len = (uint16_t)sizeof(g_app_replay_boot_keyboard_desc);
+    }
+    return g_app_replay_boot_keyboard_desc;
+}
+
+static bool app_replay_test_host_boot_remap_strips_report_id(void) {
+    const uint8_t bt_keyboard_report[] = {
+        0x01U,
+        0x02U,
+        0x00U,
+        0x04U,
+        0x00U,
+        0x00U,
+        0x00U,
+        0x00U,
+        0x00U,
+        0x02U,
+    };
+    uint8_t usb_report[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+    uint16_t usb_report_len = 0U;
+
+    if (!app_replay_expect_u32_eq(
+            hid_report_remap_profile_for_host_boot(HID_REPORT_POLICY_ROLE_KEYBOARD),
+            HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD,
+            "keyboard usage should force boot keyboard profile"
+        )) {
+        return false;
+    }
+
+    if (!app_replay_expect_u32_eq(
+            hid_report_remap_profile_for_host_boot(HID_REPORT_POLICY_ROLE_MOUSE),
+            HID_REPORT_REMAP_PROFILE_BOOT_MOUSE,
+            "mouse usage should force boot mouse profile"
+        )) {
+        return false;
+    }
+
+    if (!hid_report_remap_bt_to_usb(
+            HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD,
+            bt_keyboard_report,
+            (uint16_t)sizeof(bt_keyboard_report),
+            usb_report,
+            &usb_report_len
+        )) {
+        return app_replay_expect_true(false, "Apple-style keyboard report should remap for BIOS");
+    }
+
+    if (!app_replay_expect_u32_eq(usb_report_len, 8U, "BIOS keyboard report must be 8 bytes")) {
+        return false;
+    }
+
+    if (!app_replay_expect_true(
+            (usb_report[0] == 0x02U) && (usb_report[2] == 0x04U) && (usb_report[7] == 0x00U),
+            "BIOS remap should keep modifiers/keys and drop report ID + status byte"
+        )) {
+        return false;
+    }
+
+    {
+        const uint8_t bt_mouse_report[] = {0x01U, 0x01U, 0x05U, 0xFBU};
+        uint8_t mouse_usb[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+        uint16_t mouse_len = 0U;
+
+        if (!hid_report_remap_bt_to_usb(
+                HID_REPORT_REMAP_PROFILE_BOOT_MOUSE,
+                bt_mouse_report,
+                (uint16_t)sizeof(bt_mouse_report),
+                mouse_usb,
+                &mouse_len
+            )) {
+            return app_replay_expect_true(false, "mouse report with ID should remap for BIOS");
+        }
+
+        if (!app_replay_expect_u32_eq(mouse_len, 3U, "BIOS mouse report must be 3 bytes")) {
+            return false;
+        }
+
+        if (!app_replay_expect_true(
+                (mouse_usb[0] == 0x01U) && (mouse_usb[1] == 0x05U) && (mouse_usb[2] == 0xFBU),
+                "BIOS mouse remap should strip report ID"
+            )) {
+            return false;
+        }
+    }
+
+    {
+        const uint8_t usb_led_report[] = {0x02U};
+        uint8_t bt_led[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+        uint16_t bt_led_len = 0U;
+
+        if (!hid_report_remap_usb_to_bt(
+                HID_REPORT_REMAP_PROFILE_BOOT_KEYBOARD,
+                HID_TRANSPORT_PROTOCOL_REPORT,
+                usb_led_report,
+                (uint16_t)sizeof(usb_led_report),
+                bt_led,
+                &bt_led_len
+            )) {
+            return app_replay_expect_true(
+                false,
+                "BIOS LED output should restore a report ID for Report Protocol peers"
+            );
+        }
+
+        if (!app_replay_expect_u32_eq(bt_led_len, 2U, "restored LED report should be ID + payload")) {
+            return false;
+        }
+
+        if (!app_replay_expect_true(
+                (bt_led[0] == 0x01U) && (bt_led[1] == 0x02U),
+                "restored LED report should use boot keyboard report ID 1"
+            )) {
+            return false;
+        }
+    }
+
+    {
+        hid_transport_runtime_t runtime;
+        hid_transport_usb_interface_plan_t plan = {0};
+        uint8_t usb_report[HID_TRANSPORT_REPORT_MAX_LEN] = {0};
+        uint16_t usb_report_len = 0U;
+        const uint8_t bt_keyboard_report[] = {
+            0x01U,
+            0x00U,
+            0x00U,
+            0x04U,
+            0x00U,
+            0x00U,
+            0x00U,
+            0x00U,
+            0x00U,
+            0x00U,
+        };
+
+        hid_transport_runtime_init(&runtime);
+        plan.hid_cid = 1U;
+        plan.bt_link_type = HID_TRANSPORT_BT_LINK_TYPE_CLASSIC;
+        plan.protocol_mode = HID_TRANSPORT_PROTOCOL_REPORT;
+        plan.report_descriptor_len = (uint16_t)sizeof(g_app_replay_boot_keyboard_desc);
+        if (!hid_transport_runtime_set_usb_plan(&runtime, 1U, 1U, &plan, NULL)) {
+            return app_replay_expect_true(false, "USB plan should apply");
+        }
+
+        if (!hid_transport_runtime_remap_bt_to_usb(
+                &runtime,
+                0U,
+                bt_keyboard_report,
+                (uint16_t)sizeof(bt_keyboard_report),
+                HID_TRANSPORT_PROTOCOL_BOOT,
+                app_replay_boot_keyboard_descriptor,
+                NULL,
+                usb_report,
+                &usb_report_len
+            )) {
+            return app_replay_expect_true(
+                false,
+                "host Boot Protocol should force boot keyboard remap over Report peers"
+            );
+        }
+
+        if (!app_replay_expect_u32_eq(
+                usb_report_len,
+                8U,
+                "runtime host-boot remap should emit an 8-byte keyboard report"
+            )) {
+            return false;
+        }
+
+        if (!app_replay_expect_true(
+                usb_report[2] == 0x04U,
+                "runtime host-boot remap should preserve the pressed key"
+            )) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 int main(void) {
     static const app_replay_test_case_t test_cases[] = {
         {.name = "led_startup_cue_short", .fn = app_replay_test_led_startup_cue_short},
@@ -3294,6 +3532,8 @@ int main(void) {
         {.name = "trackpad_pinch_zoom_chords", .fn = app_replay_test_trackpad_pinch_zoom_chords},
         {.name = "trackpad_three_finger_swipes",
             .fn = app_replay_test_trackpad_three_finger_swipes},
+        {.name = "host_boot_remap_strips_report_id",
+            .fn = app_replay_test_host_boot_remap_strips_report_id},
     };
     const size_t test_count = sizeof(test_cases) / sizeof(test_cases[0]);
     size_t index = 0U;
